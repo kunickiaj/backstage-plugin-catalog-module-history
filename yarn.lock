@@ -7655,6 +7655,8 @@ __metadata:
     pg: "npm:^8.20.0"
     prettier: "npm:^3.3.3"
     typescript: "npm:~5.8.0"
+  bin:
+    reconcile-catalog-history: ./bin/reconcile-catalog-history.js
   languageName: unknown
   linkType: soft
 

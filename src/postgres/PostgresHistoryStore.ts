@@ -124,6 +124,8 @@ export class PostgresHistoryStore implements HistoryStore {
   }
 
   async loadAllCurrentEtags(): Promise<Map<string, CurrentEtag>> {
+    // id DESC is a deterministic tie-breaker on changed_at; see the comment
+    // in loadCurrentEtags for the full rationale.
     const rows = await this.db
       .with(
         'latest',
@@ -131,7 +133,8 @@ export class PostgresHistoryStore implements HistoryStore {
           .select('entity_ref', 'op', 'etag', 'provider')
           .distinctOn('entity_ref')
           .orderBy('entity_ref')
-          .orderBy('changed_at', 'desc'),
+          .orderBy('changed_at', 'desc')
+          .orderBy('id', 'desc'),
       )
       .from('latest')
       .where('op', '!=', 'delete')
