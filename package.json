@@ -30,6 +30,7 @@
     "node": "22 || 24"
   },
   "packageManager": "yarn@4.5.0",
+  "prettier": "@backstage/cli/config/prettier.json",
   "scripts": {
     "build": "backstage-cli package build",
     "clean": "backstage-cli package clean",
