@@ -98,4 +98,53 @@ describe('catalogModuleHistory', () => {
       .first();
     expect(entityTable).toBeDefined();
   });
+
+  it('skips schema bootstrap when catalog.history.enabled=false', async () => {
+    const catalog = makeFakeCatalogService([]);
+
+    await startTestBackend({
+      features: [
+        catalogModuleHistory,
+        fakeCatalogServiceFactory(catalog),
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: {
+            catalog: { history: { enabled: false } },
+          },
+        }),
+      ],
+    });
+
+    const cycleTable = await db('information_schema.tables')
+      .where({ table_name: 'catalog_history_cycles' })
+      .first();
+    expect(cycleTable).toBeUndefined();
+  });
+
+  it('still bootstraps the schema when the reconciler is disabled', async () => {
+    const catalog = makeFakeCatalogService([]);
+
+    await startTestBackend({
+      features: [
+        catalogModuleHistory,
+        fakeCatalogServiceFactory(catalog),
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: {
+            catalog: {
+              history: {
+                enabled: true,
+                reconciler: { enabled: false },
+              },
+            },
+          },
+        }),
+      ],
+    });
+
+    const cycleTable = await db('information_schema.tables')
+      .where({ table_name: 'catalog_history_cycles' })
+      .first();
+    expect(cycleTable).toBeDefined();
+  });
 });
