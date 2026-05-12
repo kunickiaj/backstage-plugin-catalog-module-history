@@ -40,12 +40,12 @@ export class InMemoryHistoryStore implements HistoryStore {
     }
     for (const ref of input.deletes) {
       etags.delete(ref);
-      // Only clear the global entry if it was last touched by this provider;
-      // otherwise the most-recent owner of the ref still wins.
-      const cur = this.globalLatest.get(ref);
-      if (cur?.provider === input.provider) {
-        this.globalLatest.delete(ref);
-      }
+      // A delete is the newest observation for this entity_ref across all
+      // providers, so the global entry drops regardless of which provider
+      // had previously claimed it. Mirrors PostgresHistoryStore semantics
+      // where DISTINCT ON ... ORDER BY changed_at DESC picks the latest
+      // row globally and filters when its op is 'delete'.
+      this.globalLatest.delete(ref);
     }
   }
 }

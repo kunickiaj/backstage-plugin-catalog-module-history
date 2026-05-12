@@ -123,4 +123,33 @@ describe('InMemoryHistoryStore', () => {
     expect(second.has('user:default/eve')).toBe(false);
     expect(second.size).toBe(1);
   });
+
+  describe('loadAllCurrentEtags cross-provider delete semantics', () => {
+    it('drops the global entry when a different provider deletes the ref', async () => {
+      const store = new InMemoryHistoryStore();
+
+      // Provider B claims the entity first.
+      await store.recordCycle(
+        cycle({
+          cycleId: 'c1',
+          provider: 'github-org',
+          inserts: [row('alice', 'a-github')],
+        }),
+      );
+
+      // Provider A subsequently deletes the same entity_ref.
+      await store.recordCycle(
+        cycle({
+          cycleId: 'c2',
+          provider: 'okta-org',
+          deletes: ['user:default/alice'],
+        }),
+      );
+
+      const all = await store.loadAllCurrentEtags();
+      // Mirrors Postgres: latest row is the delete, so the entity is gone
+      // globally regardless of which provider issued the delete.
+      expect(all.has('user:default/alice')).toBe(false);
+    });
+  });
 });
