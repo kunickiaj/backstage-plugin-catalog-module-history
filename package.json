@@ -42,6 +42,7 @@
     "tsc": "tsc",
     "prepack": "backstage-cli package prepack",
     "postpack": "backstage-cli package postpack",
+    "postinstall": "node scripts/symlink-self.js",
     "prettier:check": "prettier --ignore-unknown --check .",
     "prettier:fix": "prettier --ignore-unknown --write ."
   },
@@ -60,6 +61,8 @@
   },
   "files": [
     "dist",
+    "migrations",
+    "scripts",
     "README.md",
     "LICENSE"
   ],
