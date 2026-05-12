@@ -6,6 +6,7 @@ import { ensureSchema } from '../postgres/ensureSchema';
 import { PostgresHistoryStore } from '../postgres/PostgresHistoryStore';
 import { reconcile } from '../reconciler/reconcile';
 import { EntityFetcher } from '../reconciler/EntityFetcher';
+import { fetchAllEntities } from '../reconciler/paginateEntities';
 
 const stderrLogger: LoggerService = {
   info(message, meta) {
@@ -74,13 +75,12 @@ export async function main(): Promise<void> {
     },
   });
 
+  const requestOptions = backstageToken ? { token: backstageToken } : undefined;
   const fetcher: EntityFetcher = {
     async getEntities(): Promise<Entity[]> {
-      const response = await catalogClient.getEntities(
-        {},
-        backstageToken ? { token: backstageToken } : undefined,
+      return fetchAllEntities(req =>
+        catalogClient.queryEntities(req, requestOptions),
       );
-      return response.items;
     },
   };
 
