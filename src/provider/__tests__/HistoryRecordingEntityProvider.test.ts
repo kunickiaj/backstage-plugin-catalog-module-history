@@ -222,4 +222,52 @@ describe('HistoryRecordingEntityProvider', () => {
       );
     });
   });
+
+  describe('failure isolation', () => {
+    it('still forwards applyMutation and never throws when the store fails', async () => {
+      const failingStore: InMemoryHistoryStore = new InMemoryHistoryStore();
+      jest
+        .spyOn(failingStore, 'recordCycle')
+        .mockRejectedValue(new Error('history db is on fire'));
+
+      const logger = mockServices.logger.mock();
+      const inner = new FakeProvider('okta-org', [user('alice', 'a1')]);
+      const wrapper = new HistoryRecordingEntityProvider({
+        inner,
+        store: failingStore,
+        logger,
+      });
+
+      const connection = fakeConnection();
+
+      await expect(wrapper.connect(connection)).resolves.toBeUndefined();
+
+      expect(connection.applyMutation).toHaveBeenCalledTimes(1);
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringMatching(/Failed to record history cycle/),
+        expect.any(Error),
+      );
+    });
+
+    it('still forwards applyMutation when loadCurrentEtags fails', async () => {
+      const store = new InMemoryHistoryStore();
+      jest
+        .spyOn(store, 'loadCurrentEtags')
+        .mockRejectedValue(new Error('db down'));
+
+      const logger = mockServices.logger.mock();
+      const inner = new FakeProvider('okta-org', [user('alice', 'a1')]);
+      const wrapper = new HistoryRecordingEntityProvider({
+        inner,
+        store,
+        logger,
+      });
+
+      const connection = fakeConnection();
+      await expect(wrapper.connect(connection)).resolves.toBeUndefined();
+
+      expect(connection.applyMutation).toHaveBeenCalledTimes(1);
+      expect(logger.error).toHaveBeenCalled();
+    });
+  });
 });
