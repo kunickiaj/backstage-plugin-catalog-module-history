@@ -27,7 +27,7 @@
     }
   },
   "engines": {
-    "node": "20 || 22 || 24"
+    "node": "22 || 24"
   },
   "packageManager": "yarn@4.5.0",
   "scripts": {
@@ -44,10 +44,15 @@
     "prettier:check": "prettier --ignore-unknown --check .",
     "prettier:fix": "prettier --ignore-unknown --write ."
   },
-  "dependencies": {},
   "devDependencies": {
-    "@backstage/cli": "^0.34.6",
-    "@types/node": "^20.11.0",
+    "@backstage/cli": "^0.36.1",
+    "@backstage/cli-defaults": "^0.1.1",
+    "@jest/environment-jsdom-abstract": "^30.4.1",
+    "@types/jest": "^30.0.0",
+    "@types/jsdom": "^27.0.0",
+    "@types/node": "^24.0.0",
+    "jest": "^30.4.2",
+    "jsdom": "^27.1.0",
     "prettier": "^3.3.3",
     "typescript": "~5.8.0"
   },
