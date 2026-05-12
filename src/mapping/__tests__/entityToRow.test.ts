@@ -211,4 +211,79 @@ describe('entityToRow', () => {
       tags: ['oncall'],
     });
   });
+
+  describe('fallback etag stability across unordered fields', () => {
+    it('produces the same etag when spec.memberOf is reordered', () => {
+      const a: Entity = {
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: 'User',
+        metadata: { name: 'u', namespace: 'default' },
+        spec: { memberOf: ['group:default/a', 'group:default/b'] },
+      };
+      const b: Entity = {
+        ...a,
+        spec: { memberOf: ['group:default/b', 'group:default/a'] },
+      };
+
+      expect(entityToRow(a).etag).toBe(entityToRow(b).etag);
+    });
+
+    it('produces the same etag when spec.children is reordered', () => {
+      const a: Entity = {
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: 'Group',
+        metadata: { name: 'g', namespace: 'default' },
+        spec: {
+          type: 'team',
+          children: ['group:default/x', 'group:default/y'],
+        },
+      };
+      const b: Entity = {
+        ...a,
+        spec: {
+          type: 'team',
+          children: ['group:default/y', 'group:default/x'],
+        },
+      };
+
+      expect(entityToRow(a).etag).toBe(entityToRow(b).etag);
+    });
+
+    it('produces the same etag when metadata.tags is reordered', () => {
+      const a: Entity = {
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: 'Component',
+        metadata: {
+          name: 'c',
+          namespace: 'default',
+          tags: ['payments', 'oncall', 'critical'],
+        },
+        spec: { type: 'service', owner: 'group:default/team-a' },
+      };
+      const b: Entity = {
+        ...a,
+        metadata: {
+          ...a.metadata,
+          tags: ['critical', 'payments', 'oncall'],
+        },
+      };
+
+      expect(entityToRow(a).etag).toBe(entityToRow(b).etag);
+    });
+
+    it('still produces different etags when the set itself changes', () => {
+      const a: Entity = {
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: 'User',
+        metadata: { name: 'u', namespace: 'default' },
+        spec: { memberOf: ['group:default/a', 'group:default/b'] },
+      };
+      const b: Entity = {
+        ...a,
+        spec: { memberOf: ['group:default/a', 'group:default/c'] },
+      };
+
+      expect(entityToRow(a).etag).not.toBe(entityToRow(b).etag);
+    });
+  });
 });
