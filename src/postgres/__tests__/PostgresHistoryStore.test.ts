@@ -5,6 +5,11 @@ import { ensureSchema } from '../ensureSchema';
 import { PostgresHistoryStore } from '../PostgresHistoryStore';
 import { EntityRow } from '../../store/types';
 
+// Each test spins up a fresh ephemeral Postgres database via TestDatabases
+// and runs the migrations from scratch; the default 5s Jest timeout isn't
+// enough headroom for that on slower hardware / cold caches.
+jest.setTimeout(30000);
+
 async function insertCycle(
   db: Knex,
   opts: { provider: string; startedAt: string },
@@ -265,10 +270,12 @@ describe('PostgresHistoryStore', () => {
         op: 'update',
         etag: 'c2',
       });
+      // entity_ref is canonically lowercase; the delete row's kind/namespace/
+      // name come from parsing the ref, so they're lowercase too.
       expect(byRef['user:default/dave']).toMatchObject({
         op: 'delete',
         etag: null,
-        kind: 'User',
+        kind: 'user',
         namespace: 'default',
         name: 'dave',
       });
@@ -408,6 +415,73 @@ describe('PostgresHistoryStore', () => {
       etags = await store.loadCurrentEtags('okta-org');
       expect(etags.get('user:default/alice')).toBe('a2');
       expect(etags.has('user:default/bob')).toBe(false);
+    });
+
+    it('persists thousands of entity rows across multiple insert chunks', async () => {
+      // Exercises batchInsert: the chunk size is 1000, so 2500 rows trips
+      // three chunks. Larger than the PG bind-parameter limit (~3855 rows
+      // at 17 columns) is the original motivation, but 2500 keeps the test
+      // fast while still proving multi-chunk behavior.
+      const cycleId = randomUUID();
+      const inserts = Array.from({ length: 2500 }, (_, i) => ({
+        entityRef: `user:default/u${i}`,
+        kind: 'User',
+        namespace: 'default',
+        name: `u${i}`,
+        etag: `e${i}`,
+        metadata: { i },
+        spec: {},
+      })) satisfies EntityRow[];
+
+      await store.recordCycle({
+        cycleId,
+        provider: 'okta-org',
+        mutationType: 'full',
+        startedAt: new Date('2026-05-12T10:00:00Z'),
+        finishedAt: new Date('2026-05-12T10:00:05Z'),
+        inserts,
+        updates: [],
+        deletes: [],
+        unchangedCount: 0,
+      });
+
+      const count = await db('catalog_history_entities')
+        .where({ cycle_id: cycleId })
+        .count<{ count: string }[]>('*', { as: 'count' });
+      expect(Number(count[0].count)).toBe(2500);
+    });
+  });
+
+  describe('loadCurrentEtags tie-breaker', () => {
+    it('picks the highest-id row when two rows for the same entity share changed_at', async () => {
+      const cycleId = await insertCycle(db, {
+        provider: 'okta-org',
+        startedAt: '2026-05-12T10:00:00Z',
+      });
+
+      // Two rows for the same entity_ref + provider with identical
+      // changed_at. Without a tie-breaker, DISTINCT ON could pick either.
+      await insertEntity(db, {
+        cycleId,
+        provider: 'okta-org',
+        entityRef: 'user:default/alice',
+        etag: 'a-first',
+        op: 'insert',
+        changedAt: '2026-05-12T10:00:00Z',
+      });
+      await insertEntity(db, {
+        cycleId,
+        provider: 'okta-org',
+        entityRef: 'user:default/alice',
+        etag: 'a-second',
+        op: 'update',
+        changedAt: '2026-05-12T10:00:00Z',
+      });
+
+      // The second insert has the larger BIGSERIAL id, so id DESC selects
+      // it deterministically.
+      const etags = await store.loadCurrentEtags('okta-org');
+      expect(etags.get('user:default/alice')).toBe('a-second');
     });
   });
 });
