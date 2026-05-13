@@ -1,0 +1,64 @@
+import {
+  TestDatabases,
+  TestBackend,
+  mockServices,
+  startTestBackend,
+} from '@backstage/backend-test-utils';
+import { Knex } from 'knex';
+import { catalogModuleHistory } from '../catalogModuleHistory';
+
+jest.setTimeout(30000);
+
+describe('catalogModuleHistory', () => {
+  const databases = TestDatabases.create({ ids: ['POSTGRES_16'] });
+  let db: Knex;
+  let backend: TestBackend | undefined;
+
+  beforeEach(async () => {
+    db = await databases.init('POSTGRES_16');
+  });
+
+  afterEach(async () => {
+    // Release scheduled work, DB handles, and service factories so the
+    // suite doesn't leak handles or interfere with the next test.
+    await backend?.stop();
+    backend = undefined;
+  });
+
+  it('bootstraps the history schema on init by default', async () => {
+    backend = await startTestBackend({
+      features: [
+        catalogModuleHistory,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({ data: {} }),
+      ],
+    });
+
+    const cycleTable = await db('information_schema.tables')
+      .where({ table_name: 'catalog_history_cycles' })
+      .first();
+    expect(cycleTable).toBeDefined();
+
+    const entityTable = await db('information_schema.tables')
+      .where({ table_name: 'catalog_history_entities' })
+      .first();
+    expect(entityTable).toBeDefined();
+  });
+
+  it('skips schema bootstrap when catalog.history.enabled=false', async () => {
+    backend = await startTestBackend({
+      features: [
+        catalogModuleHistory,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: { catalog: { history: { enabled: false } } },
+        }),
+      ],
+    });
+
+    const cycleTable = await db('information_schema.tables')
+      .where({ table_name: 'catalog_history_cycles' })
+      .first();
+    expect(cycleTable).toBeUndefined();
+  });
+});

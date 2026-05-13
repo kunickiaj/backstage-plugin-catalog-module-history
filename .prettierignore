@@ -3,5 +3,6 @@ dist-types
 coverage
 node_modules
 .yarn
+.claude
 yarn.lock
 docs/plans
