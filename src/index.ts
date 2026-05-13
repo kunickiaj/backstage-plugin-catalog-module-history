@@ -1,4 +1,5 @@
-export type { HistoryStore } from './store/HistoryStore';
+export type { HistoryStore, CurrentEtag } from './store/HistoryStore';
+export { RECONCILER_PROVIDER } from './store/HistoryStore';
 export type { CycleInput, EntityRow, MutationType } from './store/types';
 export { ensureSchema } from './postgres/ensureSchema';
 export { PostgresHistoryStore } from './postgres/PostgresHistoryStore';
@@ -7,3 +8,5 @@ export {
   HistoryRecordingEntityProvider,
   type HistoryRecordingEntityProviderOptions,
 } from './provider/HistoryRecordingEntityProvider';
+export { reconcile, type ReconcileOptions } from './reconciler/reconcile';
+export type { EntityFetcher } from './reconciler/EntityFetcher';

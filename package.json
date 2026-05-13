@@ -17,6 +17,7 @@
   },
   "exports": {
     ".": "./src/index.ts",
+    "./reconcile-cli": "./src/bin/reconcile.ts",
     "./package.json": "./package.json"
   },
   "typesVersions": {
@@ -61,7 +62,11 @@
     "prettier": "^3.3.3",
     "typescript": "~5.8.0"
   },
+  "bin": {
+    "reconcile-catalog-history": "./bin/reconcile-catalog-history.js"
+  },
   "files": [
+    "bin",
     "dist",
     "migrations",
     "scripts",
@@ -85,6 +90,7 @@
   },
   "dependencies": {
     "@backstage/backend-plugin-api": "^1.9.0",
+    "@backstage/catalog-client": "^1.15.0",
     "@backstage/catalog-model": "^1.8.0",
     "@backstage/plugin-catalog-node": "^2.2.0",
     "@backstage/types": "^1.2.2",

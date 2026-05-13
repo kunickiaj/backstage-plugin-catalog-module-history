@@ -1,5 +1,5 @@
 import { Knex } from 'knex';
-import { HistoryStore } from '../store/HistoryStore';
+import { CurrentEtag, HistoryStore } from '../store/HistoryStore';
 import { CycleInput, EntityRow } from '../store/types';
 
 // catalog_history_entities has ~17 columns, so the PostgreSQL bind-parameter
@@ -118,6 +118,35 @@ export class PostgresHistoryStore implements HistoryStore {
     for (const row of rows) {
       if (row.etag !== null && row.etag !== undefined) {
         result.set(row.entity_ref, row.etag);
+      }
+    }
+    return result;
+  }
+
+  async loadAllCurrentEtags(): Promise<Map<string, CurrentEtag>> {
+    // id DESC is a deterministic tie-breaker on changed_at; see the comment
+    // in loadCurrentEtags for the full rationale.
+    const rows = await this.db
+      .with(
+        'latest',
+        this.db('catalog_history_entities')
+          .select('entity_ref', 'op', 'etag', 'provider')
+          .distinctOn('entity_ref')
+          .orderBy('entity_ref')
+          .orderBy('changed_at', 'desc')
+          .orderBy('id', 'desc'),
+      )
+      .from('latest')
+      .where('op', '!=', 'delete')
+      .select('entity_ref', 'etag', 'provider');
+
+    const result = new Map<string, CurrentEtag>();
+    for (const row of rows) {
+      if (row.etag !== null && row.etag !== undefined) {
+        result.set(row.entity_ref, {
+          etag: row.etag,
+          provider: row.provider,
+        });
       }
     }
     return result;
