@@ -8,9 +8,11 @@ Ships with a Postgres backend in v1; designed around a pluggable `HistoryStore` 
 
 ## What it does
 
-1. **Wraps your `EntityProvider`s** with `HistoryRecordingEntityProvider` so every `applyMutation` call is mirrored into a versioned history table. The catalog write happens first; history recording is best-effort and never blocks or fails the catalog path.
-2. **Records cycles** to two tables: `catalog_history_cycles` (one row per mutation, including heartbeats with zero row changes) and `catalog_history_entities` (one row per entity change with structured columns + JSONB metadata/spec).
-3. **Runs a reconciler** on a schedule (default hourly) that snapshots the live catalog and records any drift attributed to `provider='reconciler'`, so missed cycles get caught.
+1. **Bootstraps the history schema** on backend startup (two tables in the same database Backstage's catalog uses, unless overridden).
+2. **Wraps your `EntityProvider`s** with `HistoryRecordingEntityProvider` so every `applyMutation` call is mirrored into a versioned history table. The catalog write happens first; history recording is best-effort and never blocks or fails the catalog path.
+3. **Provides a standalone reconciler CLI** (`reconcile-catalog-history`) for on-demand drift detection — useful when you suspect missed cycles, add a new provider without wrapping it, or perform manual catalog surgery.
+
+History coverage today is **full mutations only**. `delta`-emitting providers (webhook-driven) are recognized and skipped with a warning; native delta recording and hybrid full+delta providers are on the v1.x roadmap.
 
 ## Install
 
@@ -32,10 +34,16 @@ const backend = createBackend();
 backend.add(import('@backstage/plugin-catalog-backend'));
 backend.add(import('backstage-plugin-catalog-backend-module-history'));
 
-// Optional: wrap individual entity providers so their mutations are
-// recorded under the provider's own name (instead of getting picked up
-// only by the reconciler at the next scheduled run).
-import { HistoryRecordingEntityProvider } from 'backstage-plugin-catalog-backend-module-history';
+backend.start();
+```
+
+That gives you the schema and types; nothing yet records anything. To actually capture mutations, wrap each provider you care about with `HistoryRecordingEntityProvider`:
+
+```ts
+import {
+  HistoryRecordingEntityProvider,
+  PostgresHistoryStore,
+} from 'backstage-plugin-catalog-backend-module-history';
 import { OktaOrgEntityProvider } from '@backstage/plugin-catalog-backend-module-okta';
 
 backend.add(
@@ -47,10 +55,11 @@ backend.add(
         deps: {
           catalog: catalogProcessingExtensionPoint,
           logger: coreServices.logger,
-          store: /* your HistoryStore */,
+          database: coreServices.database,
         },
-        async init({ catalog, logger, store }) {
-          const inner = OktaOrgEntityProvider.fromConfig(...);
+        async init({ catalog, logger, database }) {
+          const store = new PostgresHistoryStore(await database.getClient());
+          const inner = OktaOrgEntityProvider.fromConfig(/* ... */);
           catalog.addEntityProvider(
             new HistoryRecordingEntityProvider({ inner, store, logger }),
           );
@@ -59,11 +68,7 @@ backend.add(
     },
   }),
 );
-
-backend.start();
 ```
-
-The reconciler safety net runs regardless of whether you wrap individual providers, so the minimum viable setup is just `backend.add(import('backstage-plugin-catalog-backend-module-history'))`.
 
 ## Config
 
@@ -72,25 +77,20 @@ All optional; sensible defaults.
 ```yaml
 catalog:
   history:
-    enabled: true # set to false to disable the module entirely
+    enabled: true # set to false to skip schema bootstrap entirely
 
     # Optional: write to a different Postgres instance than Backstage's
     # main catalog DB. Defaults to the same DB Backstage uses.
     database:
       client: pg
       connection: ${PG_HISTORY_URL}
-
-    reconciler:
-      enabled: true # set to false to run the CLI as an external CronJob instead
-      frequency: { hours: 1 }
-      timeout: { minutes: 10 }
 ```
 
 ## Query the history
 
-Once running, the module owns two tables in Postgres:
+The module owns two tables in Postgres:
 
-- `catalog_history_cycles` — one row per provider refresh / reconciler run, with `n_added` / `n_modified` / `n_removed` / `n_unchanged` aggregates.
+- `catalog_history_cycles` — one row per recorded `applyMutation`, with `n_added` / `n_modified` / `n_removed` / `n_unchanged` aggregates.
 - `catalog_history_entities` — one row per entity change, with structured columns (`entity_ref`, `kind`, `namespace`, `name`, `provider`, `op`, `etag`, `display_name`, `email`, `owner`, `parent`, `member_of`) plus JSONB `metadata` and `spec`.
 
 Example queries (`docs/USAGE.md` coming in Phase 10):
@@ -114,9 +114,9 @@ WHERE changed_at <= '2026-03-05'
 ORDER BY entity_ref, changed_at DESC;
 ```
 
-## Standalone reconciler CLI (optional)
+## Reconciler CLI (optional, on-demand)
 
-For ad-hoc backfills or running the reconciler as an external CronJob, the package exposes a `bin`:
+The wrapper captures every mutation the providers themselves emit, so under normal operation history stays in sync with the catalog. If you suspect drift — a provider was registered without being wrapped, an `applyMutation` call failed silently, or someone modified the catalog out-of-band — run the reconciler once:
 
 ```sh
 BACKSTAGE_BASE_URL=https://backstage.example.com \
@@ -125,7 +125,9 @@ PG_CONNECTION_STRING=postgres://... \
 npx reconcile-catalog-history
 ```
 
-Set `catalog.history.reconciler.enabled: false` in the Backstage app config when running this way to avoid the in-process schedule double-running.
+It snapshots the live catalog, diffs against the history table, and records any drift as a single cycle attributed to `provider='reconciler'`. Safe to run repeatedly; a clean catalog records a no-op heartbeat cycle.
+
+The reconciler is intentionally not scheduled as a background task. Running it from inside the catalog backend would mean a catalog plugin querying its own live state in a loop, which is a coupling smell. Run it externally (k8s CronJob, manual invocation, your CI/CD pipeline) when you actually want drift detection.
 
 ## Documentation
 

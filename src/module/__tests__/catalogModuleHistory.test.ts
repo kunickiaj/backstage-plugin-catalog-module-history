@@ -1,90 +1,36 @@
 import {
-  createServiceFactory,
-  ServiceRef,
-} from '@backstage/backend-plugin-api';
-import {
   TestDatabases,
+  TestBackend,
   mockServices,
   startTestBackend,
 } from '@backstage/backend-test-utils';
-import { Entity } from '@backstage/catalog-model';
-import {
-  CatalogService,
-  catalogServiceRef,
-} from '@backstage/plugin-catalog-node';
 import { Knex } from 'knex';
 import { catalogModuleHistory } from '../catalogModuleHistory';
 
 jest.setTimeout(30000);
 
-function makeFakeCatalogService(entities: Entity[]): CatalogService {
-  const notImplemented = () => {
-    throw new Error('not implemented in this test');
-  };
-  return {
-    async getEntities(): Promise<{ items: Entity[] }> {
-      return { items: entities };
-    },
-    getEntitiesByRefs: notImplemented,
-    queryEntities: notImplemented,
-    getEntityAncestors: notImplemented,
-    getEntityByRef: notImplemented,
-    getEntityFacets: notImplemented,
-    refreshEntity: notImplemented,
-    getLocationByRef: notImplemented,
-    getLocationById: notImplemented,
-    getLocations: notImplemented,
-    queryLocations: notImplemented,
-    addLocation: notImplemented,
-    removeLocationById: notImplemented,
-    removeEntityByUid: notImplemented,
-    validateEntity: notImplemented,
-    streamEntities: notImplemented,
-  } as unknown as CatalogService;
-}
-
-function fakeCatalogServiceFactory(catalog: CatalogService) {
-  return createServiceFactory({
-    service: catalogServiceRef as ServiceRef<
-      CatalogService,
-      'plugin',
-      'singleton'
-    >,
-    deps: {},
-    factory: () => catalog,
-  });
-}
-
 describe('catalogModuleHistory', () => {
   const databases = TestDatabases.create({ ids: ['POSTGRES_16'] });
   let db: Knex;
+  let backend: TestBackend | undefined;
 
   beforeEach(async () => {
     db = await databases.init('POSTGRES_16');
   });
 
-  it('bootstraps the schema and schedules the reconciler on init', async () => {
-    const catalog = makeFakeCatalogService([]);
+  afterEach(async () => {
+    // Release scheduled work, DB handles, and service factories so the
+    // suite doesn't leak handles or interfere with the next test.
+    await backend?.stop();
+    backend = undefined;
+  });
 
-    await startTestBackend({
+  it('bootstraps the history schema on init by default', async () => {
+    backend = await startTestBackend({
       features: [
         catalogModuleHistory,
-        fakeCatalogServiceFactory(catalog),
         mockServices.database.factory({ knex: db }),
-        mockServices.rootConfig.factory({
-          data: {
-            catalog: {
-              history: {
-                enabled: true,
-                reconciler: {
-                  enabled: true,
-                  frequency: { seconds: 60 },
-                  timeout: { minutes: 1 },
-                },
-              },
-            },
-          },
-        }),
+        mockServices.rootConfig.factory({ data: {} }),
       ],
     });
 
@@ -100,17 +46,12 @@ describe('catalogModuleHistory', () => {
   });
 
   it('skips schema bootstrap when catalog.history.enabled=false', async () => {
-    const catalog = makeFakeCatalogService([]);
-
-    await startTestBackend({
+    backend = await startTestBackend({
       features: [
         catalogModuleHistory,
-        fakeCatalogServiceFactory(catalog),
         mockServices.database.factory({ knex: db }),
         mockServices.rootConfig.factory({
-          data: {
-            catalog: { history: { enabled: false } },
-          },
+          data: { catalog: { history: { enabled: false } } },
         }),
       ],
     });
@@ -119,32 +60,5 @@ describe('catalogModuleHistory', () => {
       .where({ table_name: 'catalog_history_cycles' })
       .first();
     expect(cycleTable).toBeUndefined();
-  });
-
-  it('still bootstraps the schema when the reconciler is disabled', async () => {
-    const catalog = makeFakeCatalogService([]);
-
-    await startTestBackend({
-      features: [
-        catalogModuleHistory,
-        fakeCatalogServiceFactory(catalog),
-        mockServices.database.factory({ knex: db }),
-        mockServices.rootConfig.factory({
-          data: {
-            catalog: {
-              history: {
-                enabled: true,
-                reconciler: { enabled: false },
-              },
-            },
-          },
-        }),
-      ],
-    });
-
-    const cycleTable = await db('information_schema.tables')
-      .where({ table_name: 'catalog_history_cycles' })
-      .first();
-    expect(cycleTable).toBeDefined();
   });
 });

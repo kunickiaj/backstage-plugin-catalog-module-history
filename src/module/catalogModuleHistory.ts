@@ -1,40 +1,36 @@
 import {
   coreServices,
   createBackendModule,
-  readSchedulerServiceTaskScheduleDefinitionFromConfig,
-  type SchedulerServiceTaskScheduleDefinition,
 } from '@backstage/backend-plugin-api';
-import { catalogServiceRef } from '@backstage/plugin-catalog-node';
 import { Knex, knex as createKnex } from 'knex';
 import { ensureSchema } from '../postgres/ensureSchema';
-import { PostgresHistoryStore } from '../postgres/PostgresHistoryStore';
-import { reconcile } from '../reconciler/reconcile';
-import { EntityFetcher } from '../reconciler/EntityFetcher';
-
-const DEFAULT_RECONCILER_SCHEDULE: SchedulerServiceTaskScheduleDefinition = {
-  frequency: { hours: 1 },
-  timeout: { minutes: 10 },
-};
 
 /**
- * Backstage backend module that bootstraps the catalog history schema and
- * runs the reconciler on a schedule. Wrapping individual EntityProviders is
- * handled by users at backend wiring time via the exported
- * `HistoryRecordingEntityProvider` class.
+ * Backstage backend module for the catalog-history plugin. On init it
+ * resolves the database connection (either an explicit catalog.history.
+ * database config or Backstage's shared database service) and runs the
+ * history schema migrations. That's the entire module surface today.
+ *
+ * Wrapping individual EntityProviders for cycle recording is handled at
+ * backend wiring time via the exported `HistoryRecordingEntityProvider`.
+ *
+ * Reconciliation is intentionally not scheduled in-process. The
+ * reconciler ({@link reconcile}) and the CLI shim (`bin/reconcile-
+ * catalog-history.js`) remain available for on-demand drift detection or
+ * an external CronJob; they're not run automatically because the wrapper
+ * captures every mutation the catalog itself ingests, making a periodic
+ * full catalog snapshot from inside the catalog plugin unnecessary in
+ * the common case.
  *
  * Config (all optional, sensible defaults):
  *
  * ```yaml
  * catalog:
  *   history:
- *     enabled: true              # set to false to disable the module entirely
- *     database:                  # optional; falls back to Backstage's DB
+ *     enabled: true       # set to false to skip schema bootstrap entirely
+ *     database:           # optional; falls back to Backstage's DB
  *       client: pg
  *       connection: ${PG_HISTORY_URL}
- *     reconciler:
- *       enabled: true            # set to false if running an external CronJob
- *       frequency: { hours: 1 }
- *       timeout: { minutes: 10 }
  * ```
  */
 export const catalogModuleHistory = createBackendModule({
@@ -46,15 +42,12 @@ export const catalogModuleHistory = createBackendModule({
         logger: coreServices.logger,
         config: coreServices.rootConfig,
         database: coreServices.database,
-        scheduler: coreServices.scheduler,
-        auth: coreServices.auth,
-        catalog: catalogServiceRef,
       },
-      async init({ logger, config, database, scheduler, auth, catalog }) {
+      async init({ logger, config, database }) {
         const moduleConfig = config.getOptionalConfig('catalog.history');
         if (moduleConfig?.getOptionalBoolean('enabled') === false) {
           logger.info(
-            'catalog-history is disabled via catalog.history.enabled=false; no schema bootstrap, no reconciler scheduled',
+            'catalog-history is disabled via catalog.history.enabled=false; skipping schema bootstrap',
           );
           return;
         }
@@ -69,54 +62,6 @@ export const catalogModuleHistory = createBackendModule({
 
         await ensureSchema(db);
         logger.info('catalog-history schema is ready');
-
-        const store = new PostgresHistoryStore(db);
-
-        const reconcilerConfig = moduleConfig?.getOptionalConfig('reconciler');
-        const reconcilerEnabled =
-          reconcilerConfig?.getOptionalBoolean('enabled') !== false;
-
-        if (!reconcilerEnabled) {
-          logger.info(
-            'catalog-history reconciler is disabled; expect to run the reconciler CLI externally',
-          );
-          return;
-        }
-
-        const schedule: SchedulerServiceTaskScheduleDefinition =
-          reconcilerConfig
-            ? readSchedulerServiceTaskScheduleDefinitionFromConfig(
-                reconcilerConfig,
-              )
-            : DEFAULT_RECONCILER_SCHEDULE;
-
-        const fetcher: EntityFetcher = {
-          async getEntities() {
-            const credentials = await auth.getOwnServiceCredentials();
-            const response = await catalog.getEntities({}, { credentials });
-            return response.items;
-          },
-        };
-
-        await scheduler.scheduleTask({
-          ...schedule,
-          id: 'catalog-history-reconciler',
-          scope: 'global',
-          fn: async () => {
-            try {
-              await reconcile({ fetcher, store, logger });
-            } catch (err) {
-              logger.error(
-                'Reconciler run failed',
-                err instanceof Error ? err : { error: String(err) },
-              );
-            }
-          },
-        });
-
-        logger.info(
-          'catalog-history reconciler scheduled (scope=global, runs in-process across replicas with distributed locking)',
-        );
       },
     });
   },
