@@ -44,6 +44,7 @@ jobs:
       PG_USER: postgres
       PG_PASSWORD: postgres
       PG_DATABASE: backstage_plugin_history_test
+      BACKSTAGE_TEST_DATABASE_POSTGRES16_CONNECTION_STRING: postgres://postgres:postgres@localhost:5432
 
     steps:
       - name: Checkout
