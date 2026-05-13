@@ -571,5 +571,38 @@ describe('HistoryRecordingEntityProvider', () => {
       expect(connection.applyMutation).toHaveBeenCalledTimes(1);
       expect(logger.error).toHaveBeenCalled();
     });
+
+    it('forwards to the catalog before reading history etags on the default (no-conversion) path', async () => {
+      // Regression guard for the forward-first failure-isolation contract:
+      // the default passthrough path must not block catalog writes on a
+      // slow or unavailable history store.
+      const store = new InMemoryHistoryStore();
+      const events: string[] = [];
+      jest
+        .spyOn(store, 'loadCurrentEtags')
+        .mockImplementation(async (provider: string) => {
+          events.push(`loadCurrentEtags(${provider})`);
+          return new Map();
+        });
+
+      const logger = mockServices.logger.mock();
+      const inner = new FakeProvider('okta-org', [user('alice', 'a1')]);
+      const wrapper = new HistoryRecordingEntityProvider({
+        inner,
+        store,
+        logger,
+      });
+
+      const connection: EntityProviderConnection = {
+        applyMutation: jest.fn(async () => {
+          events.push('catalog.applyMutation');
+        }),
+        refresh: jest.fn(),
+      };
+      await wrapper.connect(connection);
+
+      expect(events[0]).toBe('catalog.applyMutation');
+      expect(events).toContain('loadCurrentEtags(okta-org)');
+    });
   });
 });
