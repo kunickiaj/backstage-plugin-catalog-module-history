@@ -352,6 +352,179 @@ describe('HistoryRecordingEntityProvider', () => {
     });
   });
 
+  describe('convertFullToDelta option', () => {
+    async function setupWith(
+      initial: Entity[],
+      opts: {
+        convertFullToDelta?: boolean;
+        forceFullEvery?: {
+          days?: number;
+          hours?: number;
+          minutes?: number;
+          seconds?: number;
+        };
+      },
+    ) {
+      const store = new InMemoryHistoryStore();
+      const logger = mockServices.logger.mock();
+      let wrapped: EntityProviderConnection | undefined;
+
+      const inner: EntityProvider = {
+        getProviderName: () => 'okta-org',
+        connect: async (conn: EntityProviderConnection) => {
+          wrapped = conn;
+          await conn.applyMutation({
+            type: 'full',
+            entities: initial.map(entity => ({ entity })),
+          });
+        },
+      };
+
+      const wrapper = new HistoryRecordingEntityProvider({
+        inner,
+        store,
+        logger,
+        ...opts,
+      });
+      const outer = fakeConnection();
+      await wrapper.connect(outer);
+
+      if (!wrapped) throw new Error('connect did not install a wrapper');
+      return { store, logger, wrapped, outer };
+    }
+
+    it('forwards fulls unchanged when convertFullToDelta is not set', async () => {
+      const { outer, wrapped } = await setupWith([user('alice', 'a1')], {});
+      await applyFull(wrapped, [user('alice', 'a2'), user('bob', 'b1')]);
+
+      // Two applyMutation calls expected, both type='full'
+      expect(outer.applyMutation).toHaveBeenCalledTimes(2);
+      expect((outer.applyMutation as jest.Mock).mock.calls[1][0].type).toBe(
+        'full',
+      );
+    });
+
+    it('forwards the first full unchanged even when conversion is on (no baseline yet)', async () => {
+      const store = new InMemoryHistoryStore();
+      const logger = mockServices.logger.mock();
+      let wrapped: EntityProviderConnection | undefined;
+
+      const inner: EntityProvider = {
+        getProviderName: () => 'okta-org',
+        connect: async (conn: EntityProviderConnection) => {
+          wrapped = conn;
+          await conn.applyMutation({
+            type: 'full',
+            entities: [{ entity: user('alice', 'a1') }],
+          });
+        },
+      };
+
+      const wrapper = new HistoryRecordingEntityProvider({
+        inner,
+        store,
+        logger,
+        convertFullToDelta: true,
+      });
+      const outer = fakeConnection();
+      await wrapper.connect(outer);
+      void wrapped; // suppress unused
+
+      expect(outer.applyMutation).toHaveBeenCalledTimes(1);
+      expect((outer.applyMutation as jest.Mock).mock.calls[0][0].type).toBe(
+        'full',
+      );
+    });
+
+    it('converts subsequent fulls to deltas using the history etag baseline', async () => {
+      const { outer, wrapped } = await setupWith(
+        [user('alice', 'a1'), user('bob', 'b1')],
+        { convertFullToDelta: true },
+      );
+
+      // Second full: alice changed, carol added, bob dropped
+      await applyFull(wrapped, [user('alice', 'a2'), user('carol', 'c1')]);
+
+      expect(outer.applyMutation).toHaveBeenCalledTimes(2);
+      const secondCall = (outer.applyMutation as jest.Mock).mock.calls[1][0];
+      expect(secondCall.type).toBe('delta');
+      expect(secondCall.added).toHaveLength(2);
+      expect(
+        secondCall.added.map((a: { entity: Entity }) => a.entity.metadata.name),
+      ).toEqual(expect.arrayContaining(['alice', 'carol']));
+      expect(secondCall.removed).toEqual([{ entityRef: 'user:default/bob' }]);
+    });
+
+    it('still records the cycle with mutationType=full when converting (audit-honest)', async () => {
+      const { store, wrapped } = await setupWith(
+        [user('alice', 'a1'), user('bob', 'b1')],
+        { convertFullToDelta: true },
+      );
+
+      await applyFull(wrapped, [user('alice', 'a2'), user('bob', 'b1')]);
+
+      expect(store.cycles).toHaveLength(2);
+      expect(store.cycles[1]).toMatchObject({
+        mutationType: 'full',
+        unchangedCount: 1,
+      });
+      expect(store.cycles[1].updates).toHaveLength(1);
+      expect(store.cycles[1].updates[0]).toMatchObject({
+        entityRef: 'user:default/alice',
+        etag: 'a2',
+      });
+    });
+
+    it('forces a real full mutation once forceFullEvery has elapsed', async () => {
+      jest.useFakeTimers();
+      try {
+        const { outer, wrapped } = await setupWith(
+          [user('alice', 'a1'), user('bob', 'b1')],
+          { convertFullToDelta: true, forceFullEvery: { seconds: 30 } },
+        );
+
+        // 10s later: still inside the window → should convert to delta
+        jest.advanceTimersByTime(10_000);
+        await applyFull(wrapped, [user('alice', 'a2'), user('bob', 'b1')]);
+        expect((outer.applyMutation as jest.Mock).mock.calls[1][0].type).toBe(
+          'delta',
+        );
+
+        // 31s past the last forwarded full → should force a real full
+        jest.advanceTimersByTime(31_000);
+        await applyFull(wrapped, [user('alice', 'a2'), user('bob', 'b1')]);
+        expect((outer.applyMutation as jest.Mock).mock.calls[2][0].type).toBe(
+          'full',
+        );
+
+        // Right after: window resets, next call converts again
+        jest.advanceTimersByTime(1_000);
+        await applyFull(wrapped, [user('alice', 'a3'), user('bob', 'b1')]);
+        expect((outer.applyMutation as jest.Mock).mock.calls[3][0].type).toBe(
+          'delta',
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('emits an empty delta when nothing changed but never crashes', async () => {
+      const { outer, wrapped } = await setupWith(
+        [user('alice', 'a1'), user('bob', 'b1')],
+        { convertFullToDelta: true },
+      );
+
+      await applyFull(wrapped, [user('alice', 'a1'), user('bob', 'b1')]);
+
+      const secondCall = (outer.applyMutation as jest.Mock).mock.calls[1][0];
+      expect(secondCall).toMatchObject({
+        type: 'delta',
+        added: [],
+        removed: [],
+      });
+    });
+  });
+
   describe('failure isolation', () => {
     it('still forwards applyMutation and never throws when the store fails', async () => {
       const failingStore: InMemoryHistoryStore = new InMemoryHistoryStore();
@@ -397,6 +570,39 @@ describe('HistoryRecordingEntityProvider', () => {
 
       expect(connection.applyMutation).toHaveBeenCalledTimes(1);
       expect(logger.error).toHaveBeenCalled();
+    });
+
+    it('forwards to the catalog before reading history etags on the default (no-conversion) path', async () => {
+      // Regression guard for the forward-first failure-isolation contract:
+      // the default passthrough path must not block catalog writes on a
+      // slow or unavailable history store.
+      const store = new InMemoryHistoryStore();
+      const events: string[] = [];
+      jest
+        .spyOn(store, 'loadCurrentEtags')
+        .mockImplementation(async (provider: string) => {
+          events.push(`loadCurrentEtags(${provider})`);
+          return new Map();
+        });
+
+      const logger = mockServices.logger.mock();
+      const inner = new FakeProvider('okta-org', [user('alice', 'a1')]);
+      const wrapper = new HistoryRecordingEntityProvider({
+        inner,
+        store,
+        logger,
+      });
+
+      const connection: EntityProviderConnection = {
+        applyMutation: jest.fn(async () => {
+          events.push('catalog.applyMutation');
+        }),
+        refresh: jest.fn(),
+      };
+      await wrapper.connect(connection);
+
+      expect(events[0]).toBe('catalog.applyMutation');
+      expect(events).toContain('loadCurrentEtags(okta-org)');
     });
   });
 });
