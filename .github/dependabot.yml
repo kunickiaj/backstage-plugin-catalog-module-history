@@ -23,6 +23,12 @@ updates:
       - dependency-name: 'pg'
       - dependency-name: 'jest'
       - dependency-name: 'prettier'
+    ignore:
+      # Backstage supports the active Node LTS versions (currently 22 and 24).
+      # Pinning @types/node to the highest supported LTS major prevents
+      # accidental use of Node-25-only APIs that would break on Node 24.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
     labels:
       - dependencies
       - npm
