@@ -95,45 +95,45 @@ describe('HistoryRecordingEntityProvider', () => {
     ]);
   });
 
+  async function setup(initial: Entity[]) {
+    const store = new InMemoryHistoryStore();
+    const logger = mockServices.logger.mock();
+    let wrapped: EntityProviderConnection | undefined;
+
+    const inner: EntityProvider = {
+      getProviderName: () => 'okta-org',
+      connect: async (conn: EntityProviderConnection) => {
+        wrapped = conn;
+        await conn.applyMutation({
+          type: 'full',
+          entities: initial.map(entity => ({ entity })),
+        });
+      },
+    };
+
+    const wrapper = new HistoryRecordingEntityProvider({
+      inner,
+      store,
+      logger,
+    });
+    await wrapper.connect(fakeConnection());
+
+    if (!wrapped)
+      throw new Error('connect did not install a wrapped connection');
+    return { store, logger, wrapped };
+  }
+
+  async function applyFull(
+    conn: EntityProviderConnection,
+    entities: Entity[],
+  ): Promise<void> {
+    await conn.applyMutation({
+      type: 'full',
+      entities: entities.map(entity => ({ entity })),
+    });
+  }
+
   describe('etag-skip diffing across cycles', () => {
-    async function setup(initial: Entity[]) {
-      const store = new InMemoryHistoryStore();
-      const logger = mockServices.logger.mock();
-      let wrapped: EntityProviderConnection | undefined;
-
-      const inner: EntityProvider = {
-        getProviderName: () => 'okta-org',
-        connect: async (conn: EntityProviderConnection) => {
-          wrapped = conn;
-          await conn.applyMutation({
-            type: 'full',
-            entities: initial.map(entity => ({ entity })),
-          });
-        },
-      };
-
-      const wrapper = new HistoryRecordingEntityProvider({
-        inner,
-        store,
-        logger,
-      });
-      await wrapper.connect(fakeConnection());
-
-      if (!wrapped)
-        throw new Error('connect did not install a wrapped connection');
-      return { store, logger, wrapped };
-    }
-
-    async function applyFull(
-      conn: EntityProviderConnection,
-      entities: Entity[],
-    ): Promise<void> {
-      await conn.applyMutation({
-        type: 'full',
-        entities: entities.map(entity => ({ entity })),
-      });
-    }
-
     it('records a heartbeat cycle when the next mutation is identical', async () => {
       const entities = [
         user('alice', 'a1'),
@@ -206,20 +206,149 @@ describe('HistoryRecordingEntityProvider', () => {
       expect(store.cycles[1].inserts[0].entityRef).toBe('user:default/carol');
       expect(store.cycles[1].deletes).toEqual(['user:default/bob']);
     });
+  });
 
-    it('skips delta mutations with a warning and records no cycle', async () => {
-      const { store, logger, wrapped } = await setup([user('alice', 'a1')]);
+  describe('delta mutation recording', () => {
+    it('records a delta with only added entities as inserts/updates/unchanged', async () => {
+      const { store, wrapped } = await setup([
+        user('alice', 'a1'),
+        user('bob', 'b1'),
+      ]);
 
       await wrapped.applyMutation({
         type: 'delta',
-        added: [{ entity: user('bob', 'b1') }],
+        added: [
+          { entity: user('alice', 'a2') }, // existing ref, different etag → update
+          { entity: user('bob', 'b1') }, // existing ref, same etag → unchanged
+          { entity: user('carol', 'c1') }, // new ref → insert
+        ],
         removed: [],
       });
 
-      expect(store.cycles).toHaveLength(1); // only the initial full
-      expect(logger.warn).toHaveBeenCalledWith(
-        expect.stringMatching(/[Dd]elta mutations are not recorded in v1/),
-      );
+      expect(store.cycles).toHaveLength(2); // initial full + this delta
+      const delta = store.cycles[1];
+      expect(delta).toMatchObject({
+        provider: 'okta-org',
+        mutationType: 'delta',
+        deletes: [],
+        unchangedCount: 1,
+      });
+      expect(delta.inserts).toHaveLength(1);
+      expect(delta.inserts[0].entityRef).toBe('user:default/carol');
+      expect(delta.updates).toHaveLength(1);
+      expect(delta.updates[0]).toMatchObject({
+        entityRef: 'user:default/alice',
+        etag: 'a2',
+      });
+    });
+
+    it('records a delta with only removed entities as deletes', async () => {
+      const { store, wrapped } = await setup([
+        user('alice', 'a1'),
+        user('bob', 'b1'),
+      ]);
+
+      await wrapped.applyMutation({
+        type: 'delta',
+        added: [],
+        removed: [{ entityRef: 'user:default/bob' }],
+      });
+
+      const delta = store.cycles[1];
+      expect(delta).toMatchObject({
+        mutationType: 'delta',
+        inserts: [],
+        updates: [],
+        deletes: ['user:default/bob'],
+        unchangedCount: 0,
+      });
+    });
+
+    it('handles removed entries shaped as { entity } as well as { entityRef }', async () => {
+      const { store, wrapped } = await setup([
+        user('alice', 'a1'),
+        user('bob', 'b1'),
+      ]);
+
+      await wrapped.applyMutation({
+        type: 'delta',
+        added: [],
+        removed: [
+          { entityRef: 'user:default/bob' },
+          { entity: user('alice', 'a1') },
+        ],
+      });
+
+      const delta = store.cycles[1];
+      expect(delta.deletes.sort()).toEqual([
+        'user:default/alice',
+        'user:default/bob',
+      ]);
+    });
+
+    it('lowercases a mixed-case removed.entityRef to match the canonical history key', async () => {
+      // Regression guard: the rest of the module canonicalizes refs to
+      // lowercase via entityToRow, so a provider that emits a delta
+      // removal as `User:Default/Bob` must still hit the
+      // `user:default/bob` row in the history etag map.
+      const { store, wrapped } = await setup([
+        user('alice', 'a1'),
+        user('bob', 'b1'),
+      ]);
+
+      await wrapped.applyMutation({
+        type: 'delta',
+        added: [],
+        removed: [{ entityRef: 'User:Default/Bob' }],
+      });
+
+      const delta = store.cycles[1];
+      expect(delta.deletes).toEqual(['user:default/bob']);
+    });
+
+    it('records a mixed delta with adds and removes in a single cycle', async () => {
+      const { store, wrapped } = await setup([
+        user('alice', 'a1'),
+        user('bob', 'b1'),
+      ]);
+
+      await wrapped.applyMutation({
+        type: 'delta',
+        added: [
+          { entity: user('carol', 'c1') }, // new → insert
+          { entity: user('alice', 'a2') }, // existing ref, different etag → update
+        ],
+        removed: [{ entityRef: 'user:default/bob' }],
+      });
+
+      const delta = store.cycles[1];
+      expect(delta).toMatchObject({
+        provider: 'okta-org',
+        mutationType: 'delta',
+      });
+      expect(delta.inserts.map(r => r.entityRef)).toEqual([
+        'user:default/carol',
+      ]);
+      expect(delta.updates.map(r => r.entityRef)).toEqual([
+        'user:default/alice',
+      ]);
+      expect(delta.deletes).toEqual(['user:default/bob']);
+      expect(delta.unchangedCount).toBe(0);
+    });
+
+    it('records a heartbeat delta cycle when added/removed are both empty', async () => {
+      const { store, wrapped } = await setup([user('alice', 'a1')]);
+
+      await wrapped.applyMutation({ type: 'delta', added: [], removed: [] });
+
+      const delta = store.cycles[1];
+      expect(delta).toMatchObject({
+        mutationType: 'delta',
+        inserts: [],
+        updates: [],
+        deletes: [],
+        unchangedCount: 0,
+      });
     });
   });
 

@@ -19,11 +19,16 @@ export type HistoryRecordingEntityProviderOptions = {
  * Wraps an EntityProvider so every applyMutation call is mirrored to a
  * HistoryStore. The inner provider's normal write to Backstage's catalog
  * happens first and is unaffected by store failures; history recording is
- * best-effort and its errors are swallowed (the reconciler is the safety
- * net).
+ * best-effort and its errors are swallowed.
  *
- * Only `full` mutations are recorded in v1. `delta` mutations log a warning
- * and are skipped; coalescing them into cycles is deferred to v2.
+ * Both `full` and `delta` mutations are recorded, one cycle per
+ * applyMutation call. `delta` mutations record the explicit added/removed
+ * lists; full mutations additionally infer deletes for refs present in
+ * history but missing from the incoming entity set.
+ *
+ * Bursty delta coalescing (debounce a burst of webhook events into one
+ * cycle) is deferred to a later phase; today every applyMutation
+ * invocation produces its own cycle.
  */
 export class HistoryRecordingEntityProvider implements EntityProvider {
   private readonly inner: EntityProvider;
@@ -62,49 +67,54 @@ export class HistoryRecordingEntityProvider implements EntityProvider {
   private async recordMutation(
     mutation: EntityProviderMutation,
   ): Promise<void> {
-    if (mutation.type !== 'full') {
-      this.logger.warn(
-        `Delta mutations are not recorded in v1; skipping for provider ${this.getProviderName()}`,
-      );
-      return;
-    }
-
     const provider = this.getProviderName();
     const startedAt = new Date();
-    const rows: EntityRow[] = mutation.entities.map(({ entity }) =>
-      entityToRow(entity),
-    );
-
     const existing = await this.store.loadCurrentEtags(provider);
 
     const inserts: EntityRow[] = [];
     const updates: EntityRow[] = [];
     let unchangedCount = 0;
-    const incomingRefs = new Set<string>();
+    let deletes: string[] = [];
 
-    for (const row of rows) {
-      incomingRefs.add(row.entityRef);
-      const prev = existing.get(row.entityRef);
-      if (prev === undefined) {
-        inserts.push(row);
-      } else if (prev !== row.etag) {
-        updates.push(row);
-      } else {
-        unchangedCount++;
+    if (mutation.type === 'full') {
+      const incomingRefs = new Set<string>();
+      for (const { entity } of mutation.entities) {
+        const row = entityToRow(entity);
+        incomingRefs.add(row.entityRef);
+        const prev = existing.get(row.entityRef);
+        if (prev === undefined) inserts.push(row);
+        else if (prev !== row.etag) updates.push(row);
+        else unchangedCount++;
       }
-    }
-
-    const deletes: string[] = [];
-    for (const ref of existing.keys()) {
-      if (!incomingRefs.has(ref)) {
-        deletes.push(ref);
+      // Full mutations imply deletes for any ref the provider previously
+      // emitted but is now silent on.
+      for (const ref of existing.keys()) {
+        if (!incomingRefs.has(ref)) deletes.push(ref);
       }
+    } else {
+      for (const { entity } of mutation.added) {
+        const row = entityToRow(entity);
+        const prev = existing.get(row.entityRef);
+        if (prev === undefined) inserts.push(row);
+        else if (prev !== row.etag) updates.push(row);
+        else unchangedCount++;
+      }
+      // Delta mutations carry the explicit removal list. Each entry is
+      // either { entityRef } or { entity }; normalize to the canonical
+      // lowercase ref that the rest of the module uses, so a delete for
+      // `User:Default/Bob` matches the previously-recorded
+      // `user:default/bob` key in the history table.
+      deletes = mutation.removed.map(r =>
+        'entityRef' in r
+          ? r.entityRef.toLowerCase()
+          : entityToRow(r.entity).entityRef,
+      );
     }
 
     await this.store.recordCycle({
       cycleId: randomUUID(),
       provider,
-      mutationType: 'full',
+      mutationType: mutation.type,
       startedAt,
       finishedAt: new Date(),
       inserts,
