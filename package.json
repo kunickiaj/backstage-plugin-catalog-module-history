@@ -55,7 +55,7 @@
     "@types/jest": "^30.0.0",
     "@types/jsdom": "^27.0.0",
     "@types/json-stable-stringify": "^1.2.0",
-    "@types/node": "^24.0.0",
+    "@types/node": "^25.7.0",
     "@types/pg": "^8.20.0",
     "jest": "^30.4.2",
     "jsdom": "^27.1.0",

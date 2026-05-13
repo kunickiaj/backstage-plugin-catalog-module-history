@@ -6164,7 +6164,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/node@npm:*, @types/node@npm:>=13.7.0":
+"@types/node@npm:*, @types/node@npm:>=13.7.0, @types/node@npm:^25.7.0":
   version: 25.7.0
   resolution: "@types/node@npm:25.7.0"
   dependencies:
@@ -6189,7 +6189,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/node@npm:^24.0.0, @types/node@npm:^24.10.2":
+"@types/node@npm:^24.10.2":
   version: 24.12.4
   resolution: "@types/node@npm:24.12.4"
   dependencies:
@@ -7646,7 +7646,7 @@ __metadata:
     "@types/jest": "npm:^30.0.0"
     "@types/jsdom": "npm:^27.0.0"
     "@types/json-stable-stringify": "npm:^1.2.0"
-    "@types/node": "npm:^24.0.0"
+    "@types/node": "npm:^25.7.0"
     "@types/pg": "npm:^8.20.0"
     jest: "npm:^30.4.2"
     jsdom: "npm:^27.1.0"
