@@ -90,7 +90,7 @@
   },
   "dependencies": {
     "@backstage/backend-plugin-api": "^1.9.1",
-    "@backstage/catalog-client": "^1.15.1",
+    "@backstage/catalog-client": "^1.15.2",
     "@backstage/catalog-model": "^1.9.0",
     "@backstage/plugin-catalog-node": "^2.2.1",
     "@backstage/types": "^1.2.2",
