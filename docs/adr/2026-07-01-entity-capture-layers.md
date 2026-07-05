@@ -1,6 +1,6 @@
 # 2026-07-01. Capture Layer Scope: Provider-Origin Today, Processor-Layer and Reconciler-as-Ground-Truth Planned
 
-**Status**: Accepted — scope framing agreed. The processor-layer capture and reconciler-elevation work described here is **Planned, not yet scheduled to a phase**.
+**Status**: Accepted — scope framing agreed. The planned processor-layer capture, reconciler elevation, attribution model, and independent layer enablement shipped on 2026-07-05 under beads epic `hist-96j`.
 
 **Date**: 2026-07-01
 
