@@ -39,13 +39,15 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
   private readonly maxBatchSize: number;
   private readonly flushIntervalMs: number;
   private currentEtags: Map<string, string> | undefined;
+  private currentEtagVersions = new Map<string, number>();
   private seedPromise: Promise<Map<string, string>> | undefined;
   // Failed flush rollback restores each ref to its state before the first
   // queued row in the batch, not to any intermediate etag also dropped with
   // that failed batch.
   private batchOriginalEtags = new Map<string, string | undefined>();
-  private inserts: Array<{ row: EntityRow }> = [];
-  private updates: Array<{ row: EntityRow }> = [];
+  private batchOriginalEtagVersions = new Map<string, number>();
+  private inserts: Array<{ row: EntityRow; etagVersion: number }> = [];
+  private updates: Array<{ row: EntityRow; etagVersion: number }> = [];
   private unchangedCount = 0;
   private batchStartedAt: Date | undefined;
   private flushTimer: NodeJS.Timeout | undefined;
@@ -78,6 +80,8 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
       // the microtask queue and cannot double-classify. Adding an await in
       // between would reintroduce a TOCTOU race and duplicate rows.
       const previousEtag = etags.get(row.entityRef);
+      const previousEtagVersion =
+        this.currentEtagVersions.get(row.entityRef) ?? 0;
 
       if (previousEtag === row.etag) {
         this.unchangedCount += 1;
@@ -86,13 +90,16 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
 
       if (!this.batchOriginalEtags.has(row.entityRef)) {
         this.batchOriginalEtags.set(row.entityRef, previousEtag);
+        this.batchOriginalEtagVersions.set(row.entityRef, previousEtagVersion);
       }
+      const etagVersion = previousEtagVersion + 1;
       if (previousEtag === undefined) {
-        this.inserts.push({ row });
+        this.inserts.push({ row, etagVersion });
       } else {
-        this.updates.push({ row });
+        this.updates.push({ row, etagVersion });
       }
       etags.set(row.entityRef, row.etag);
+      this.currentEtagVersions.set(row.entityRef, etagVersion);
       this.ensureBatchStarted();
 
       if (this.bufferLength() >= this.maxBatchSize) {
@@ -176,12 +183,14 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
     const inserts = this.inserts;
     const updates = this.updates;
     const batchOriginalEtags = this.batchOriginalEtags;
+    const batchOriginalEtagVersions = this.batchOriginalEtagVersions;
     const unchangedCount = this.unchangedCount;
     const startedAt = this.batchStartedAt ?? new Date();
 
     this.inserts = [];
     this.updates = [];
     this.batchOriginalEtags = new Map();
+    this.batchOriginalEtagVersions = new Map();
     this.unchangedCount = 0;
     this.batchStartedAt = undefined;
     this.clearFlushTimer();
@@ -211,22 +220,30 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
       // unchanged fast path and the entity would stay missing from history
       // until it changes again. Restore each entry to its pre-batch state so
       // retries classify with the correct op even when the same ref changed
-      // multiple times in this failed batch — unless a newer etag has been
-      // queued for the ref since.
+      // multiple times in this failed batch. Rollback is guarded by a local
+      // per-ref version, not etag equality alone, because a newer queued batch
+      // can legitimately end at the same etag.
       const etags = this.currentEtags;
       if (etags) {
-        const failedBatchEtags = new Map<string, string>();
-        for (const { row } of [...inserts, ...updates]) {
-          failedBatchEtags.set(row.entityRef, row.etag);
+        const failedBatchVersions = new Map<string, number>();
+        for (const { row, etagVersion } of [...inserts, ...updates]) {
+          failedBatchVersions.set(row.entityRef, etagVersion);
         }
 
-        for (const [entityRef, failedEtag] of failedBatchEtags) {
-          if (etags.get(entityRef) === failedEtag) {
+        for (const [entityRef, failedEtagVersion] of failedBatchVersions) {
+          if (this.currentEtagVersions.get(entityRef) === failedEtagVersion) {
             const originalEtag = batchOriginalEtags.get(entityRef);
+            const originalEtagVersion =
+              batchOriginalEtagVersions.get(entityRef) ?? 0;
             if (originalEtag === undefined) {
               etags.delete(entityRef);
             } else {
               etags.set(entityRef, originalEtag);
+            }
+            if (originalEtagVersion === 0) {
+              this.currentEtagVersions.delete(entityRef);
+            } else {
+              this.currentEtagVersions.set(entityRef, originalEtagVersion);
             }
           }
         }

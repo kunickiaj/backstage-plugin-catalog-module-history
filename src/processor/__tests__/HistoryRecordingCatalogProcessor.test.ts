@@ -407,4 +407,47 @@ describe('HistoryRecordingCatalogProcessor', () => {
     expect(store.cycles[1].inserts).toEqual([]);
     expect(store.cycles[1].updates.map(row => row.etag)).toEqual(['a2']);
   });
+
+  it('does not roll back a newer queued batch that ends at the same etag', async () => {
+    const store = new InMemoryHistoryStore();
+    await recordExisting(store, user('alice', 'a1'));
+
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>(resolve => {
+      releaseFirst = resolve;
+    });
+    const original = store.recordCycle.bind(store);
+    let callCount = 0;
+    jest.spyOn(store, 'recordCycle').mockImplementation(async input => {
+      callCount += 1;
+      if (callCount === 1) {
+        await firstGate;
+        throw new Error('db down');
+      }
+      return original(input);
+    });
+    const processor = new HistoryRecordingCatalogProcessor({
+      store,
+      logger: mockServices.logger.mock(),
+      maxBatchSize: 10,
+    });
+
+    await postProcess(processor, user('alice', 'a2'));
+    const inFlight = processor.flush();
+
+    // Queue a second batch for the same ref while the first failed batch is
+    // in flight. The newer batch ends at the same etag as the failed batch;
+    // rollback must not use etag equality alone or it will clobber this state.
+    await postProcess(processor, user('alice', 'a3'));
+    await postProcess(processor, user('alice', 'a2'));
+    releaseFirst();
+    await inFlight;
+
+    expect(store.cycles).toHaveLength(2);
+    expect(store.cycles[1].updates.map(row => row.etag)).toEqual(['a3', 'a2']);
+
+    await postProcess(processor, user('alice', 'a2'));
+    await processor.flush();
+    expect(store.cycles).toHaveLength(2);
+  });
 });
