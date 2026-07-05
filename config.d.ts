@@ -45,51 +45,52 @@ export interface Config {
       };
 
       /**
-       * Processor-layer capture settings. Reserved for the future history
-       * CatalogProcessor; defaults to false until that feature lands.
+       * Processor-layer capture settings. Defaults to false because processor
+       * capture runs once per entity per processing cycle.
        */
       processing?: {
         /**
-         * Enables processor-layer history capture once implemented. Defaults to
-         * false.
+         * Enables processor-layer history capture. Defaults to false.
          */
         enabled?: boolean;
       };
 
       /**
-       * In-process reconciler settings. Reserved for a future scheduled
-       * reconciliation mode; defaults to disabled until that feature lands.
+       * In-process reconciler settings. Defaults to disabled. When enabled
+       * without an explicit schedule, the task runs hourly with a 10 minute
+       * timeout and a 30 second initial delay.
        */
       reconciler?: {
         /**
-         * Enables scheduled in-process reconciliation once implemented.
-         * Defaults to false.
+         * Enables scheduled in-process reconciliation. Defaults to false.
          */
         enabled?: boolean;
 
         /**
-         * Scheduler configuration for future in-process reconciliation. The
-         * shape follows Backstage's SchedulerServiceTaskScheduleDefinition
-         * config format.
+         * Scheduler configuration for in-process reconciliation. The shape
+         * follows Backstage's SchedulerServiceTaskScheduleDefinition config
+         * format; omit it to use the default hourly schedule, 10 minute
+         * timeout, and 30 second initial delay.
          */
         schedule?: {
           /**
-           * Future reconciler schedule frequency. Uses Backstage scheduler
-           * duration configuration objects.
+           * Reconciler schedule frequency. Uses Backstage scheduler duration
+           * configuration objects, string durations, cron objects, or manual
+           * trigger config supported by SchedulerServiceTaskScheduleDefinition.
            */
-          frequency?: { [key: string]: unknown };
+          frequency?: string | { [key: string]: unknown };
 
           /**
-           * Future reconciler task timeout. Uses Backstage scheduler duration
-           * configuration objects.
+           * Reconciler task timeout. Uses Backstage scheduler duration
+           * configuration objects or string durations.
            */
-          timeout?: { [key: string]: unknown };
+          timeout?: string | { [key: string]: unknown };
 
           /**
-           * Future reconciler initial delay. Uses Backstage scheduler duration
-           * configuration objects.
+           * Reconciler initial delay. Uses Backstage scheduler duration
+           * configuration objects or string durations.
            */
-          initialDelay?: { [key: string]: unknown };
+          initialDelay?: string | { [key: string]: unknown };
         };
       };
     };
