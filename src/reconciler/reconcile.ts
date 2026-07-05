@@ -55,6 +55,7 @@ export async function reconcile(opts: ReconcileOptions): Promise<void> {
   await store.recordCycle({
     cycleId: randomUUID(),
     provider: RECONCILER_PROVIDER,
+    source: 'reconciler',
     mutationType: 'full',
     startedAt,
     finishedAt: new Date(),

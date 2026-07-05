@@ -232,6 +232,7 @@ export class HistoryRecordingEntityProvider implements EntityProvider {
     await this.store.recordCycle({
       cycleId: randomUUID(),
       provider,
+      source: 'provider',
       mutationType: mutation.type,
       startedAt,
       finishedAt: new Date(),

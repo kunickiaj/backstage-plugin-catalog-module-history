@@ -1,6 +1,11 @@
 export type { HistoryStore, CurrentEtag } from './store/HistoryStore';
 export { RECONCILER_PROVIDER } from './store/HistoryStore';
-export type { CycleInput, EntityRow, MutationType } from './store/types';
+export type {
+  CaptureSource,
+  CycleInput,
+  EntityRow,
+  MutationType,
+} from './store/types';
 export { ensureSchema } from './postgres/ensureSchema';
 export { PostgresHistoryStore } from './postgres/PostgresHistoryStore';
 export { entityToRow } from './mapping/entityToRow';

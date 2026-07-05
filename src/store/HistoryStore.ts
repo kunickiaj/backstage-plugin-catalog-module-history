@@ -1,4 +1,4 @@
-import { CycleInput } from './types';
+import { CaptureSource, CycleInput } from './types';
 
 /**
  * The provider name under which the reconciler records its drift cycles.
@@ -15,7 +15,10 @@ export interface HistoryStore {
    * Returns the latest non-delete etag per entity_ref recorded for the
    * given provider.
    */
-  loadCurrentEtags(provider: string): Promise<Map<string, string>>;
+  loadCurrentEtags(
+    provider: string,
+    opts?: { source?: CaptureSource },
+  ): Promise<Map<string, string>>;
 
   /**
    * Returns the latest non-delete etag per entity_ref across all providers.
@@ -23,7 +26,9 @@ export interface HistoryStore {
    * globally most recent row wins. Used by the reconciler to detect drift
    * regardless of which provider originally claimed the entity.
    */
-  loadAllCurrentEtags(): Promise<Map<string, CurrentEtag>>;
+  loadAllCurrentEtags(opts?: {
+    source?: CaptureSource;
+  }): Promise<Map<string, CurrentEtag>>;
 
   recordCycle(input: CycleInput): Promise<void>;
 }

@@ -3,7 +3,7 @@ import { TestDatabases } from '@backstage/backend-test-utils';
 import { Knex } from 'knex';
 import { ensureSchema } from '../ensureSchema';
 import { PostgresHistoryStore } from '../PostgresHistoryStore';
-import { EntityRow } from '../../store/types';
+import { CaptureSource, EntityRow } from '../../store/types';
 
 // Each test spins up a fresh ephemeral Postgres database via TestDatabases
 // and runs the migrations from scratch; the default 5s Jest timeout isn't
@@ -12,12 +12,13 @@ jest.setTimeout(30000);
 
 async function insertCycle(
   db: Knex,
-  opts: { provider: string; startedAt: string },
+  opts: { provider: string; startedAt: string; source?: CaptureSource },
 ): Promise<string> {
   const cycleId = randomUUID();
   await db('catalog_history_cycles').insert({
     cycle_id: cycleId,
     provider: opts.provider,
+    source: opts.source ?? 'provider',
     mutation_type: 'full',
     started_at: opts.startedAt,
     finished_at: opts.startedAt,
@@ -30,6 +31,7 @@ async function insertEntity(
   opts: {
     cycleId: string;
     provider: string;
+    source?: CaptureSource;
     entityRef: string;
     etag: string | null;
     op: 'insert' | 'update' | 'delete';
@@ -45,6 +47,7 @@ async function insertEntity(
     namespace,
     name,
     provider: opts.provider,
+    source: opts.source ?? 'provider',
     op: opts.op,
     etag: opts.etag,
     changed_at: opts.changedAt,
@@ -201,9 +204,106 @@ describe('PostgresHistoryStore', () => {
       expect(github.get('user:default/dave')).toBe('github-etag');
     });
 
+    it('filters by source when requested and preserves no-opts behavior', async () => {
+      const c1 = await insertCycle(db, {
+        provider: 'okta-org',
+        source: 'provider',
+        startedAt: '2026-05-12T10:00:00Z',
+      });
+      const c2 = await insertCycle(db, {
+        provider: 'okta-org',
+        source: 'processing',
+        startedAt: '2026-05-12T11:00:00Z',
+      });
+
+      await insertEntity(db, {
+        cycleId: c1,
+        provider: 'okta-org',
+        source: 'provider',
+        entityRef: 'user:default/erin',
+        etag: 'provider-etag',
+        op: 'insert',
+        changedAt: '2026-05-12T10:00:00Z',
+      });
+      await insertEntity(db, {
+        cycleId: c2,
+        provider: 'okta-org',
+        source: 'processing',
+        entityRef: 'user:default/erin',
+        etag: 'processing-etag',
+        op: 'update',
+        changedAt: '2026-05-12T11:00:00Z',
+      });
+
+      const unfiltered = await store.loadCurrentEtags('okta-org');
+      const provider = await store.loadCurrentEtags('okta-org', {
+        source: 'provider',
+      });
+      const processing = await store.loadCurrentEtags('okta-org', {
+        source: 'processing',
+      });
+
+      expect(unfiltered.get('user:default/erin')).toBe('processing-etag');
+      expect(provider.get('user:default/erin')).toBe('provider-etag');
+      expect(processing.get('user:default/erin')).toBe('processing-etag');
+    });
+
     it('returns an empty map for a provider with no history', async () => {
       const etags = await store.loadCurrentEtags('never-ran');
       expect(etags.size).toBe(0);
+    });
+  });
+
+  describe('loadAllCurrentEtags', () => {
+    it('filters by source when requested and preserves no-opts behavior', async () => {
+      const providerCycle = await insertCycle(db, {
+        provider: 'okta-org',
+        source: 'provider',
+        startedAt: '2026-05-12T10:00:00Z',
+      });
+      const processingCycle = await insertCycle(db, {
+        provider: 'catalog-processor',
+        source: 'processing',
+        startedAt: '2026-05-12T11:00:00Z',
+      });
+
+      await insertEntity(db, {
+        cycleId: providerCycle,
+        provider: 'okta-org',
+        source: 'provider',
+        entityRef: 'user:default/alice',
+        etag: 'provider-etag',
+        op: 'insert',
+        changedAt: '2026-05-12T10:00:00Z',
+      });
+      await insertEntity(db, {
+        cycleId: processingCycle,
+        provider: 'catalog-processor',
+        source: 'processing',
+        entityRef: 'component:default/service',
+        etag: 'processing-etag',
+        op: 'insert',
+        changedAt: '2026-05-12T11:00:00Z',
+      });
+
+      const unfiltered = await store.loadAllCurrentEtags();
+      const processing = await store.loadAllCurrentEtags({
+        source: 'processing',
+      });
+
+      expect(unfiltered.get('user:default/alice')).toEqual({
+        etag: 'provider-etag',
+        provider: 'okta-org',
+      });
+      expect(unfiltered.get('component:default/service')).toEqual({
+        etag: 'processing-etag',
+        provider: 'catalog-processor',
+      });
+      expect(processing.has('user:default/alice')).toBe(false);
+      expect(processing.get('component:default/service')).toEqual({
+        etag: 'processing-etag',
+        provider: 'catalog-processor',
+      });
     });
   });
 
@@ -230,6 +330,7 @@ describe('PostgresHistoryStore', () => {
       await store.recordCycle({
         cycleId,
         provider: 'okta-org',
+        source: 'provider',
         mutationType: 'full',
         startedAt: new Date('2026-05-12T10:00:00Z'),
         finishedAt: new Date('2026-05-12T10:00:05Z'),
@@ -286,6 +387,7 @@ describe('PostgresHistoryStore', () => {
       await store.recordCycle({
         cycleId,
         provider: 'okta-org',
+        source: 'provider',
         mutationType: 'full',
         startedAt: new Date('2026-05-12T10:00:00Z'),
         finishedAt: new Date('2026-05-12T10:00:01Z'),
@@ -317,6 +419,7 @@ describe('PostgresHistoryStore', () => {
       const bad = {
         cycleId,
         provider: 'okta-org',
+        source: 'provider' as const,
         mutationType: 'NOT_A_REAL_TYPE' as 'full',
         startedAt: new Date('2026-05-12T10:00:00Z'),
         finishedAt: new Date('2026-05-12T10:00:01Z'),
@@ -344,6 +447,7 @@ describe('PostgresHistoryStore', () => {
       await store.recordCycle({
         cycleId,
         provider: 'okta-org',
+        source: 'provider',
         mutationType: 'full',
         startedAt: new Date('2026-05-12T10:00:00Z'),
         finishedAt: new Date('2026-05-12T10:00:01Z'),
@@ -380,6 +484,55 @@ describe('PostgresHistoryStore', () => {
       expect(ent.spec).toEqual({ profile: { displayName: 'Alice A.' } });
     });
 
+    it('round-trips source and stitched entity fields', async () => {
+      const cycleId = randomUUID();
+      await store.recordCycle({
+        cycleId,
+        provider: 'catalog-processor',
+        source: 'processing',
+        mutationType: 'full',
+        startedAt: new Date('2026-05-12T10:00:00Z'),
+        finishedAt: new Date('2026-05-12T10:00:01Z'),
+        inserts: [
+          row('alice', 'a1', {
+            relations: [
+              { type: 'ownedBy', targetRef: 'group:default/platform' },
+            ],
+            statusItems: [
+              { type: 'backstage.io/catalog-processing', level: 'error' },
+            ],
+            orphan: true,
+          }),
+        ],
+        updates: [],
+        deletes: [],
+        unchangedCount: 0,
+      });
+
+      const cycle = await db('catalog_history_cycles')
+        .where({ cycle_id: cycleId })
+        .first();
+      const entity = await db('catalog_history_entities')
+        .where({ cycle_id: cycleId })
+        .first();
+
+      expect(cycle).toMatchObject({
+        provider: 'catalog-processor',
+        source: 'processing',
+      });
+      expect(entity).toMatchObject({
+        provider: 'catalog-processor',
+        source: 'processing',
+        orphan: true,
+      });
+      expect(entity.relations).toEqual([
+        { type: 'ownedBy', targetRef: 'group:default/platform' },
+      ]);
+      expect(entity.status_items).toEqual([
+        { type: 'backstage.io/catalog-processing', level: 'error' },
+      ]);
+    });
+
     it('refreshes loadCurrentEtags after recordCycle', async () => {
       const c1 = randomUUID();
       const c2 = randomUUID();
@@ -387,6 +540,7 @@ describe('PostgresHistoryStore', () => {
       await store.recordCycle({
         cycleId: c1,
         provider: 'okta-org',
+        source: 'provider',
         mutationType: 'full',
         startedAt: new Date('2026-05-12T10:00:00Z'),
         finishedAt: new Date('2026-05-12T10:00:01Z'),
@@ -403,6 +557,7 @@ describe('PostgresHistoryStore', () => {
       await store.recordCycle({
         cycleId: c2,
         provider: 'okta-org',
+        source: 'provider',
         mutationType: 'full',
         startedAt: new Date('2026-05-12T11:00:00Z'),
         finishedAt: new Date('2026-05-12T11:00:01Z'),
@@ -419,8 +574,8 @@ describe('PostgresHistoryStore', () => {
 
     it('persists thousands of entity rows across multiple insert chunks', async () => {
       // Exercises batchInsert: the chunk size is 1000, so 2500 rows trips
-      // three chunks. Larger than the PG bind-parameter limit (~3855 rows
-      // at 17 columns) is the original motivation, but 2500 keeps the test
+      // three chunks. Larger than the PG bind-parameter limit (~3120 rows
+      // at 20 columns) is the original motivation, but 2500 keeps the test
       // fast while still proving multi-chunk behavior.
       const cycleId = randomUUID();
       const inserts = Array.from({ length: 2500 }, (_, i) => ({
@@ -436,6 +591,7 @@ describe('PostgresHistoryStore', () => {
       await store.recordCycle({
         cycleId,
         provider: 'okta-org',
+        source: 'provider',
         mutationType: 'full',
         startedAt: new Date('2026-05-12T10:00:00Z'),
         finishedAt: new Date('2026-05-12T10:00:05Z'),
