@@ -170,8 +170,13 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
         unchangedCount,
       });
     } catch (error) {
-      this.options.logger.warn(
-        'Failed to flush processor-layer catalog history',
+      // History for this window is intentionally forfeited on store error:
+      // requeueing would grow the buffer unboundedly during an outage, and
+      // processor-layer capture is best-effort by design — the reconciler
+      // layer is the backstop for anything missed here. Logged at error so
+      // sustained store outages are alertable.
+      this.options.logger.error(
+        'Failed to flush processor-layer catalog history; dropping this batch',
         error as Error,
       );
     }

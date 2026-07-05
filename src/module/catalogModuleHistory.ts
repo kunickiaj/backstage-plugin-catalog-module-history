@@ -82,6 +82,12 @@ export const catalogModuleHistory = createBackendModule({
           return;
         }
 
+        // Note: catalog.history.database only affects the stores created by
+        // this module (processor-layer capture and the scheduled reconciler).
+        // Provider-layer capture is wired externally via the exported
+        // HistoryRecordingEntityProvider and writes to whatever database that
+        // wiring passes in — point it at the same connection if you use a
+        // dedicated history database.
         const dbConfig = moduleConfig?.getOptionalConfig('database');
         const db: Knex = dbConfig
           ? createKnex({
@@ -89,6 +95,13 @@ export const catalogModuleHistory = createBackendModule({
               connection: dbConfig.get('connection') as Knex.PgConnectionConfig,
             })
           : await database.getClient();
+        if (dbConfig) {
+          // The framework owns the shared client's lifecycle, but a
+          // connection pool we created ourselves is ours to close.
+          lifecycle.addShutdownHook(async () => {
+            await db.destroy();
+          });
+        }
 
         await ensureSchema(db);
         const providerEnabled =

@@ -19,6 +19,11 @@ export class CatalogServiceEntityFetcher implements EntityFetcher {
   }
 
   async getEntities(): Promise<Entity[]> {
+    // Acquiring credentials once per run is safe for the in-process
+    // CatalogService: the credentials object is a principal handle, and any
+    // token minting/expiry is handled beneath the call. Do not copy this
+    // pattern to an HTTP transport, where a cached bearer token could
+    // expire mid-pagination.
     const credentials = await this.auth.getOwnServiceCredentials();
     return fetchAllEntities(request =>
       this.catalog.queryEntities(request, { credentials }),

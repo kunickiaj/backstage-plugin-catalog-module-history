@@ -16,6 +16,13 @@ export interface Config {
       /**
        * Optional database override for history storage. Defaults to the
        * Backstage database service when omitted.
+       *
+       * Note: this only affects the stores created by the backend module
+       * itself (processor-layer capture and the scheduled reconciler).
+       * Provider-layer capture is wired externally via
+       * `HistoryRecordingEntityProvider` and writes to whatever database
+       * that wiring passes in — point it at the same connection if you use
+       * a dedicated history database.
        */
       database?: {
         /**
