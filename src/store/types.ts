@@ -2,6 +2,8 @@ import { JsonObject } from '@backstage/types';
 
 export type MutationType = 'full' | 'delta';
 
+export type CaptureSource = 'provider' | 'processing' | 'reconciler';
+
 export type EntityRow = {
   entityRef: string;
   kind: string;
@@ -15,11 +17,15 @@ export type EntityRow = {
   owner?: string;
   metadata: JsonObject;
   spec: JsonObject;
+  relations?: Array<{ type: string; targetRef: string }>;
+  statusItems?: JsonObject[];
+  orphan?: boolean;
 };
 
 export type CycleInput = {
   cycleId: string;
   provider: string;
+  source: CaptureSource;
   mutationType: MutationType;
   startedAt: Date;
   finishedAt: Date;

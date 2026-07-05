@@ -1,10 +1,11 @@
 import { Knex } from 'knex';
 import { CurrentEtag, HistoryStore } from '../store/HistoryStore';
-import { CycleInput, EntityRow } from '../store/types';
+import { CaptureSource, CycleInput, EntityRow } from '../store/types';
 
-// catalog_history_entities has ~17 columns, so the PostgreSQL bind-parameter
-// limit (65,535) caps a single INSERT at ~3,855 rows. Chunking at 1,000 gives
-// generous headroom and stays well clear of that limit even if columns grow.
+// catalog_history_entities has ~20 inserted columns, so the PostgreSQL
+// bind-parameter limit (65,535) caps a single INSERT at ~3,276 rows. Chunking
+// at 1,000 gives generous headroom and stays well clear of that limit even if
+// columns grow.
 const ENTITY_INSERT_CHUNK_SIZE = 1000;
 
 function parseEntityRef(entityRef: string): {
@@ -24,6 +25,7 @@ type EntityInsertRow = {
   namespace: string;
   name: string;
   provider: string;
+  source: CaptureSource;
   op: 'insert' | 'update' | 'delete';
   etag: string | null;
   display_name: string | null;
@@ -33,6 +35,9 @@ type EntityInsertRow = {
   owner: string | null;
   metadata: string | null;
   spec: string | null;
+  relations: string | null;
+  status_items: string | null;
+  orphan: boolean | null;
   changed_at: Date;
 };
 
@@ -40,6 +45,7 @@ function buildEntityRow(
   row: EntityRow,
   cycleId: string,
   provider: string,
+  source: CaptureSource,
   op: 'insert' | 'update',
   changedAt: Date,
 ): EntityInsertRow {
@@ -50,6 +56,7 @@ function buildEntityRow(
     namespace: row.namespace,
     name: row.name,
     provider,
+    source,
     op,
     etag: row.etag,
     display_name: row.displayName ?? null,
@@ -59,6 +66,9 @@ function buildEntityRow(
     owner: row.owner ?? null,
     metadata: JSON.stringify(row.metadata),
     spec: JSON.stringify(row.spec),
+    relations: row.relations ? JSON.stringify(row.relations) : null,
+    status_items: row.statusItems ? JSON.stringify(row.statusItems) : null,
+    orphan: row.orphan ?? null,
     changed_at: changedAt,
   };
 }
@@ -67,6 +77,7 @@ function buildDeleteRow(
   entityRef: string,
   cycleId: string,
   provider: string,
+  source: CaptureSource,
   changedAt: Date,
 ): EntityInsertRow {
   const { kind, namespace, name } = parseEntityRef(entityRef);
@@ -77,6 +88,7 @@ function buildDeleteRow(
     namespace,
     name,
     provider,
+    source,
     op: 'delete',
     etag: null,
     display_name: null,
@@ -86,6 +98,9 @@ function buildDeleteRow(
     owner: null,
     metadata: null,
     spec: null,
+    relations: null,
+    status_items: null,
+    orphan: null,
     changed_at: changedAt,
   };
 }
@@ -93,23 +108,28 @@ function buildDeleteRow(
 export class PostgresHistoryStore implements HistoryStore {
   constructor(private readonly db: Knex) {}
 
-  async loadCurrentEtags(provider: string): Promise<Map<string, string>> {
+  async loadCurrentEtags(
+    provider: string,
+    opts: { source?: CaptureSource } = {},
+  ): Promise<Map<string, string>> {
     // changed_at is set to the cycle's finishedAt for every row in a cycle,
     // so two rows for the same entity_ref can be tied on changed_at alone
     // (same cycle, or two cycles finishing in the same clock tick). id is
     // BIGSERIAL and strictly monotonic, so id DESC is a deterministic
     // tie-breaker for "latest".
+    const latest = this.db('catalog_history_entities')
+      .select('entity_ref', 'op', 'etag')
+      .distinctOn('entity_ref')
+      .where({ provider })
+      .orderBy('entity_ref')
+      .orderBy('changed_at', 'desc')
+      .orderBy('id', 'desc');
+    if (opts.source) {
+      latest.where('source', opts.source);
+    }
+
     const rows = await this.db
-      .with(
-        'latest',
-        this.db('catalog_history_entities')
-          .select('entity_ref', 'op', 'etag')
-          .distinctOn('entity_ref')
-          .where({ provider })
-          .orderBy('entity_ref')
-          .orderBy('changed_at', 'desc')
-          .orderBy('id', 'desc'),
-      )
+      .with('latest', latest)
       .from('latest')
       .where('op', '!=', 'delete')
       .select('entity_ref', 'etag');
@@ -123,19 +143,23 @@ export class PostgresHistoryStore implements HistoryStore {
     return result;
   }
 
-  async loadAllCurrentEtags(): Promise<Map<string, CurrentEtag>> {
+  async loadAllCurrentEtags(
+    opts: { source?: CaptureSource } = {},
+  ): Promise<Map<string, CurrentEtag>> {
     // id DESC is a deterministic tie-breaker on changed_at; see the comment
     // in loadCurrentEtags for the full rationale.
+    const latest = this.db('catalog_history_entities')
+      .select('entity_ref', 'op', 'etag', 'provider')
+      .distinctOn('entity_ref')
+      .orderBy('entity_ref')
+      .orderBy('changed_at', 'desc')
+      .orderBy('id', 'desc');
+    if (opts.source) {
+      latest.where('source', opts.source);
+    }
+
     const rows = await this.db
-      .with(
-        'latest',
-        this.db('catalog_history_entities')
-          .select('entity_ref', 'op', 'etag', 'provider')
-          .distinctOn('entity_ref')
-          .orderBy('entity_ref')
-          .orderBy('changed_at', 'desc')
-          .orderBy('id', 'desc'),
-      )
+      .with('latest', latest)
       .from('latest')
       .where('op', '!=', 'delete')
       .select('entity_ref', 'etag', 'provider');
@@ -159,6 +183,7 @@ export class PostgresHistoryStore implements HistoryStore {
       await tx('catalog_history_cycles').insert({
         cycle_id: input.cycleId,
         provider: input.provider,
+        source: input.source,
         mutation_type: input.mutationType,
         started_at: input.startedAt,
         finished_at: input.finishedAt,
@@ -175,6 +200,7 @@ export class PostgresHistoryStore implements HistoryStore {
             row,
             input.cycleId,
             input.provider,
+            input.source,
             'insert',
             changedAt,
           ),
@@ -186,6 +212,7 @@ export class PostgresHistoryStore implements HistoryStore {
             row,
             input.cycleId,
             input.provider,
+            input.source,
             'update',
             changedAt,
           ),
@@ -193,7 +220,13 @@ export class PostgresHistoryStore implements HistoryStore {
       }
       for (const ref of input.deletes) {
         entityRows.push(
-          buildDeleteRow(ref, input.cycleId, input.provider, changedAt),
+          buildDeleteRow(
+            ref,
+            input.cycleId,
+            input.provider,
+            input.source,
+            changedAt,
+          ),
         );
       }
 

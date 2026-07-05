@@ -1,5 +1,11 @@
 import knex, { Knex } from 'knex';
+import { resolvePackagePath } from '@backstage/backend-plugin-api';
 import { ensureSchema } from '../ensureSchema';
+
+const migrationsDir = resolvePackagePath(
+  'backstage-plugin-catalog-backend-module-history',
+  'migrations',
+);
 
 const TEST_CONFIG = {
   host: process.env.PG_HOST ?? 'localhost',
@@ -46,6 +52,7 @@ describe('ensureSchema', () => {
         'n_removed',
         'n_unchanged',
         'provider',
+        'source',
         'started_at',
       ].sort(),
     );
@@ -68,12 +75,33 @@ describe('ensureSchema', () => {
         'name',
         'namespace',
         'op',
+        'orphan',
         'owner',
         'parent',
         'provider',
+        'relations',
+        'source',
         'spec',
+        'status_items',
       ].sort(),
     );
+  });
+
+  it('drops the source and stitched fields when the latest migration is rolled back', async () => {
+    await ensureSchema(db);
+    await db.migrate.down({ directory: migrationsDir });
+
+    const cycleCols = await db('information_schema.columns')
+      .where({ table_name: 'catalog_history_cycles' })
+      .pluck('column_name');
+    const entityCols = await db('information_schema.columns')
+      .where({ table_name: 'catalog_history_entities' })
+      .pluck('column_name');
+
+    expect(cycleCols).not.toContain('source');
+    for (const col of ['source', 'relations', 'status_items', 'orphan']) {
+      expect(entityCols).not.toContain(col);
+    }
   });
 
   it('is idempotent: a second call is a no-op', async () => {
@@ -108,6 +136,7 @@ describe('ensureSchema', () => {
         expect.stringMatching(/catalog_history_entities_entity_ref_changed_at/),
         expect.stringMatching(/catalog_history_entities_cycle_id/),
         expect.stringMatching(/catalog_history_entities_provider_changed_at/),
+        expect.stringMatching(/catalog_history_entities_source_changed_at/),
         expect.stringMatching(/catalog_history_entities_owner/),
         expect.stringMatching(/catalog_history_entities_parent/),
         expect.stringMatching(/catalog_history_entities_member_of/),

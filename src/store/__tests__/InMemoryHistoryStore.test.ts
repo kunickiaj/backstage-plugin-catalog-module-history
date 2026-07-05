@@ -22,6 +22,7 @@ function cycle(overrides: Partial<CycleInput> = {}): CycleInput {
   return {
     cycleId: 'c1',
     provider: 'okta-org',
+    source: 'provider',
     mutationType: 'full',
     startedAt: new Date('2026-05-12T10:00:00Z'),
     finishedAt: new Date('2026-05-12T10:00:01Z'),
@@ -110,6 +111,38 @@ describe('InMemoryHistoryStore', () => {
     expect((await store.loadCurrentEtags('okta-org')).size).toBe(0);
   });
 
+  it('filters provider etags by source when requested', async () => {
+    const store = new InMemoryHistoryStore();
+    await store.recordCycle(
+      cycle({
+        cycleId: 'c1',
+        source: 'provider',
+        inserts: [row('alice', 'provider-etag')],
+      }),
+    );
+    await store.recordCycle(
+      cycle({
+        cycleId: 'c2',
+        source: 'processing',
+        updates: [row('alice', 'processing-etag')],
+      }),
+    );
+
+    expect(
+      (await store.loadCurrentEtags('okta-org')).get('user:default/alice'),
+    ).toBe('processing-etag');
+    expect(
+      (await store.loadCurrentEtags('okta-org', { source: 'provider' })).get(
+        'user:default/alice',
+      ),
+    ).toBe('provider-etag');
+    expect(
+      (await store.loadCurrentEtags('okta-org', { source: 'processing' })).get(
+        'user:default/alice',
+      ),
+    ).toBe('processing-etag');
+  });
+
   it('returns an independent copy of the etags map', async () => {
     const store = new InMemoryHistoryStore();
     await store.recordCycle(
@@ -150,6 +183,40 @@ describe('InMemoryHistoryStore', () => {
       // Mirrors Postgres: latest row is the delete, so the entity is gone
       // globally regardless of which provider issued the delete.
       expect(all.has('user:default/alice')).toBe(false);
+    });
+
+    it('filters global etags by source when requested', async () => {
+      const store = new InMemoryHistoryStore();
+
+      await store.recordCycle(
+        cycle({
+          cycleId: 'c1',
+          provider: 'okta-org',
+          source: 'provider',
+          inserts: [row('alice', 'provider-etag')],
+        }),
+      );
+      await store.recordCycle(
+        cycle({
+          cycleId: 'c2',
+          provider: 'catalog-processor',
+          source: 'processing',
+          inserts: [row('bob', 'processing-etag')],
+        }),
+      );
+
+      const all = await store.loadAllCurrentEtags();
+      const processing = await store.loadAllCurrentEtags({
+        source: 'processing',
+      });
+
+      expect(all.has('user:default/alice')).toBe(true);
+      expect(all.has('user:default/bob')).toBe(true);
+      expect(processing.has('user:default/alice')).toBe(false);
+      expect(processing.get('user:default/bob')).toEqual({
+        etag: 'processing-etag',
+        provider: 'catalog-processor',
+      });
     });
   });
 });

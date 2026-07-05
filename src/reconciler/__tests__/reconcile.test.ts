@@ -27,6 +27,7 @@ describe('reconcile', () => {
     await store.recordCycle({
       cycleId: 'seed-1',
       provider: 'okta-org',
+      source: 'provider',
       mutationType: 'full',
       startedAt: new Date('2026-05-12T10:00:00Z'),
       finishedAt: new Date('2026-05-12T10:00:01Z'),
@@ -89,6 +90,7 @@ describe('reconcile', () => {
     await store.recordCycle({
       cycleId: 'seed-1',
       provider: 'okta-org',
+      source: 'provider',
       mutationType: 'full',
       startedAt: new Date('2026-05-12T10:00:00Z'),
       finishedAt: new Date('2026-05-12T10:00:01Z'),
@@ -132,6 +134,7 @@ describe('reconcile', () => {
     await store.recordCycle({
       cycleId: 'seed-1',
       provider: 'okta-org',
+      source: 'provider',
       mutationType: 'full',
       startedAt: new Date('2026-05-12T10:00:00Z'),
       finishedAt: new Date('2026-05-12T10:00:01Z'),
@@ -181,6 +184,7 @@ describe('reconcile', () => {
     await store.recordCycle({
       cycleId: 'seed-okta',
       provider: 'okta-org',
+      source: 'provider',
       mutationType: 'full',
       startedAt: new Date('2026-05-12T10:00:00Z'),
       finishedAt: new Date('2026-05-12T10:00:01Z'),
@@ -202,6 +206,7 @@ describe('reconcile', () => {
     await store.recordCycle({
       cycleId: 'seed-github',
       provider: 'github-org',
+      source: 'provider',
       mutationType: 'full',
       startedAt: new Date('2026-05-12T10:00:00Z'),
       finishedAt: new Date('2026-05-12T10:00:01Z'),
