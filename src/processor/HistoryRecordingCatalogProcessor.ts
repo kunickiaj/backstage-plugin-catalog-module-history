@@ -40,8 +40,10 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
   private readonly flushIntervalMs: number;
   private currentEtags: Map<string, string> | undefined;
   private seedPromise: Promise<Map<string, string>> | undefined;
-  private inserts: EntityRow[] = [];
-  private updates: EntityRow[] = [];
+  // Queued rows carry the etag they replaced in the cache so a failed
+  // flush can restore it exactly (undefined = the ref was absent).
+  private inserts: Array<{ row: EntityRow }> = [];
+  private updates: Array<{ row: EntityRow; previousEtag: string }> = [];
   private unchangedCount = 0;
   private batchStartedAt: Date | undefined;
   private flushTimer: NodeJS.Timeout | undefined;
@@ -81,9 +83,9 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
       }
 
       if (previousEtag === undefined) {
-        this.inserts.push(row);
+        this.inserts.push({ row });
       } else {
-        this.updates.push(row);
+        this.updates.push({ row, previousEtag });
       }
       etags.set(row.entityRef, row.etag);
       this.ensureBatchStarted();
@@ -184,8 +186,8 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
         mutationType: 'delta',
         startedAt,
         finishedAt: new Date(),
-        inserts,
-        updates,
+        inserts: inserts.map(queued => queued.row),
+        updates: updates.map(queued => queued.row),
         deletes: [],
         unchangedCount,
       });
@@ -199,13 +201,20 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
       // The etag cache must not claim these rows were persisted, though —
       // otherwise the next observation of the same content would hit the
       // unchanged fast path and the entity would stay missing from history
-      // until it changes again. Roll back the cache entries we wrote for
-      // this batch (unless a newer etag has been queued since).
+      // until it changes again. Restore each entry to its pre-queue state
+      // (previous persisted etag for updates, absent for inserts) so the
+      // retry classifies with the correct op — unless a newer etag has
+      // been queued for the ref since.
       const etags = this.currentEtags;
       if (etags) {
-        for (const row of [...inserts, ...updates]) {
+        for (const { row } of inserts) {
           if (etags.get(row.entityRef) === row.etag) {
             etags.delete(row.entityRef);
+          }
+        }
+        for (const { row, previousEtag } of updates) {
+          if (etags.get(row.entityRef) === row.etag) {
+            etags.set(row.entityRef, previousEtag);
           }
         }
       }

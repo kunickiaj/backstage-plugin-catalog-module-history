@@ -286,4 +286,37 @@ describe('HistoryRecordingCatalogProcessor', () => {
       'user:default/alice',
     ]);
   });
+
+  it('restores the prior etag on failed update flush so the retry stays an update', async () => {
+    const store = new InMemoryHistoryStore();
+    await recordExisting(store, user('alice', 'a1'));
+
+    const original = store.recordCycle.bind(store);
+    let failNext = true;
+    jest.spyOn(store, 'recordCycle').mockImplementation(async input => {
+      if (failNext) {
+        failNext = false;
+        throw new Error('db down');
+      }
+      return original(input);
+    });
+    const processor = new HistoryRecordingCatalogProcessor({
+      store,
+      logger: mockServices.logger.mock(),
+      maxBatchSize: 1,
+    });
+
+    // a1 -> a2 is an update; the flush fails and must restore a1 in the
+    // cache (not delete the entry, which would misclassify the retry as
+    // an insert and inflate n_added). cycles[0] is the seed cycle.
+    await postProcess(processor, user('alice', 'a2'));
+    expect(store.cycles).toHaveLength(1);
+
+    await postProcess(processor, user('alice', 'a2'));
+    expect(store.cycles).toHaveLength(2);
+    expect(store.cycles[1].inserts).toEqual([]);
+    expect(store.cycles[1].updates.map(row => row.entityRef)).toEqual([
+      'user:default/alice',
+    ]);
+  });
 });
