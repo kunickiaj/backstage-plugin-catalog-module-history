@@ -159,4 +159,4 @@ ORDER BY source, changed_at DESC;
 
 Provider and processing capture are event-adjacent and cheap enough to run continuously, but each can miss a class of truth: provider capture misses downstream mutations, and processing capture cannot prove deletes or final stitch output.
 
-The reconciler is the backstop. It scans the served catalog, compares against current history etags, and records inserts, updates, deletes, or a heartbeat cycle. Run it scheduled in-process by default; use the CLI when you want process isolation.
+The reconciler is the backstop. It scans the served catalog, compares against its own `source='reconciler'` baseline (never against provider or processing rows — their etags hash different content, so cross-source comparison would report phantom updates), and records inserts, updates, deletes, or a heartbeat cycle. Its first run captures the whole catalog once. Run it scheduled in-process by default; use the CLI when you want process isolation.

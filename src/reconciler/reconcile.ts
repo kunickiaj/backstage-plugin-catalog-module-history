@@ -12,13 +12,22 @@ export type ReconcileOptions = {
 };
 
 /**
- * Snapshots the catalog via the EntityFetcher, diffs it against the union
- * of all per-provider current etags from the HistoryStore, and records a
- * single cycle attributed to provider='reconciler' summarizing the drift.
+ * Snapshots the catalog via the EntityFetcher, diffs it against the
+ * reconciler's own previously recorded state, and records a single cycle
+ * attributed to provider='reconciler' / source='reconciler' summarizing
+ * the changes in served catalog truth.
  *
- * Records a heartbeat cycle (no row changes) when the catalog and the
- * history agree, so an operator can tell from the cycles table that the
- * reconciler is running on schedule.
+ * The baseline is intentionally scoped to source='reconciler'. Etags from
+ * other capture layers are computed over different content (provider rows
+ * over pre-processing envelopes, processing rows over pre-stitch output),
+ * so comparing the served-catalog etag against them would report phantom
+ * updates on every real change. Each source keeps its own baseline; the
+ * first reconcile run therefore records the entire catalog as inserts —
+ * an expected one-time cost, same as first enabling processing capture.
+ *
+ * Records a heartbeat cycle (no row changes) when the served catalog and
+ * the reconciler's baseline agree, so an operator can tell from the
+ * cycles table that the reconciler is running on schedule.
  */
 export async function reconcile(opts: ReconcileOptions): Promise<void> {
   const { fetcher, store, logger } = opts;
@@ -28,7 +37,7 @@ export async function reconcile(opts: ReconcileOptions): Promise<void> {
   const rows: EntityRow[] = entities.map(entity => entityToRow(entity));
   const incomingRefs = new Set(rows.map(r => r.entityRef));
 
-  const existing = await store.loadAllCurrentEtags();
+  const existing = await store.loadAllCurrentEtags({ source: 'reconciler' });
 
   const inserts: EntityRow[] = [];
   const updates: EntityRow[] = [];

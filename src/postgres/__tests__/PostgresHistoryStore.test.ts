@@ -574,9 +574,9 @@ describe('PostgresHistoryStore', () => {
 
     it('persists thousands of entity rows across multiple insert chunks', async () => {
       // Exercises batchInsert: the chunk size is 1000, so 2500 rows trips
-      // three chunks. Larger than the PG bind-parameter limit (~3120 rows
-      // at 20 columns) is the original motivation, but 2500 keeps the test
-      // fast while still proving multi-chunk behavior.
+      // three chunks. Larger than the PG bind-parameter limit (~3276 rows
+      // at 20 columns, 65535/20) is the original motivation, but 2500 keeps
+      // the test fast while still proving multi-chunk behavior.
       const cycleId = randomUUID();
       const inserts = Array.from({ length: 2500 }, (_, i) => ({
         entityRef: `user:default/u${i}`,

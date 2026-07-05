@@ -182,7 +182,7 @@ ORDER BY changed_at DESC;
 
 ## Reconciler modes
 
-The reconciler snapshots the live catalog, diffs against the history table, and records drift as a cycle with `provider='reconciler'` and `source='reconciler'`. Safe to run repeatedly; a clean catalog records a heartbeat cycle.
+The reconciler snapshots the live catalog and diffs against its own previously recorded state (`source='reconciler'` rows only — etags from other capture layers are computed over different content and are not comparable). Changes are recorded as a cycle with `provider='reconciler'` and `source='reconciler'`. Safe to run repeatedly; an unchanged catalog records a heartbeat cycle. The first run records the entire catalog as inserts — an expected one-time cost, same as first enabling processing capture.
 
 Preferred mode: scheduled in-process reconciliation:
 

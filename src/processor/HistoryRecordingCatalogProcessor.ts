@@ -30,6 +30,10 @@ export type HistoryRecordingCatalogProcessorOptions = {
  * backend modules is also not enforceable, so this layer may observe pre-final
  * content. The reconciler layer remains the backstop; see
  * docs/adr/2026-07-01-entity-capture-layers.md.
+ *
+ * The per-cycle `n_unchanged` aggregate is approximate: unchanged
+ * observations never trigger a flush by themselves, so their count is
+ * attributed to the next cycle that records actual changes.
  */
 export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
   private readonly maxBatchSize: number;
@@ -63,6 +67,12 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
     try {
       const row = entityToRow(entity);
       const etags = await this.getCurrentEtags();
+      // INVARIANT: no awaits between reading the map below and writing it
+      // back (etags.set). The catalog engine calls postProcessEntity
+      // concurrently; because this read-classify-queue stretch is fully
+      // synchronous, concurrent calls for the same entityRef serialize on
+      // the microtask queue and cannot double-classify. Adding an await in
+      // between would reintroduce a TOCTOU race and duplicate rows.
       const previousEtag = etags.get(row.entityRef);
 
       if (previousEtag === row.etag) {
@@ -141,7 +151,11 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
 
   private async flushBuffered(): Promise<void> {
     if (this.bufferLength() === 0) {
-      this.unchangedCount = 0;
+      // Keep the unchanged counter: a stream of unchanged entities never
+      // queues rows (and never records a cycle on its own), so the count
+      // carries over and is attributed to the next cycle that does record.
+      // Unchanged observations still pending at stop() are dropped —
+      // acceptable for a best-effort aggregate.
       return;
     }
 
