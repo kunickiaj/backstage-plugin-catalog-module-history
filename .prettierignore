@@ -6,3 +6,7 @@ node_modules
 .claude
 yarn.lock
 docs/plans
+# Machine-managed by beads (bd); formatting would be overwritten
+.beads
+.agents
+.tmp
