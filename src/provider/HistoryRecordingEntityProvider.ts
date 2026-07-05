@@ -45,6 +45,15 @@ export type HistoryRecordingEntityProviderOptions = {
    * provider is always forwarded as-is because there is no etag baseline.
    */
   forceFullEvery?: ForceFullEveryDuration;
+  /**
+   * When false, the wrapper becomes a pure passthrough: mutations are
+   * forwarded to the catalog untouched and nothing is recorded to history.
+   * Lets consumers wire the flag from `catalog.history.provider.enabled`
+   * at backend setup without needing config access inside the wrapper.
+   *
+   * Defaults to true.
+   */
+  enabled?: boolean;
 };
 
 /**
@@ -72,12 +81,14 @@ export class HistoryRecordingEntityProvider implements EntityProvider {
   private readonly logger: LoggerService;
   private readonly convertFullToDelta: boolean;
   private readonly forceFullEveryMs?: number;
+  private readonly enabled: boolean;
   private lastForwardedFullAt?: Date;
 
   constructor(options: HistoryRecordingEntityProviderOptions) {
     this.inner = options.inner;
     this.store = options.store;
     this.logger = options.logger;
+    this.enabled = options.enabled ?? true;
     this.convertFullToDelta = options.convertFullToDelta ?? false;
     this.forceFullEveryMs = options.forceFullEvery
       ? durationToMs(options.forceFullEvery)
@@ -89,6 +100,14 @@ export class HistoryRecordingEntityProvider implements EntityProvider {
   }
 
   async connect(connection: EntityProviderConnection): Promise<void> {
+    if (!this.enabled) {
+      // Pure passthrough: hand the inner provider the raw connection so
+      // this wrapper adds zero overhead when provider-layer capture is
+      // disabled via config.
+      await this.inner.connect(connection);
+      return;
+    }
+
     const wrapped: EntityProviderConnection = {
       applyMutation: async mutation => {
         // Forward-first failure isolation: only the conversion path needs

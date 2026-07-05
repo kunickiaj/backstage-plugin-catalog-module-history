@@ -77,14 +77,40 @@ All optional; sensible defaults.
 ```yaml
 catalog:
   history:
-    enabled: true # set to false to skip schema bootstrap entirely
+    enabled: true
 
     # Optional: write to a different Postgres instance than Backstage's
     # main catalog DB. Defaults to the same DB Backstage uses.
     database:
       client: pg
       connection: ${PG_HISTORY_URL}
+
+    # Provider-layer recording via HistoryRecordingEntityProvider wrapper.
+    provider:
+      enabled: true
+
+    # Reserved — lands in an upcoming release.
+    processing:
+      enabled: false
+
+    # Reserved — lands in an upcoming release.
+    reconciler:
+      enabled: false
+      schedule:
+        frequency: { minutes: 30 }
+        timeout: { minutes: 5 }
+        initialDelay: { seconds: 30 }
 ```
+
+| Key                                   | Default                    | Effect                                                                                    |
+| ------------------------------------- | -------------------------- | ----------------------------------------------------------------------------------------- |
+| `catalog.history.enabled`             | `true`                     | Master switch. Set to `false` to skip schema bootstrap entirely.                          |
+| `catalog.history.database.client`     | `pg`                       | Knex client for the history database override.                                            |
+| `catalog.history.database.connection` | Backstage database service | Knex connection string or object for history storage. Treated as secret config.           |
+| `catalog.history.provider.enabled`    | `true`                     | Gates provider-layer recording via `HistoryRecordingEntityProvider` wrapper wiring.       |
+| `catalog.history.processing.enabled`  | `false`                    | Reserved — lands in an upcoming release; will gate processor-layer capture.               |
+| `catalog.history.reconciler.enabled`  | `false`                    | Reserved — lands in an upcoming release; will enable scheduled in-process reconciliation. |
+| `catalog.history.reconciler.schedule` | unset                      | Reserved — future Backstage scheduler task schedule for the in-process reconciler.        |
 
 ## Query the history
 

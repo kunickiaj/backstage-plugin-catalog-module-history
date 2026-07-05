@@ -61,4 +61,48 @@ describe('catalogModuleHistory', () => {
       .first();
     expect(cycleTable).toBeUndefined();
   });
+
+  it('boots with layer config keys and bootstraps the history schema', async () => {
+    const logger = mockServices.logger.mock();
+
+    backend = await startTestBackend({
+      features: [
+        catalogModuleHistory,
+        logger.factory,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: {
+            catalog: {
+              history: {
+                provider: { enabled: true },
+                processing: { enabled: true },
+                reconciler: {
+                  enabled: true,
+                  schedule: {
+                    frequency: { minutes: 30 },
+                    timeout: { minutes: 5 },
+                    initialDelay: { seconds: 30 },
+                  },
+                },
+              },
+            },
+          },
+        }),
+      ],
+    });
+
+    const cycleTable = await db('information_schema.tables')
+      .where({ table_name: 'catalog_history_cycles' })
+      .first();
+    expect(cycleTable).toBeDefined();
+
+    const entityTable = await db('information_schema.tables')
+      .where({ table_name: 'catalog_history_entities' })
+      .first();
+    expect(entityTable).toBeDefined();
+
+    expect(logger.info).toHaveBeenCalledWith(
+      'catalog-history capture layers: provider=on processing=on (not yet implemented) reconciler=on (not yet implemented)',
+    );
+  });
 });

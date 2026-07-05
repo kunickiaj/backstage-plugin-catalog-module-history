@@ -15,6 +15,7 @@
     "pluginId": "catalog",
     "pluginPackage": "@backstage/plugin-catalog-backend"
   },
+  "configSchema": "config.d.ts",
   "exports": {
     ".": "./src/index.ts",
     "./reconcile-cli": "./src/bin/reconcile.ts",
@@ -67,6 +68,7 @@
   },
   "files": [
     "bin",
+    "config.d.ts",
     "dist",
     "migrations",
     "scripts",
