@@ -2,14 +2,18 @@ import {
   coreServices,
   createBackendModule,
 } from '@backstage/backend-plugin-api';
+import { catalogProcessingExtensionPoint } from '@backstage/plugin-catalog-node';
 import { Knex, knex as createKnex } from 'knex';
+import { HistoryRecordingCatalogProcessor } from '../processor/HistoryRecordingCatalogProcessor';
 import { ensureSchema } from '../postgres/ensureSchema';
+import { PostgresHistoryStore } from '../postgres/PostgresHistoryStore';
 
 /**
  * Backstage backend module for the catalog-history plugin. On init it
  * resolves the database connection (either an explicit catalog.history.
  * database config or Backstage's shared database service) and runs the
- * history schema migrations. That's the entire module surface today.
+ * history schema migrations. When processor-layer capture is enabled, it also
+ * registers a history processor with the catalog processing extension point.
  *
  * Wrapping individual EntityProviders for cycle recording is handled at
  * backend wiring time via the exported `HistoryRecordingEntityProvider`.
@@ -34,7 +38,7 @@ import { ensureSchema } from '../postgres/ensureSchema';
  *     provider:
  *       enabled: true     # gates provider-layer recording wrapper wiring
  *     processing:
- *       enabled: false    # reserved; CatalogProcessor capture is not implemented yet
+ *       enabled: false    # opt-in CatalogProcessor capture
  *     reconciler:
  *       enabled: false    # reserved; in-process scheduled reconciliation is not implemented yet
  *       schedule:
@@ -52,8 +56,10 @@ export const catalogModuleHistory = createBackendModule({
         logger: coreServices.logger,
         config: coreServices.rootConfig,
         database: coreServices.database,
+        catalog: catalogProcessingExtensionPoint,
+        lifecycle: coreServices.rootLifecycle,
       },
-      async init({ logger, config, database }) {
+      async init({ logger, config, database, catalog, lifecycle }) {
         const moduleConfig = config.getOptionalConfig('catalog.history');
         if (moduleConfig?.getOptionalBoolean('enabled') === false) {
           logger.info(
@@ -87,12 +93,22 @@ export const catalogModuleHistory = createBackendModule({
         logger.info(
           `catalog-history capture layers: provider=${
             providerEnabled ? 'on' : 'off'
-          } processing=${
-            processingEnabled ? 'on (not yet implemented)' : 'off'
-          } reconciler=${
+          } processing=${processingEnabled ? 'on' : 'off'} reconciler=${
             reconcilerEnabled ? 'on (not yet implemented)' : 'off'
           }`,
         );
+
+        if (processingEnabled) {
+          const processor = new HistoryRecordingCatalogProcessor({
+            store: new PostgresHistoryStore(db),
+            logger,
+          });
+          catalog.addProcessor(processor);
+          lifecycle.addShutdownHook(async () => {
+            await processor.stop();
+          });
+        }
+
         logger.info('catalog-history schema is ready');
       },
     });

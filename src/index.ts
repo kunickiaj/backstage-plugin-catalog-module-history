@@ -13,6 +13,10 @@ export {
   HistoryRecordingEntityProvider,
   type HistoryRecordingEntityProviderOptions,
 } from './provider/HistoryRecordingEntityProvider';
+export {
+  HistoryRecordingCatalogProcessor,
+  type HistoryRecordingCatalogProcessorOptions,
+} from './processor/HistoryRecordingCatalogProcessor';
 export { reconcile, type ReconcileOptions } from './reconciler/reconcile';
 export type { EntityFetcher } from './reconciler/EntityFetcher';
 export { catalogModuleHistory, default } from './module/catalogModuleHistory';

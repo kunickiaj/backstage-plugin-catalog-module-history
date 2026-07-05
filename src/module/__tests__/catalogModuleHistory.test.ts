@@ -4,7 +4,9 @@ import {
   mockServices,
   startTestBackend,
 } from '@backstage/backend-test-utils';
-import { Knex } from 'knex';
+import { catalogProcessingExtensionPoint } from '@backstage/plugin-catalog-node';
+import type { Knex } from 'knex';
+import { HistoryRecordingCatalogProcessor } from '../../processor/HistoryRecordingCatalogProcessor';
 import { catalogModuleHistory } from '../catalogModuleHistory';
 
 jest.setTimeout(30000);
@@ -27,6 +29,9 @@ describe('catalogModuleHistory', () => {
 
   it('bootstraps the history schema on init by default', async () => {
     backend = await startTestBackend({
+      extensionPoints: [
+        [catalogProcessingExtensionPoint, { addProcessor: jest.fn() }],
+      ],
       features: [
         catalogModuleHistory,
         mockServices.database.factory({ knex: db }),
@@ -47,6 +52,9 @@ describe('catalogModuleHistory', () => {
 
   it('skips schema bootstrap when catalog.history.enabled=false', async () => {
     backend = await startTestBackend({
+      extensionPoints: [
+        [catalogProcessingExtensionPoint, { addProcessor: jest.fn() }],
+      ],
       features: [
         catalogModuleHistory,
         mockServices.database.factory({ knex: db }),
@@ -66,6 +74,9 @@ describe('catalogModuleHistory', () => {
     const logger = mockServices.logger.mock();
 
     backend = await startTestBackend({
+      extensionPoints: [
+        [catalogProcessingExtensionPoint, { addProcessor: jest.fn() }],
+      ],
       features: [
         catalogModuleHistory,
         logger.factory,
@@ -102,7 +113,42 @@ describe('catalogModuleHistory', () => {
     expect(entityTable).toBeDefined();
 
     expect(logger.info).toHaveBeenCalledWith(
-      'catalog-history capture layers: provider=on processing=on (not yet implemented) reconciler=on (not yet implemented)',
+      'catalog-history capture layers: provider=on processing=on reconciler=on (not yet implemented)',
     );
+  });
+
+  it('registers the history processor when processing capture is enabled', async () => {
+    const addProcessor = jest.fn();
+
+    backend = await startTestBackend({
+      extensionPoints: [[catalogProcessingExtensionPoint, { addProcessor }]],
+      features: [
+        catalogModuleHistory,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({
+          data: { catalog: { history: { processing: { enabled: true } } } },
+        }),
+      ],
+    });
+
+    expect(addProcessor).toHaveBeenCalledTimes(1);
+    expect(addProcessor.mock.calls[0][0]).toBeInstanceOf(
+      HistoryRecordingCatalogProcessor,
+    );
+  });
+
+  it('does not register the history processor by default', async () => {
+    const addProcessor = jest.fn();
+
+    backend = await startTestBackend({
+      extensionPoints: [[catalogProcessingExtensionPoint, { addProcessor }]],
+      features: [
+        catalogModuleHistory,
+        mockServices.database.factory({ knex: db }),
+        mockServices.rootConfig.factory({ data: {} }),
+      ],
+    });
+
+    expect(addProcessor).not.toHaveBeenCalled();
   });
 });
