@@ -40,10 +40,12 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
   private readonly flushIntervalMs: number;
   private currentEtags: Map<string, string> | undefined;
   private seedPromise: Promise<Map<string, string>> | undefined;
-  // Queued rows carry the etag they replaced in the cache so a failed
-  // flush can restore it exactly (undefined = the ref was absent).
+  // Failed flush rollback restores each ref to its state before the first
+  // queued row in the batch, not to any intermediate etag also dropped with
+  // that failed batch.
+  private batchOriginalEtags = new Map<string, string | undefined>();
   private inserts: Array<{ row: EntityRow }> = [];
-  private updates: Array<{ row: EntityRow; previousEtag: string }> = [];
+  private updates: Array<{ row: EntityRow }> = [];
   private unchangedCount = 0;
   private batchStartedAt: Date | undefined;
   private flushTimer: NodeJS.Timeout | undefined;
@@ -82,10 +84,13 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
         return entity;
       }
 
+      if (!this.batchOriginalEtags.has(row.entityRef)) {
+        this.batchOriginalEtags.set(row.entityRef, previousEtag);
+      }
       if (previousEtag === undefined) {
         this.inserts.push({ row });
       } else {
-        this.updates.push({ row, previousEtag });
+        this.updates.push({ row });
       }
       etags.set(row.entityRef, row.etag);
       this.ensureBatchStarted();
@@ -104,10 +109,11 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
   }
 
   async flush(): Promise<void> {
-    // Loop until the buffer is drained: rows queued while an earlier
-    // recordCycle is in flight land in fresh arrays after flushBuffered
-    // resets them, so awaiting only the in-flight promise would return
-    // with those rows still buffered (and stop() would then lose them).
+    // Loop until the buffer is drained and no other caller has started a
+    // follow-up drain flush. Rows queued while an earlier recordCycle is in
+    // flight land in fresh arrays after flushBuffered resets them, so awaiting
+    // only the first in-flight promise would return with those rows still
+    // buffered (and stop() could then lose them).
     do {
       if (!this.flushPromise) {
         this.flushPromise = this.flushBuffered().finally(() => {
@@ -115,7 +121,7 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
         });
       }
       await this.flushPromise;
-    } while (this.bufferLength() > 0);
+    } while (this.bufferLength() > 0 || this.flushPromise);
   }
 
   async stop(): Promise<void> {
@@ -169,11 +175,13 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
 
     const inserts = this.inserts;
     const updates = this.updates;
+    const batchOriginalEtags = this.batchOriginalEtags;
     const unchangedCount = this.unchangedCount;
     const startedAt = this.batchStartedAt ?? new Date();
 
     this.inserts = [];
     this.updates = [];
+    this.batchOriginalEtags = new Map();
     this.unchangedCount = 0;
     this.batchStartedAt = undefined;
     this.clearFlushTimer();
@@ -201,20 +209,25 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
       // The etag cache must not claim these rows were persisted, though —
       // otherwise the next observation of the same content would hit the
       // unchanged fast path and the entity would stay missing from history
-      // until it changes again. Restore each entry to its pre-queue state
-      // (previous persisted etag for updates, absent for inserts) so the
-      // retry classifies with the correct op — unless a newer etag has
-      // been queued for the ref since.
+      // until it changes again. Restore each entry to its pre-batch state so
+      // retries classify with the correct op even when the same ref changed
+      // multiple times in this failed batch — unless a newer etag has been
+      // queued for the ref since.
       const etags = this.currentEtags;
       if (etags) {
-        for (const { row } of inserts) {
-          if (etags.get(row.entityRef) === row.etag) {
-            etags.delete(row.entityRef);
-          }
+        const failedBatchEtags = new Map<string, string>();
+        for (const { row } of [...inserts, ...updates]) {
+          failedBatchEtags.set(row.entityRef, row.etag);
         }
-        for (const { row, previousEtag } of updates) {
-          if (etags.get(row.entityRef) === row.etag) {
-            etags.set(row.entityRef, previousEtag);
+
+        for (const [entityRef, failedEtag] of failedBatchEtags) {
+          if (etags.get(entityRef) === failedEtag) {
+            const originalEtag = batchOriginalEtags.get(entityRef);
+            if (originalEtag === undefined) {
+              etags.delete(entityRef);
+            } else {
+              etags.set(entityRef, originalEtag);
+            }
           }
         }
       }

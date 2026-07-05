@@ -253,6 +253,60 @@ describe('HistoryRecordingCatalogProcessor', () => {
     ]);
   });
 
+  it('makes stop wait for drain flushes started by another flush caller', async () => {
+    const store = new InMemoryHistoryStore();
+    let releaseFirst!: () => void;
+    let releaseSecond!: () => void;
+    let secondStarted!: () => void;
+    const firstGate = new Promise<void>(resolve => {
+      releaseFirst = resolve;
+    });
+    const secondGate = new Promise<void>(resolve => {
+      releaseSecond = resolve;
+    });
+    const secondStartedGate = new Promise<void>(resolve => {
+      secondStarted = resolve;
+    });
+    const original = store.recordCycle.bind(store);
+    let callCount = 0;
+    jest.spyOn(store, 'recordCycle').mockImplementation(async input => {
+      callCount += 1;
+      if (callCount === 1) {
+        await firstGate;
+      } else if (callCount === 2) {
+        secondStarted();
+        await secondGate;
+      }
+      return original(input);
+    });
+    const processor = new HistoryRecordingCatalogProcessor({
+      store,
+      logger: mockServices.logger.mock(),
+      maxBatchSize: 10,
+      flushIntervalMs: 60_000,
+    });
+
+    await postProcess(processor, user('alice', 'a1'));
+    const inFlight = processor.flush();
+    let stopDone = false;
+    const stopped = processor.stop().then(() => {
+      stopDone = true;
+    });
+    await postProcess(processor, user('bob', 'b1'));
+
+    releaseFirst();
+    await secondStartedGate;
+    await Promise.resolve();
+    expect(stopDone).toBe(false);
+
+    releaseSecond();
+    await Promise.all([inFlight, stopped]);
+    expect(store.cycles).toHaveLength(2);
+    expect(store.cycles[1].inserts.map(row => row.entityRef)).toEqual([
+      'user:default/bob',
+    ]);
+  });
+
   it('re-records an entity after a failed flush instead of treating it as unchanged', async () => {
     const store = new InMemoryHistoryStore();
     const original = store.recordCycle.bind(store);
@@ -318,5 +372,39 @@ describe('HistoryRecordingCatalogProcessor', () => {
     expect(store.cycles[1].updates.map(row => row.entityRef)).toEqual([
       'user:default/alice',
     ]);
+  });
+
+  it('restores the pre-batch etag after a failed flush with repeated refs', async () => {
+    const store = new InMemoryHistoryStore();
+    await recordExisting(store, user('alice', 'a1'));
+
+    const original = store.recordCycle.bind(store);
+    let failNext = true;
+    jest.spyOn(store, 'recordCycle').mockImplementation(async input => {
+      if (failNext) {
+        failNext = false;
+        throw new Error('db down');
+      }
+      return original(input);
+    });
+    const processor = new HistoryRecordingCatalogProcessor({
+      store,
+      logger: mockServices.logger.mock(),
+      maxBatchSize: 10,
+    });
+
+    // a1 -> a2 -> a3 are queued in one batch. If rollback restores a2
+    // instead of the pre-batch a1, observing a2 again would incorrectly hit
+    // the unchanged fast path and never record the retry.
+    await postProcess(processor, user('alice', 'a2'));
+    await postProcess(processor, user('alice', 'a3'));
+    await processor.flush();
+    expect(store.cycles).toHaveLength(1);
+
+    await postProcess(processor, user('alice', 'a2'));
+    await processor.flush();
+    expect(store.cycles).toHaveLength(2);
+    expect(store.cycles[1].inserts).toEqual([]);
+    expect(store.cycles[1].updates.map(row => row.etag)).toEqual(['a2']);
   });
 });
