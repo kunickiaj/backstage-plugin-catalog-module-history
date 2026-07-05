@@ -114,6 +114,96 @@ describe('entityToRow', () => {
     expect(row.parent).toBeUndefined();
   });
 
+  it('populates relations sorted by type and targetRef', () => {
+    const entity = {
+      apiVersion: 'backstage.io/v1alpha1',
+      kind: 'Component',
+      metadata: { name: 'checkout-service', etag: 'component-etag' },
+      spec: { type: 'service', owner: 'group:default/platform' },
+      relations: [
+        { type: 'ownedBy', targetRef: 'group:default/platform' },
+        { type: 'dependsOn', targetRef: 'resource:default/queue' },
+        { type: 'dependsOn', targetRef: 'component:default/catalog' },
+      ],
+    } as Entity;
+
+    expect(entityToRow(entity).relations).toEqual([
+      { type: 'dependsOn', targetRef: 'component:default/catalog' },
+      { type: 'dependsOn', targetRef: 'resource:default/queue' },
+      { type: 'ownedBy', targetRef: 'group:default/platform' },
+    ]);
+  });
+
+  it('populates status items opaquely', () => {
+    const entity = {
+      apiVersion: 'backstage.io/v1alpha1',
+      kind: 'Component',
+      metadata: { name: 'with-status', etag: 'status-etag' },
+      spec: { type: 'service', owner: 'group:default/platform' },
+      status: {
+        items: [
+          {
+            type: 'backstage.io/catalog-processing',
+            level: 'error',
+            message: 'Processor failed',
+          },
+        ],
+      },
+    } as Entity;
+
+    expect(entityToRow(entity).statusItems).toEqual([
+      {
+        type: 'backstage.io/catalog-processing',
+        level: 'error',
+        message: 'Processor failed',
+      },
+    ]);
+  });
+
+  it("sets orphan only when the orphan annotation is 'true'", () => {
+    const base: Entity = {
+      apiVersion: 'backstage.io/v1alpha1',
+      kind: 'Component',
+      metadata: { name: 'orphaned', etag: 'orphan-etag' },
+      spec: { type: 'service', owner: 'group:default/platform' },
+    };
+
+    expect(
+      entityToRow({
+        ...base,
+        metadata: {
+          ...base.metadata,
+          annotations: { 'backstage.io/orphan': 'true' },
+        },
+      }).orphan,
+    ).toBe(true);
+    expect(entityToRow(base).orphan).toBeUndefined();
+    expect(
+      entityToRow({
+        ...base,
+        metadata: {
+          ...base.metadata,
+          annotations: { 'backstage.io/orphan': 'false' },
+        },
+      }).orphan,
+    ).toBeUndefined();
+  });
+
+  it('leaves stitched-only fields undefined when relations and status are absent', () => {
+    const entity: Entity = {
+      apiVersion: 'backstage.io/v1alpha1',
+      kind: 'Component',
+      metadata: { name: 'provider-layer', etag: 'provider-etag' },
+      spec: { type: 'service', owner: 'group:default/platform' },
+    };
+
+    const row = entityToRow(entity);
+
+    expect(row.relations).toBeUndefined();
+    expect(row.statusItems).toBeUndefined();
+    expect(row.orphan).toBeUndefined();
+  });
+
   it('lowercases the entity_ref but preserves Kind casing in the kind column', () => {
     const entity: Entity = {
       apiVersion: 'backstage.io/v1alpha1',
@@ -183,6 +273,23 @@ describe('entityToRow', () => {
     };
 
     expect(entityToRow(a).etag).not.toBe(entityToRow(b).etag);
+  });
+
+  it('keeps fallback etags identical when only relations differ', () => {
+    const withoutRelations: Entity = {
+      apiVersion: 'backstage.io/v1alpha1',
+      kind: 'Component',
+      metadata: { name: 'relation-only-change', namespace: 'default' },
+      spec: { type: 'service', owner: 'group:default/platform' },
+    };
+    const withRelations = {
+      ...withoutRelations,
+      relations: [{ type: 'ownedBy', targetRef: 'group:default/platform' }],
+    } as Entity;
+
+    expect(entityToRow(withoutRelations).etag).toBe(
+      entityToRow(withRelations).etag,
+    );
   });
 
   it('preserves custom annotations losslessly through metadata', () => {

@@ -30,6 +30,7 @@ function getStringArray(obj: unknown, key: string): string[] | undefined {
 // like an update even when nothing changed).
 const UNORDERED_METADATA_ARRAYS = ['tags'] as const;
 const UNORDERED_SPEC_ARRAYS = ['memberOf', 'children'] as const;
+const ORPHAN_ANNOTATION = 'backstage.io/orphan';
 
 function sortIfStringArray(value: unknown): unknown {
   if (Array.isArray(value) && value.every(v => typeof v === 'string')) {
@@ -65,6 +66,46 @@ function computeEtag(metadata: JsonObject, spec: JsonObject): string {
   return createHash('sha256').update(canonical).digest('hex');
 }
 
+function getRelations(entity: Entity): EntityRow['relations'] {
+  const relations = (entity as { relations?: unknown }).relations;
+  if (!Array.isArray(relations)) {
+    return undefined;
+  }
+
+  return relations
+    .flatMap(relation => {
+      const type = getString(relation, 'type');
+      const targetRef = getString(relation, 'targetRef');
+      return type && targetRef ? [{ type, targetRef }] : [];
+    })
+    .sort(
+      (a, b) =>
+        a.type.localeCompare(b.type) || a.targetRef.localeCompare(b.targetRef),
+    );
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function getStatusItems(entity: Entity): EntityRow['statusItems'] {
+  const status = (entity as { status?: unknown }).status;
+  if (!isJsonObject(status)) {
+    return undefined;
+  }
+
+  const items = status.items;
+  return Array.isArray(items) && items.every(isJsonObject)
+    ? [...items]
+    : undefined;
+}
+
+function getOrphan(entity: Entity): true | undefined {
+  return entity.metadata.annotations?.[ORPHAN_ANNOTATION] === 'true'
+    ? true
+    : undefined;
+}
+
 export function entityToRow(entity: Entity): EntityRow {
   const kind = entity.kind;
   const namespace = entity.metadata.namespace ?? DEFAULT_NAMESPACE;
@@ -76,6 +117,9 @@ export function entityToRow(entity: Entity): EntityRow {
 
   const profile = (spec.profile ?? {}) as JsonObject;
 
+  // Keep fallback etags scoped to metadata+spec. Provider-layer entities lack
+  // relations, so hashing stitched-only fields would make existing rows look
+  // modified; stitched entities already carry a metadata.etag covering them.
   const etag =
     typeof entity.metadata.etag === 'string'
       ? entity.metadata.etag
@@ -94,5 +138,8 @@ export function entityToRow(entity: Entity): EntityRow {
     owner: getString(spec, 'owner'),
     metadata,
     spec,
+    relations: getRelations(entity),
+    statusItems: getStatusItems(entity),
+    orphan: getOrphan(entity),
   };
 }
