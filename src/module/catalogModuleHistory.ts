@@ -31,6 +31,16 @@ import { ensureSchema } from '../postgres/ensureSchema';
  *     database:           # optional; falls back to Backstage's DB
  *       client: pg
  *       connection: ${PG_HISTORY_URL}
+ *     provider:
+ *       enabled: true     # gates provider-layer recording wrapper wiring
+ *     processing:
+ *       enabled: false    # reserved; CatalogProcessor capture is not implemented yet
+ *     reconciler:
+ *       enabled: false    # reserved; in-process scheduled reconciliation is not implemented yet
+ *       schedule:
+ *         frequency: { minutes: 30 }
+ *         timeout: { minutes: 5 }
+ *         initialDelay: { seconds: 30 }
  * ```
  */
 export const catalogModuleHistory = createBackendModule({
@@ -61,6 +71,28 @@ export const catalogModuleHistory = createBackendModule({
           : await database.getClient();
 
         await ensureSchema(db);
+        const providerEnabled =
+          moduleConfig
+            ?.getOptionalConfig('provider')
+            ?.getOptionalBoolean('enabled') ?? true;
+        const processingEnabled =
+          moduleConfig
+            ?.getOptionalConfig('processing')
+            ?.getOptionalBoolean('enabled') ?? false;
+        const reconcilerEnabled =
+          moduleConfig
+            ?.getOptionalConfig('reconciler')
+            ?.getOptionalBoolean('enabled') ?? false;
+
+        logger.info(
+          `catalog-history capture layers: provider=${
+            providerEnabled ? 'on' : 'off'
+          } processing=${
+            processingEnabled ? 'on (not yet implemented)' : 'off'
+          } reconciler=${
+            reconcilerEnabled ? 'on (not yet implemented)' : 'off'
+          }`,
+        );
         logger.info('catalog-history schema is ready');
       },
     });

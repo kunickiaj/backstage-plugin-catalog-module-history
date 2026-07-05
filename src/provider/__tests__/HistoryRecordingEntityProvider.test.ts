@@ -95,6 +95,28 @@ describe('HistoryRecordingEntityProvider', () => {
     ]);
   });
 
+  it('forwards mutations without recording when enabled=false', async () => {
+    const store = new InMemoryHistoryStore();
+    const inner = new FakeProvider('okta-org', [user('alice', 'a1')]);
+    const logger = mockServices.logger.mock();
+    const wrapper = new HistoryRecordingEntityProvider({
+      inner,
+      store,
+      logger,
+      enabled: false,
+    });
+
+    const connection = fakeConnection();
+    await wrapper.connect(connection);
+
+    expect(wrapper.getProviderName()).toBe('okta-org');
+    expect(connection.applyMutation).toHaveBeenCalledTimes(1);
+    const mutation = (connection.applyMutation as jest.Mock).mock.calls[0][0];
+    expect(mutation.type).toBe('full');
+    expect(mutation.entities).toHaveLength(1);
+    expect(store.cycles).toHaveLength(0);
+  });
+
   async function setup(initial: Entity[]) {
     const store = new InMemoryHistoryStore();
     const logger = mockServices.logger.mock();
