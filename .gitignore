@@ -43,3 +43,13 @@ dist-types
 
 # Local overrides
 *.local.yaml
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/
+
+# Agent session scratch + local tool config
+.tmp/
+.codex/
