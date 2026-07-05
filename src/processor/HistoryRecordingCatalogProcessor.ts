@@ -39,9 +39,15 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
   private readonly maxBatchSize: number;
   private readonly flushIntervalMs: number;
   private currentEtags: Map<string, string> | undefined;
+  private currentEtagVersions = new Map<string, number>();
   private seedPromise: Promise<Map<string, string>> | undefined;
-  private inserts: EntityRow[] = [];
-  private updates: EntityRow[] = [];
+  // Failed flush rollback restores each ref to its state before the first
+  // queued row in the batch, not to any intermediate etag also dropped with
+  // that failed batch.
+  private batchOriginalEtags = new Map<string, string | undefined>();
+  private batchOriginalEtagVersions = new Map<string, number>();
+  private inserts: Array<{ row: EntityRow; etagVersion: number }> = [];
+  private updates: Array<{ row: EntityRow; etagVersion: number }> = [];
   private unchangedCount = 0;
   private batchStartedAt: Date | undefined;
   private flushTimer: NodeJS.Timeout | undefined;
@@ -74,18 +80,26 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
       // the microtask queue and cannot double-classify. Adding an await in
       // between would reintroduce a TOCTOU race and duplicate rows.
       const previousEtag = etags.get(row.entityRef);
+      const previousEtagVersion =
+        this.currentEtagVersions.get(row.entityRef) ?? 0;
 
       if (previousEtag === row.etag) {
         this.unchangedCount += 1;
         return entity;
       }
 
+      if (!this.batchOriginalEtags.has(row.entityRef)) {
+        this.batchOriginalEtags.set(row.entityRef, previousEtag);
+        this.batchOriginalEtagVersions.set(row.entityRef, previousEtagVersion);
+      }
+      const etagVersion = previousEtagVersion + 1;
       if (previousEtag === undefined) {
-        this.inserts.push(row);
+        this.inserts.push({ row, etagVersion });
       } else {
-        this.updates.push(row);
+        this.updates.push({ row, etagVersion });
       }
       etags.set(row.entityRef, row.etag);
+      this.currentEtagVersions.set(row.entityRef, etagVersion);
       this.ensureBatchStarted();
 
       if (this.bufferLength() >= this.maxBatchSize) {
@@ -102,12 +116,19 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
   }
 
   async flush(): Promise<void> {
-    if (!this.flushPromise) {
-      this.flushPromise = this.flushBuffered().finally(() => {
-        this.flushPromise = undefined;
-      });
-    }
-    await this.flushPromise;
+    // Loop until the buffer is drained and no other caller has started a
+    // follow-up drain flush. Rows queued while an earlier recordCycle is in
+    // flight land in fresh arrays after flushBuffered resets them, so awaiting
+    // only the first in-flight promise would return with those rows still
+    // buffered (and stop() could then lose them).
+    do {
+      if (!this.flushPromise) {
+        this.flushPromise = this.flushBuffered().finally(() => {
+          this.flushPromise = undefined;
+        });
+      }
+      await this.flushPromise;
+    } while (this.bufferLength() > 0 || this.flushPromise);
   }
 
   async stop(): Promise<void> {
@@ -161,11 +182,15 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
 
     const inserts = this.inserts;
     const updates = this.updates;
+    const batchOriginalEtags = this.batchOriginalEtags;
+    const batchOriginalEtagVersions = this.batchOriginalEtagVersions;
     const unchangedCount = this.unchangedCount;
     const startedAt = this.batchStartedAt ?? new Date();
 
     this.inserts = [];
     this.updates = [];
+    this.batchOriginalEtags = new Map();
+    this.batchOriginalEtagVersions = new Map();
     this.unchangedCount = 0;
     this.batchStartedAt = undefined;
     this.clearFlushTimer();
@@ -178,8 +203,8 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
         mutationType: 'delta',
         startedAt,
         finishedAt: new Date(),
-        inserts,
-        updates,
+        inserts: inserts.map(queued => queued.row),
+        updates: updates.map(queued => queued.row),
         deletes: [],
         unchangedCount,
       });
@@ -189,6 +214,40 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
       // processor-layer capture is best-effort by design — the reconciler
       // layer is the backstop for anything missed here. Logged at error so
       // sustained store outages are alertable.
+      //
+      // The etag cache must not claim these rows were persisted, though —
+      // otherwise the next observation of the same content would hit the
+      // unchanged fast path and the entity would stay missing from history
+      // until it changes again. Restore each entry to its pre-batch state so
+      // retries classify with the correct op even when the same ref changed
+      // multiple times in this failed batch. Rollback is guarded by a local
+      // per-ref version, not etag equality alone, because a newer queued batch
+      // can legitimately end at the same etag.
+      const etags = this.currentEtags;
+      if (etags) {
+        const failedBatchVersions = new Map<string, number>();
+        for (const { row, etagVersion } of [...inserts, ...updates]) {
+          failedBatchVersions.set(row.entityRef, etagVersion);
+        }
+
+        for (const [entityRef, failedEtagVersion] of failedBatchVersions) {
+          if (this.currentEtagVersions.get(entityRef) === failedEtagVersion) {
+            const originalEtag = batchOriginalEtags.get(entityRef);
+            const originalEtagVersion =
+              batchOriginalEtagVersions.get(entityRef) ?? 0;
+            if (originalEtag === undefined) {
+              etags.delete(entityRef);
+            } else {
+              etags.set(entityRef, originalEtag);
+            }
+            if (originalEtagVersion === 0) {
+              this.currentEtagVersions.delete(entityRef);
+            } else {
+              this.currentEtagVersions.set(entityRef, originalEtagVersion);
+            }
+          }
+        }
+      }
       this.options.logger.error(
         'Failed to flush processor-layer catalog history; dropping this batch',
         error as Error,
