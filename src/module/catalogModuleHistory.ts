@@ -1,12 +1,18 @@
 import {
   coreServices,
   createBackendModule,
+  readSchedulerServiceTaskScheduleDefinitionFromConfig,
 } from '@backstage/backend-plugin-api';
-import { catalogProcessingExtensionPoint } from '@backstage/plugin-catalog-node';
-import { Knex, knex as createKnex } from 'knex';
+import {
+  catalogProcessingExtensionPoint,
+  catalogServiceRef,
+} from '@backstage/plugin-catalog-node';
+import { type Knex, knex as createKnex } from 'knex';
 import { HistoryRecordingCatalogProcessor } from '../processor/HistoryRecordingCatalogProcessor';
 import { ensureSchema } from '../postgres/ensureSchema';
 import { PostgresHistoryStore } from '../postgres/PostgresHistoryStore';
+import { CatalogServiceEntityFetcher } from '../reconciler/CatalogServiceEntityFetcher';
+import { reconcile } from '../reconciler/reconcile';
 
 /**
  * Backstage backend module for the catalog-history plugin. On init it
@@ -18,13 +24,9 @@ import { PostgresHistoryStore } from '../postgres/PostgresHistoryStore';
  * Wrapping individual EntityProviders for cycle recording is handled at
  * backend wiring time via the exported `HistoryRecordingEntityProvider`.
  *
- * Reconciliation is intentionally not scheduled in-process. The
- * reconciler ({@link reconcile}) and the CLI shim (`bin/reconcile-
- * catalog-history.js`) remain available for on-demand drift detection or
- * an external CronJob; they're not run automatically because the wrapper
- * captures every mutation the catalog itself ingests, making a periodic
- * full catalog snapshot from inside the catalog plugin unnecessary in
- * the common case.
+ * Reconciliation is opt-in and can be scheduled in-process via Backstage's
+ * scheduler service. The external CLI shim (`bin/reconcile-catalog-history.js`)
+ * also remains available for ad-hoc drift detection or external CronJobs.
  *
  * Config (all optional, sensible defaults):
  *
@@ -40,7 +42,7 @@ import { PostgresHistoryStore } from '../postgres/PostgresHistoryStore';
  *     processing:
  *       enabled: false    # opt-in CatalogProcessor capture
  *     reconciler:
- *       enabled: false    # reserved; in-process scheduled reconciliation is not implemented yet
+ *       enabled: false    # opt-in scheduled in-process reconciliation
  *       schedule:
  *         frequency: { minutes: 30 }
  *         timeout: { minutes: 5 }
@@ -57,9 +59,21 @@ export const catalogModuleHistory = createBackendModule({
         config: coreServices.rootConfig,
         database: coreServices.database,
         catalog: catalogProcessingExtensionPoint,
+        catalogService: catalogServiceRef,
+        scheduler: coreServices.scheduler,
+        auth: coreServices.auth,
         lifecycle: coreServices.rootLifecycle,
       },
-      async init({ logger, config, database, catalog, lifecycle }) {
+      async init({
+        logger,
+        config,
+        database,
+        catalog,
+        catalogService,
+        scheduler,
+        auth,
+        lifecycle,
+      }) {
         const moduleConfig = config.getOptionalConfig('catalog.history');
         if (moduleConfig?.getOptionalBoolean('enabled') === false) {
           logger.info(
@@ -94,7 +108,7 @@ export const catalogModuleHistory = createBackendModule({
           `catalog-history capture layers: provider=${
             providerEnabled ? 'on' : 'off'
           } processing=${processingEnabled ? 'on' : 'off'} reconciler=${
-            reconcilerEnabled ? 'on (not yet implemented)' : 'off'
+            reconcilerEnabled ? 'on' : 'off'
           }`,
         );
 
@@ -106,6 +120,41 @@ export const catalogModuleHistory = createBackendModule({
           catalog.addProcessor(processor);
           lifecycle.addShutdownHook(async () => {
             await processor.stop();
+          });
+        }
+
+        if (reconcilerEnabled) {
+          const fetcher = new CatalogServiceEntityFetcher({
+            catalog: catalogService,
+            auth,
+          });
+          const store = new PostgresHistoryStore(db);
+          const scheduleConfig = moduleConfig
+            ?.getOptionalConfig('reconciler')
+            ?.getOptionalConfig('schedule');
+          const schedule = scheduleConfig
+            ? readSchedulerServiceTaskScheduleDefinitionFromConfig(
+                scheduleConfig,
+              )
+            : {
+                frequency: { hours: 1 },
+                timeout: { minutes: 10 },
+                initialDelay: { seconds: 30 },
+              };
+
+          await scheduler.scheduleTask({
+            id: 'catalog-history-reconcile',
+            ...schedule,
+            fn: async () => {
+              try {
+                await reconcile({ fetcher, store, logger });
+              } catch (err) {
+                logger.error(
+                  'catalog-history scheduled reconcile failed',
+                  err instanceof Error ? err : { error: String(err) },
+                );
+              }
+            },
           });
         }
 
