@@ -1,103 +1,64 @@
 import { CurrentEtag, HistoryStore } from '../HistoryStore';
 import { CaptureSource, CycleInput } from '../types';
 
+/**
+ * Test double for HistoryStore. Deliberately dumb: `cycles` is the single
+ * source of truth, and the load methods fold over it on every call instead
+ * of maintaining eager indexes. Replaying in recorded order reproduces
+ * PostgresHistoryStore's DISTINCT ON ... ORDER BY changed_at DESC, id DESC
+ * semantics (last write wins; a delete removes the entry), including the
+ * per-source and per-provider filters.
+ */
 export class InMemoryHistoryStore implements HistoryStore {
   readonly cycles: CycleInput[] = [];
-  private readonly etagsByProvider = new Map<string, Map<string, string>>();
-  private readonly etagsByProviderAndSource = new Map<
-    string,
-    Map<string, string>
-  >();
-  private readonly globalLatest = new Map<string, CurrentEtag>();
-  private readonly globalLatestBySource = new Map<
-    CaptureSource,
-    Map<string, CurrentEtag>
-  >();
 
   async loadCurrentEtags(
     provider: string,
     opts: { source?: CaptureSource } = {},
   ): Promise<Map<string, string>> {
-    const existing = opts.source
-      ? this.etagsByProviderAndSource.get(
-          sourceProviderKey(provider, opts.source),
-        )
-      : this.etagsByProvider.get(provider);
-    return new Map(existing ?? []);
+    const latest = this.replay(
+      cycle =>
+        cycle.provider === provider &&
+        (opts.source === undefined || cycle.source === opts.source),
+    );
+    return new Map(
+      [...latest.entries()].map(([ref, current]) => [ref, current.etag]),
+    );
   }
 
   async loadAllCurrentEtags(
     opts: { source?: CaptureSource } = {},
   ): Promise<Map<string, CurrentEtag>> {
-    return new Map(
-      opts.source
-        ? (this.globalLatestBySource.get(opts.source) ?? [])
-        : this.globalLatest,
+    return this.replay(
+      cycle => opts.source === undefined || cycle.source === opts.source,
     );
   }
 
   async recordCycle(input: CycleInput): Promise<void> {
     this.cycles.push(input);
-
-    let etags = this.etagsByProvider.get(input.provider);
-    if (!etags) {
-      etags = new Map();
-      this.etagsByProvider.set(input.provider, etags);
-    }
-    let sourceEtags = this.etagsByProviderAndSource.get(
-      sourceProviderKey(input.provider, input.source),
-    );
-    if (!sourceEtags) {
-      sourceEtags = new Map();
-      this.etagsByProviderAndSource.set(
-        sourceProviderKey(input.provider, input.source),
-        sourceEtags,
-      );
-    }
-    let sourceGlobalLatest = this.globalLatestBySource.get(input.source);
-    if (!sourceGlobalLatest) {
-      sourceGlobalLatest = new Map();
-      this.globalLatestBySource.set(input.source, sourceGlobalLatest);
-    }
-
-    for (const row of input.inserts) {
-      etags.set(row.entityRef, row.etag);
-      sourceEtags.set(row.entityRef, row.etag);
-      this.globalLatest.set(row.entityRef, {
-        etag: row.etag,
-        provider: input.provider,
-      });
-      sourceGlobalLatest.set(row.entityRef, {
-        etag: row.etag,
-        provider: input.provider,
-      });
-    }
-    for (const row of input.updates) {
-      etags.set(row.entityRef, row.etag);
-      sourceEtags.set(row.entityRef, row.etag);
-      this.globalLatest.set(row.entityRef, {
-        etag: row.etag,
-        provider: input.provider,
-      });
-      sourceGlobalLatest.set(row.entityRef, {
-        etag: row.etag,
-        provider: input.provider,
-      });
-    }
-    for (const ref of input.deletes) {
-      etags.delete(ref);
-      sourceEtags.delete(ref);
-      // A delete is the newest observation for this entity_ref across all
-      // providers, so the global entry drops regardless of which provider
-      // had previously claimed it. Mirrors PostgresHistoryStore semantics
-      // where DISTINCT ON ... ORDER BY changed_at DESC picks the latest
-      // row globally and filters when its op is 'delete'.
-      this.globalLatest.delete(ref);
-      sourceGlobalLatest.delete(ref);
-    }
   }
-}
 
-function sourceProviderKey(provider: string, source: CaptureSource): string {
-  return `${source}\0${provider}`;
+  private replay(
+    includeCycle: (cycle: CycleInput) => boolean,
+  ): Map<string, CurrentEtag> {
+    const latest = new Map<string, CurrentEtag>();
+    for (const cycle of this.cycles) {
+      if (!includeCycle(cycle)) {
+        continue;
+      }
+      for (const row of [...cycle.inserts, ...cycle.updates]) {
+        latest.set(row.entityRef, {
+          etag: row.etag,
+          provider: cycle.provider,
+        });
+      }
+      for (const ref of cycle.deletes) {
+        // The delete is the newest observation for this ref within the
+        // replayed scope, so the entry drops — mirroring Postgres where the
+        // latest row wins and delete rows are filtered out of the result.
+        latest.delete(ref);
+      }
+    }
+    return latest;
+  }
 }

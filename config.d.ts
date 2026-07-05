@@ -40,9 +40,15 @@ export interface Config {
       };
 
       /**
-       * Provider-layer capture settings. This gates recording performed by the
-       * HistoryRecordingEntityProvider wrapper; wiring is handled where
-       * providers are registered. Defaults to true.
+       * Provider-layer capture settings.
+       *
+       * IMPORTANT: this key is advisory — the backend module cannot enforce
+       * it, because provider wrapping happens in your own backend wiring.
+       * You must thread it into the wrapper yourself, e.g.
+       * `new HistoryRecordingEntityProvider({ ..., enabled:
+       * config.getOptionalBoolean('catalog.history.provider.enabled') ??
+       * true })`. Setting it in app-config without that wiring has no
+       * effect beyond a startup log line.
        */
       provider?: {
         /**
@@ -78,6 +84,10 @@ export interface Config {
          * follows Backstage's SchedulerServiceTaskScheduleDefinition config
          * format; omit it to use the default hourly schedule, 10 minute
          * timeout, and 30 second initial delay.
+         *
+         * When set, `frequency` and `timeout` are both required (Backstage's
+         * schedule parser rejects partial definitions at startup); the
+         * defaults above apply only when the whole `schedule` key is omitted.
          */
         schedule?: {
           /**
