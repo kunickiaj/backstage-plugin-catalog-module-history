@@ -95,10 +95,22 @@ export const catalogModuleHistory = createBackendModule({
               connection: dbConfig.get('connection') as Knex.PgConnectionConfig,
             })
           : await database.getClient();
+
+        // Backstage runs shutdown hooks as an unordered batch, so teardown
+        // steps that depend on each other must live in a single hook:
+        // the processor's final flush has to complete before a self-created
+        // pool is destroyed, or the flush writes to a closed pool.
+        const teardown: Array<() => Promise<void>> = [];
+        lifecycle.addShutdownHook(async () => {
+          for (const step of teardown) {
+            await step();
+          }
+        });
         if (dbConfig) {
           // The framework owns the shared client's lifecycle, but a
-          // connection pool we created ourselves is ours to close.
-          lifecycle.addShutdownHook(async () => {
+          // connection pool we created ourselves is ours to close. Runs
+          // last (steps are unshifted ahead of it below).
+          teardown.push(async () => {
             await db.destroy();
           });
         }
@@ -131,7 +143,8 @@ export const catalogModuleHistory = createBackendModule({
             logger,
           });
           catalog.addProcessor(processor);
-          lifecycle.addShutdownHook(async () => {
+          // Runs before the pool-destroy step registered above.
+          teardown.unshift(async () => {
             await processor.stop();
           });
         }

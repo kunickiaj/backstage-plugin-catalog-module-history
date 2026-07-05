@@ -215,4 +215,75 @@ describe('HistoryRecordingCatalogProcessor', () => {
       'user:default/alice',
     ]);
   });
+
+  it('drains rows queued while an earlier flush is still in flight', async () => {
+    const store = new InMemoryHistoryStore();
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const original = store.recordCycle.bind(store);
+    let firstCall = true;
+    jest.spyOn(store, 'recordCycle').mockImplementation(async input => {
+      if (firstCall) {
+        firstCall = false;
+        await gate;
+      }
+      return original(input);
+    });
+    const processor = new HistoryRecordingCatalogProcessor({
+      store,
+      logger: mockServices.logger.mock(),
+      maxBatchSize: 10,
+      flushIntervalMs: 60_000,
+    });
+
+    await postProcess(processor, user('alice', 'a1'));
+    const inFlight = processor.flush(); // blocks on the gated recordCycle
+    await postProcess(processor, user('bob', 'b1')); // queued mid-flush
+    release();
+    await inFlight; // the flush loop must also drain bob
+
+    expect(store.cycles).toHaveLength(2);
+    expect(store.cycles[0].inserts.map(row => row.entityRef)).toEqual([
+      'user:default/alice',
+    ]);
+    expect(store.cycles[1].inserts.map(row => row.entityRef)).toEqual([
+      'user:default/bob',
+    ]);
+  });
+
+  it('re-records an entity after a failed flush instead of treating it as unchanged', async () => {
+    const store = new InMemoryHistoryStore();
+    const original = store.recordCycle.bind(store);
+    let failNext = true;
+    jest.spyOn(store, 'recordCycle').mockImplementation(async input => {
+      if (failNext) {
+        failNext = false;
+        throw new Error('db down');
+      }
+      return original(input);
+    });
+    const logger = mockServices.logger.mock();
+    const processor = new HistoryRecordingCatalogProcessor({
+      store,
+      logger,
+      maxBatchSize: 1,
+    });
+    const entity = user('alice', 'a1');
+
+    // First observation: size-triggered flush fails; the etag cache must
+    // not keep claiming a1 was persisted.
+    await postProcess(processor, entity);
+    expect(store.cycles).toHaveLength(0);
+    expect(logger.error).toHaveBeenCalled();
+
+    // Same content again: without the cache rollback this would hit the
+    // unchanged fast path and the entity would stay missing from history.
+    await postProcess(processor, entity);
+    expect(store.cycles).toHaveLength(1);
+    expect(store.cycles[0].inserts.map(row => row.entityRef)).toEqual([
+      'user:default/alice',
+    ]);
+  });
 });

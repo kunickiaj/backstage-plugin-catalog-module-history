@@ -31,12 +31,14 @@ export interface Config {
         client?: string;
 
         /**
-         * Knex connection string or connection object for the history database.
+         * Knex connection string or connection object for the history
+         * database. Required when the `database` block is present — the
+         * module always uses it to open the override connection.
          *
          * @visibility secret
          * @deepVisibility secret
          */
-        connection?: string | { [key: string]: unknown };
+        connection: string | { [key: string]: unknown };
       };
 
       /**

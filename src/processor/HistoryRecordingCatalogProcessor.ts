@@ -102,12 +102,18 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
   }
 
   async flush(): Promise<void> {
-    if (!this.flushPromise) {
-      this.flushPromise = this.flushBuffered().finally(() => {
-        this.flushPromise = undefined;
-      });
-    }
-    await this.flushPromise;
+    // Loop until the buffer is drained: rows queued while an earlier
+    // recordCycle is in flight land in fresh arrays after flushBuffered
+    // resets them, so awaiting only the in-flight promise would return
+    // with those rows still buffered (and stop() would then lose them).
+    do {
+      if (!this.flushPromise) {
+        this.flushPromise = this.flushBuffered().finally(() => {
+          this.flushPromise = undefined;
+        });
+      }
+      await this.flushPromise;
+    } while (this.bufferLength() > 0);
   }
 
   async stop(): Promise<void> {
@@ -189,6 +195,20 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
       // processor-layer capture is best-effort by design — the reconciler
       // layer is the backstop for anything missed here. Logged at error so
       // sustained store outages are alertable.
+      //
+      // The etag cache must not claim these rows were persisted, though —
+      // otherwise the next observation of the same content would hit the
+      // unchanged fast path and the entity would stay missing from history
+      // until it changes again. Roll back the cache entries we wrote for
+      // this batch (unless a newer etag has been queued since).
+      const etags = this.currentEtags;
+      if (etags) {
+        for (const row of [...inserts, ...updates]) {
+          if (etags.get(row.entityRef) === row.etag) {
+            etags.delete(row.entityRef);
+          }
+        }
+      }
       this.options.logger.error(
         'Failed to flush processor-layer catalog history; dropping this batch',
         error as Error,
