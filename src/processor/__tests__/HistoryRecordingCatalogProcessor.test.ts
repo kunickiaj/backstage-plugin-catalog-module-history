@@ -169,7 +169,7 @@ describe('HistoryRecordingCatalogProcessor', () => {
     ]);
   });
 
-  it('returns the entity and warns when recordCycle rejects', async () => {
+  it('returns the entity and logs an error when recordCycle rejects', async () => {
     const store = new InMemoryHistoryStore();
     jest.spyOn(store, 'recordCycle').mockRejectedValue(new Error('db down'));
     const logger = mockServices.logger.mock();
@@ -182,7 +182,7 @@ describe('HistoryRecordingCatalogProcessor', () => {
 
     await expect(postProcess(processor, entity)).resolves.toBe(entity);
 
-    expect(logger.warn).toHaveBeenCalledWith(
+    expect(logger.error).toHaveBeenCalledWith(
       expect.stringMatching(/Failed to flush processor-layer catalog history/),
       expect.any(Error),
     );
