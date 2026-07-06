@@ -3676,6 +3676,14 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@kunickiaj/catalog-history-common@workspace:packages/catalog-history-common":
+  version: 0.0.0-use.local
+  resolution: "@kunickiaj/catalog-history-common@workspace:packages/catalog-history-common"
+  dependencies:
+    "@types/jest": "npm:^30.0.0"
+  languageName: unknown
+  linkType: soft
+
 "@kwsites/file-exists@npm:^1.1.1":
   version: 1.1.1
   resolution: "@kwsites/file-exists@npm:1.1.1"
