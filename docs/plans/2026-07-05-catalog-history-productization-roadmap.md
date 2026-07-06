@@ -138,7 +138,7 @@ Owns:
 
 This is the package most Backstage apps add to enable the history product.
 
-#### `@kunickiaj/catalog-backend-module-history`
+#### `backstage-plugin-catalog-backend-module-history`
 
 Backstage catalog backend module.
 

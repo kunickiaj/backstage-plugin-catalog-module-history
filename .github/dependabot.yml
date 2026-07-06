@@ -2,6 +2,8 @@ version: 2
 updates:
   - package-ecosystem: npm
     directory: '/'
+    # Yarn workspace root; Dependabot reads package manifests under packages/*
+    # through the root workspace and single lockfile.
     schedule:
       interval: weekly
       day: monday
