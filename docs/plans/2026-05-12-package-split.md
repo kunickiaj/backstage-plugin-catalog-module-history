@@ -2,7 +2,7 @@
 
 > Tracking issue: [#11](https://github.com/kunickiaj/backstage-plugin-catalog-module-history/issues/11)
 >
-> Status: **planned, not yet executed.** Wait until PRs #5/#6/#7/#12/#13 have landed to avoid continuous rebase churn on a structural refactor.
+> Status: **partially executed.** The private Yarn workspace root and initial `packages/catalog-backend-module-history` move have landed. The package-boundary split, service-ref extraction, backend storage package, and frontend package remain planned follow-up work.
 
 ## Goal
 
