@@ -6,12 +6,17 @@ import {
   EntityRow,
   HistoryStore,
 } from '@kunickiaj/catalog-history-node';
+import { ensureSchema } from './ensureSchema';
 
 // catalog_history_entities has ~20 inserted columns, so the PostgreSQL
 // bind-parameter limit (65,535) caps a single INSERT at ~3,276 rows. Chunking
 // at 1,000 gives generous headroom and stays well clear of that limit even if
 // columns grow.
 const ENTITY_INSERT_CHUNK_SIZE = 1000;
+
+type PostgresHistoryStoreOptions = {
+  ownsDatabase?: boolean;
+};
 
 function parseEntityRef(entityRef: string): {
   kind: string;
@@ -111,12 +116,38 @@ function buildDeleteRow(
 }
 
 export class PostgresHistoryStore implements HistoryStore {
-  constructor(private readonly db: Knex) {}
+  private schemaReady: Promise<void> | undefined;
+  private shutdownPromise: Promise<void> | undefined;
+  private readonly shutdownHooks: Array<() => Promise<void>> = [];
+
+  constructor(
+    private readonly db: Knex,
+    private readonly options: PostgresHistoryStoreOptions = {},
+  ) {}
+
+  async ensureReady(): Promise<void> {
+    this.schemaReady ??= ensureSchema(this.db).catch(error => {
+      this.schemaReady = undefined;
+      throw error;
+    });
+    await this.schemaReady;
+  }
+
+  addShutdownHook(hook: () => Promise<void>): void {
+    this.shutdownHooks.unshift(hook);
+  }
+
+  async shutdown(): Promise<void> {
+    this.shutdownPromise ??= this.shutdownOnce();
+    await this.shutdownPromise;
+  }
 
   async loadCurrentEtags(
     provider: string,
     opts: { source?: CaptureSource } = {},
   ): Promise<Map<string, string>> {
+    await this.ensureReady();
+
     // changed_at is set to the cycle's finishedAt for every row in a cycle,
     // so two rows for the same entity_ref can be tied on changed_at alone
     // (same cycle, or two cycles finishing in the same clock tick). id is
@@ -151,6 +182,8 @@ export class PostgresHistoryStore implements HistoryStore {
   async loadAllCurrentEtags(
     opts: { source?: CaptureSource } = {},
   ): Promise<Map<string, CurrentEtag>> {
+    await this.ensureReady();
+
     // id DESC is a deterministic tie-breaker on changed_at; see the comment
     // in loadCurrentEtags for the full rationale.
     const latest = this.db('catalog_history_entities')
@@ -182,6 +215,8 @@ export class PostgresHistoryStore implements HistoryStore {
   }
 
   async recordCycle(input: CycleInput): Promise<void> {
+    await this.ensureReady();
+
     const changedAt = input.finishedAt;
 
     await this.db.transaction(async tx => {
@@ -243,5 +278,14 @@ export class PostgresHistoryStore implements HistoryStore {
         );
       }
     });
+  }
+
+  private async shutdownOnce(): Promise<void> {
+    for (const hook of this.shutdownHooks) {
+      await hook();
+    }
+    if (this.options.ownsDatabase) {
+      await this.db.destroy();
+    }
   }
 }

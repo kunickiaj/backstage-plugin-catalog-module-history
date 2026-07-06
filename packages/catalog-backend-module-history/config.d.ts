@@ -14,15 +14,16 @@ export interface Config {
       enabled?: boolean;
 
       /**
-       * Optional database override for history storage. Defaults to the
-       * Backstage database service when omitted.
+       * Deprecated compatibility database override for history storage.
        *
-       * Note: this only affects the stores created by the backend module
-       * itself (processor-layer capture and the scheduled reconciler).
-       * Provider-layer capture is wired externally via
-       * `HistoryRecordingEntityProvider` and writes to whatever database
-       * that wiring passes in — point it at the same connection if you use
-       * a dedicated history database.
+       * Prefer registering a custom `historyStoreServiceRef` factory in your
+       * backend instead. That lets provider wrappers, processor capture, and
+       * scheduled reconciliation all receive the same store through Backstage
+       * DI at creation time.
+       *
+       * The default `historyStoreServiceFactory` honors this override for all
+       * consumers of `historyStoreServiceRef`, including provider wrappers
+       * that inject the same store in their own catalog module.
        */
       database?: {
         /**
@@ -33,7 +34,7 @@ export interface Config {
         /**
          * Knex connection string or connection object for the history
          * database. Required when the `database` block is present — the
-         * module always uses it to open the override connection.
+         * default store factory uses it to open the override connection.
          *
          * @visibility secret
          * @deepVisibility secret
@@ -46,7 +47,8 @@ export interface Config {
        *
        * IMPORTANT: this key is advisory — the backend module cannot enforce
        * it, because provider wrapping happens in your own backend wiring.
-       * You must thread it into the wrapper yourself, e.g.
+       * You must thread it into the wrapper yourself along with the injected
+       * history store, e.g.
        * `new HistoryRecordingEntityProvider({ ..., enabled:
        * config.getOptionalBoolean('catalog.history.provider.enabled') ??
        * true })`. Setting it in app-config without that wiring has no
