@@ -3,7 +3,7 @@ import { resolvePackagePath } from '@backstage/backend-plugin-api';
 import { ensureSchema } from '../ensureSchema';
 
 const migrationsDir = resolvePackagePath(
-  'backstage-plugin-catalog-backend-module-history',
+  '@kunickiaj/catalog-history-backend',
   'migrations',
 );
 

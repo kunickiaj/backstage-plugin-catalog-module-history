@@ -2,8 +2,10 @@ import { Entity } from '@backstage/catalog-model';
 import { CatalogClient } from '@backstage/catalog-client';
 import { LoggerService } from '@backstage/backend-plugin-api';
 import { knex as createKnex } from 'knex';
-import { ensureSchema } from '../postgres/ensureSchema';
-import { PostgresHistoryStore } from '../postgres/PostgresHistoryStore';
+import {
+  ensureSchema,
+  PostgresHistoryStore,
+} from '@kunickiaj/catalog-history-backend';
 import { reconcile } from '../reconciler/reconcile';
 import { EntityFetcher } from '../reconciler/EntityFetcher';
 import { fetchAllEntities } from '../reconciler/paginateEntities';
