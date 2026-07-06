@@ -8,9 +8,11 @@ import {
   catalogServiceRef,
 } from '@backstage/plugin-catalog-node';
 import { type Knex, knex as createKnex } from 'knex';
+import {
+  ensureSchema,
+  PostgresHistoryStore,
+} from '@kunickiaj/catalog-history-backend';
 import { HistoryRecordingCatalogProcessor } from '../processor/HistoryRecordingCatalogProcessor';
-import { ensureSchema } from '../postgres/ensureSchema';
-import { PostgresHistoryStore } from '../postgres/PostgresHistoryStore';
 import { CatalogServiceEntityFetcher } from '../reconciler/CatalogServiceEntityFetcher';
 import { reconcile } from '../reconciler/reconcile';
 
