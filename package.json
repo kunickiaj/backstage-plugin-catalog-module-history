@@ -1,50 +1,26 @@
 {
-  "name": "backstage-plugin-catalog-backend-module-history",
+  "name": "backstage-plugin-catalog-module-history-repo",
   "version": "0.1.0",
-  "description": "Backstage backend module that records every catalog EntityProvider mutation into a versioned history store.",
-  "main": "src/index.ts",
-  "types": "src/index.ts",
+  "private": true,
+  "description": "Workspace for Backstage catalog history packages.",
   "license": "Apache-2.0",
-  "publishConfig": {
-    "access": "public",
-    "main": "dist/index.cjs.js",
-    "types": "dist/index.d.ts"
-  },
-  "backstage": {
-    "role": "backend-plugin-module",
-    "pluginId": "catalog",
-    "pluginPackage": "@backstage/plugin-catalog-backend"
-  },
-  "configSchema": "config.d.ts",
-  "exports": {
-    ".": "./src/index.ts",
-    "./reconcile-cli": "./src/bin/reconcile.ts",
-    "./package.json": "./package.json"
-  },
-  "typesVersions": {
-    "*": {
-      "package.json": [
-        "package.json"
-      ]
-    }
-  },
   "engines": {
     "node": "22 || 24"
   },
   "packageManager": "yarn@4.5.0",
+  "workspaces": [
+    "packages/*"
+  ],
   "prettier": "@backstage/cli/config/prettier.json",
   "scripts": {
-    "build": "backstage-cli package build",
-    "clean": "backstage-cli package clean",
-    "lint": "backstage-cli package lint",
-    "lint:fix": "backstage-cli package lint --fix",
-    "test": "backstage-cli package test --passWithNoTests",
-    "test:watch": "backstage-cli package test --watch",
-    "start": "backstage-cli package start",
+    "build": "backstage-cli repo build",
+    "clean": "backstage-cli repo clean",
+    "lint": "backstage-cli repo lint",
+    "lint:fix": "backstage-cli repo fix",
+    "test": "backstage-cli repo test --passWithNoTests",
+    "test:watch": "backstage-cli repo test --watch",
+    "start": "backstage-cli repo start",
     "tsc": "tsc",
-    "prepack": "backstage-cli package prepack",
-    "postpack": "backstage-cli package postpack",
-    "postinstall": "node scripts/symlink-self.js",
     "prettier:check": "prettier --ignore-unknown --check .",
     "prettier:fix": "prettier --ignore-unknown --write ."
   },
@@ -62,42 +38,5 @@
     "jsdom": "^27.1.0",
     "prettier": "^3.8.4",
     "typescript": "~6.0.3"
-  },
-  "bin": {
-    "reconcile-catalog-history": "./bin/reconcile-catalog-history.js"
-  },
-  "files": [
-    "bin",
-    "config.d.ts",
-    "dist",
-    "migrations",
-    "scripts",
-    "README.md",
-    "LICENSE"
-  ],
-  "keywords": [
-    "backstage",
-    "backstage-plugin",
-    "backend-plugin-module",
-    "catalog",
-    "audit",
-    "history"
-  ],
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/kunickiaj/backstage-plugin-catalog-module-history"
-  },
-  "bugs": {
-    "url": "https://github.com/kunickiaj/backstage-plugin-catalog-module-history/issues"
-  },
-  "dependencies": {
-    "@backstage/backend-plugin-api": "^1.9.2",
-    "@backstage/catalog-client": "^1.16.0",
-    "@backstage/catalog-model": "^1.9.0",
-    "@backstage/plugin-catalog-node": "^2.2.2",
-    "@backstage/types": "^1.2.2",
-    "json-stable-stringify": "^1.3.0",
-    "knex": "^3.2.10",
-    "pg": "^8.22.0"
   }
 }
