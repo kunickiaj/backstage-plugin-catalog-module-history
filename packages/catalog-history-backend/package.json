@@ -1,7 +1,7 @@
 {
-  "name": "backstage-plugin-catalog-backend-module-history",
+  "name": "@kunickiaj/catalog-history-backend",
   "version": "0.1.0",
-  "description": "Backstage backend module that records every catalog EntityProvider mutation into a versioned history store.",
+  "description": "Storage, migrations, and history service factories for the Backstage catalog history plugin family.",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "license": "Apache-2.0",
@@ -14,14 +14,10 @@
     "node": "22 || 24"
   },
   "backstage": {
-    "role": "backend-plugin-module",
-    "pluginId": "catalog",
-    "pluginPackage": "@backstage/plugin-catalog-backend"
+    "role": "node-library"
   },
-  "configSchema": "config.d.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./reconcile-cli": "./src/bin/reconcile.ts",
     "./package.json": "./package.json"
   },
   "typesVersions": {
@@ -38,53 +34,42 @@
     "lint:fix": "backstage-cli package lint --fix",
     "test": "backstage-cli package test --passWithNoTests",
     "test:watch": "backstage-cli package test --watch",
-    "start": "backstage-cli package start",
     "tsc": "tsc",
     "prepack": "backstage-cli package prepack",
     "postpack": "backstage-cli package postpack"
   },
-  "bin": {
-    "reconcile-catalog-history": "./bin/reconcile-catalog-history.js"
-  },
   "files": [
-    "bin",
-    "config.d.ts",
     "dist",
+    "migrations",
     "README.md",
     "LICENSE"
   ],
   "keywords": [
     "backstage",
     "backstage-plugin",
-    "backend-plugin-module",
+    "node-library",
     "catalog",
     "audit",
     "history"
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/kunickiaj/backstage-plugin-catalog-module-history"
+    "url": "https://github.com/kunickiaj/backstage-plugin-catalog-module-history",
+    "directory": "packages/catalog-history-backend"
   },
   "bugs": {
     "url": "https://github.com/kunickiaj/backstage-plugin-catalog-module-history/issues"
   },
+  "dependencies": {
+    "@backstage/backend-plugin-api": "^1.9.2",
+    "@kunickiaj/catalog-history-node": "^0.1.0",
+    "knex": "^3.2.10"
+  },
   "devDependencies": {
     "@backstage/backend-test-utils": "^1.11.4",
     "@types/jest": "^30.0.0",
-    "@types/json-stable-stringify": "^1.2.0",
     "@types/node": "^24.13.2",
-    "@types/pg": "^8.20.0"
-  },
-  "dependencies": {
-    "@backstage/backend-plugin-api": "^1.9.2",
-    "@backstage/catalog-client": "^1.16.0",
-    "@backstage/catalog-model": "^1.9.0",
-    "@backstage/plugin-catalog-node": "^2.2.2",
-    "@backstage/types": "^1.2.2",
-    "@kunickiaj/catalog-history-backend": "^0.1.0",
-    "@kunickiaj/catalog-history-node": "^0.1.0",
-    "json-stable-stringify": "^1.3.0",
-    "knex": "^3.2.10",
+    "@types/pg": "^8.20.0",
     "pg": "^8.22.0"
   }
 }

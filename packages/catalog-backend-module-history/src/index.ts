@@ -11,8 +11,13 @@ export type {
 } from '@kunickiaj/catalog-history-node';
 /** @deprecated Import from `@kunickiaj/catalog-history-node` instead; this re-export will be removed in a future release. */
 export { RECONCILER_PROVIDER } from '@kunickiaj/catalog-history-node';
-export { ensureSchema } from './postgres/ensureSchema';
-export { PostgresHistoryStore } from './postgres/PostgresHistoryStore';
+// Storage moved to @kunickiaj/catalog-history-backend; re-exported here for
+// compatibility with existing imports.
+/** @deprecated Import from `@kunickiaj/catalog-history-backend` instead; these re-exports will be removed in a future release. */
+export {
+  ensureSchema,
+  PostgresHistoryStore,
+} from '@kunickiaj/catalog-history-backend';
 export { entityToRow } from './mapping/entityToRow';
 export {
   HistoryRecordingEntityProvider,
