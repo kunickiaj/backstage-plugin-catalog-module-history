@@ -63,8 +63,18 @@ describe('historyStoreServiceFactory', () => {
       ],
     });
 
-    // Migrations ran during factory init.
-    const cycleTable = await db('information_schema.tables')
+    // Service creation itself is intentionally cheap; schema bootstrap is
+    // deferred until the store is prepared/used so disabled consumers can
+    // depend on the service without mutating the database.
+    let cycleTable = await db('information_schema.tables')
+      .where({ table_name: 'catalog_history_cycles' })
+      .first();
+    expect(cycleTable).toBeUndefined();
+
+    await store!.ensureReady?.();
+
+    // Migrations ran during explicit store preparation.
+    cycleTable = await db('information_schema.tables')
       .where({ table_name: 'catalog_history_cycles' })
       .first();
     expect(cycleTable).toBeDefined();
