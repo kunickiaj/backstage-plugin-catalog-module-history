@@ -6,8 +6,7 @@ import {
   EntityProviderConnection,
   EntityProviderMutation,
 } from '@backstage/plugin-catalog-node';
-import { HistoryStore } from '../store/HistoryStore';
-import { EntityRow } from '../store/types';
+import { EntityRow, HistoryStore } from '@kunickiaj/catalog-history-node';
 import { entityToRow } from '../mapping/entityToRow';
 
 export type ForceFullEveryDuration = {

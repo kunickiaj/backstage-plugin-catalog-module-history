@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { Entity } from '@backstage/catalog-model';
 import stableStringify from 'json-stable-stringify';
 import { JsonObject } from '@backstage/types';
-import { EntityRow } from '../store/types';
+import { EntityRow } from '@kunickiaj/catalog-history-node';
 
 const DEFAULT_NAMESPACE = 'default';
 
