@@ -1,9 +1,9 @@
 import { Entity } from '@backstage/catalog-model';
 import { mockServices } from '@backstage/backend-test-utils';
-import { InMemoryHistoryStore } from '../../store/__tests__/InMemoryHistoryStore';
+import { CaptureSource, EntityRow } from '@kunickiaj/catalog-history-node';
+import { InMemoryHistoryStore } from '@kunickiaj/catalog-history-node/testUtils';
 import { reconcile } from '../reconcile';
 import { EntityFetcher } from '../EntityFetcher';
-import { CaptureSource, EntityRow } from '../../store/types';
 
 function user(name: string, etag: string): Entity {
   return {

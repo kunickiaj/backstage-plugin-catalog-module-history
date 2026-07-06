@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { TestDatabases } from '@backstage/backend-test-utils';
 import { Knex } from 'knex';
+import { CaptureSource, EntityRow } from '@kunickiaj/catalog-history-node';
 import { ensureSchema } from '../ensureSchema';
 import { PostgresHistoryStore } from '../PostgresHistoryStore';
-import { CaptureSource, EntityRow } from '../../store/types';
 
 // Each test spins up a fresh ephemeral Postgres database via TestDatabases
 // and runs the migrations from scratch; the default 5s Jest timeout isn't

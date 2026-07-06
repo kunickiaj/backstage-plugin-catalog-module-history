@@ -1,6 +1,11 @@
 import { Knex } from 'knex';
-import { CurrentEtag, HistoryStore } from '../store/HistoryStore';
-import { CaptureSource, CycleInput, EntityRow } from '../store/types';
+import {
+  CaptureSource,
+  CurrentEtag,
+  CycleInput,
+  EntityRow,
+  HistoryStore,
+} from '@kunickiaj/catalog-history-node';
 
 // catalog_history_entities has ~20 inserted columns, so the PostgreSQL
 // bind-parameter limit (65,535) caps a single INSERT at ~3,276 rows. Chunking
