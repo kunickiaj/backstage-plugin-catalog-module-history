@@ -3676,10 +3676,21 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@kunickiaj/catalog-history-common@workspace:packages/catalog-history-common":
+"@kunickiaj/catalog-history-common@npm:^0.1.0, @kunickiaj/catalog-history-common@workspace:packages/catalog-history-common":
   version: 0.0.0-use.local
   resolution: "@kunickiaj/catalog-history-common@workspace:packages/catalog-history-common"
   dependencies:
+    "@types/jest": "npm:^30.0.0"
+  languageName: unknown
+  linkType: soft
+
+"@kunickiaj/catalog-history-node@npm:^0.1.0, @kunickiaj/catalog-history-node@workspace:packages/catalog-history-node":
+  version: 0.0.0-use.local
+  resolution: "@kunickiaj/catalog-history-node@workspace:packages/catalog-history-node"
+  dependencies:
+    "@backstage/backend-plugin-api": "npm:^1.9.2"
+    "@backstage/types": "npm:^1.2.2"
+    "@kunickiaj/catalog-history-common": "npm:^0.1.0"
     "@types/jest": "npm:^30.0.0"
   languageName: unknown
   linkType: soft
@@ -7695,6 +7706,7 @@ __metadata:
     "@backstage/catalog-model": "npm:^1.9.0"
     "@backstage/plugin-catalog-node": "npm:^2.2.2"
     "@backstage/types": "npm:^1.2.2"
+    "@kunickiaj/catalog-history-node": "npm:^0.1.0"
     "@types/jest": "npm:^30.0.0"
     "@types/json-stable-stringify": "npm:^1.2.0"
     "@types/node": "npm:^24.13.2"

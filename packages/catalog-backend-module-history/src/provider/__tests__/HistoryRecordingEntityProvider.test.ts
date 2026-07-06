@@ -4,7 +4,7 @@ import {
   EntityProviderConnection,
 } from '@backstage/plugin-catalog-node';
 import { mockServices } from '@backstage/backend-test-utils';
-import { InMemoryHistoryStore } from '../../store/__tests__/InMemoryHistoryStore';
+import { InMemoryHistoryStore } from '@kunickiaj/catalog-history-node/testUtils';
 import { HistoryRecordingEntityProvider } from '../HistoryRecordingEntityProvider';
 
 class FakeProvider implements EntityProvider {

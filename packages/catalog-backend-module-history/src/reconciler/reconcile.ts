@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { LoggerService } from '@backstage/backend-plugin-api';
-import { HistoryStore, RECONCILER_PROVIDER } from '../store/HistoryStore';
-import { EntityRow } from '../store/types';
+import {
+  EntityRow,
+  HistoryStore,
+  RECONCILER_PROVIDER,
+} from '@kunickiaj/catalog-history-node';
 import { entityToRow } from '../mapping/entityToRow';
 import { EntityFetcher } from './EntityFetcher';
 
