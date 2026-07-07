@@ -55,6 +55,7 @@ export type {
   HistoryEntityDiffResponse,
   HistoryFacetBucket,
   HistoryFacetsResponse,
+  HistoryFacetsRequest,
   HistoryStatsRequest,
   HistoryStatsBucket,
   HistoryStatsResponse,

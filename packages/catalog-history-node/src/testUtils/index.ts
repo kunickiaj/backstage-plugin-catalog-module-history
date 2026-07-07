@@ -5,3 +5,4 @@
  */
 
 export { InMemoryHistoryStore } from './InMemoryHistoryStore';
+export { InMemoryHistoryQueryService } from './InMemoryHistoryQueryService';
