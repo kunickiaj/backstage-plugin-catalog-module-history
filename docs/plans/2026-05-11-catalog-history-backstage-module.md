@@ -1,5 +1,9 @@
 # Catalog History — Backstage Backend Module — Implementation Plan
 
+> Status: **historical foundation plan.** Current package names, workspace
+> layout, and DI wiring are documented in the root/package READMEs and the
+> [2026-07-05 productization roadmap](./2026-07-05-catalog-history-productization-roadmap.md).
+
 > **For Claude:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to implement this plan task-by-task.
 
 **Goal:** Build an open-source Backstage backend module that records every catalog `EntityProvider` mutation into a versioned history store, producing a queryable audit trail of every entity change with no impact on Backstage's hot path. Ships with a Postgres backend in v1; designed around a pluggable `HistoryStore` interface so additional backends (Dolt, ClickHouse, etc.) can be added without changes to the wrapper.
