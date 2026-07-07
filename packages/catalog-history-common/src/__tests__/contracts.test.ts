@@ -10,8 +10,17 @@ import {
 } from '../index';
 import type {
   HistoryChangeFilter,
+  HistoryCycleFilter,
+  HistoryCycleDetailRequest,
+  HistoryCycleDetailResponse,
+  HistoryEntityAsOfResponse,
+  HistoryEntityDiffResponse,
+  HistoryEntitySnapshot,
+  HistoryEntityVersion,
+  HistoryFacetsResponse,
   HistoryCycle,
   HistoryPage,
+  HistoryStatsResponse,
   HistoryTimelineItem,
 } from '../index';
 
@@ -84,6 +93,7 @@ describe('DTO shapes compile with representative payloads', () => {
           op: 'update',
           changedAt: '2026-07-06T08:00:00Z',
           etag: 'abc123',
+          summary: { ownerChanged: true },
         },
       ],
       nextCursor: 'opaque-cursor',
@@ -95,14 +105,23 @@ describe('DTO shapes compile with representative payloads', () => {
     const filter: HistoryChangeFilter = {
       entityRef: 'user:default/alice',
       kind: 'User',
+      owner: 'group:default/platform',
       source: 'reconciler',
       op: 'update',
       changedAfter: '2026-07-01T00:00:00Z',
     };
     expect(filter.entityRef).toBe('user:default/alice');
+    expect(filter.owner).toBe('group:default/platform');
   });
 
   it('accepts a cycle with op-aligned counts', () => {
+    const filter: HistoryCycleFilter = {
+      provider: 'reconciler',
+      source: 'reconciler',
+      op: 'delete',
+      mutationType: 'full',
+      startedAfter: '2026-07-01T00:00:00Z',
+    };
     const cycle: HistoryCycle = {
       cycleId: 'e2c0f6f0-0000-4000-8000-000000000000',
       provider: 'reconciler',
@@ -112,6 +131,108 @@ describe('DTO shapes compile with representative payloads', () => {
       finishedAt: '2026-07-06T08:00:05Z',
       counts: { inserted: 1, updated: 2, deleted: 0, unchanged: 40 },
     };
+    expect(filter.op).toBe('delete');
     expect(cycle.counts.unchanged).toBe(40);
+  });
+
+  it('accepts entity versions, snapshots, and as-of responses', () => {
+    const snapshot: HistoryEntitySnapshot = {
+      entityRef: 'component:default/service-a',
+      kind: 'Component',
+      namespace: 'default',
+      name: 'service-a',
+      etag: 'etag-1',
+      owner: 'group:default/platform',
+      metadata: { name: 'service-a' },
+      spec: { type: 'service', lifecycle: 'production' },
+      relations: [{ type: 'ownedBy', targetRef: 'group:default/platform' }],
+      statusItems: [{ type: 'backstage.io/catalog-processing', level: 'info' }],
+      orphan: false,
+    };
+    const version: HistoryEntityVersion = {
+      id: '10',
+      cycleId: 'cycle-1',
+      entityRef: snapshot.entityRef,
+      source: 'reconciler',
+      provider: 'reconciler',
+      op: 'update',
+      changedAt: '2026-07-06T08:00:00Z',
+      etag: 'etag-1',
+      summary: {},
+      snapshot,
+    };
+    const asOf: HistoryEntityAsOfResponse = {
+      entityRef: snapshot.entityRef,
+      asOf: '2026-07-06T09:00:00Z',
+      version,
+      snapshot,
+    };
+
+    expect(asOf.snapshot?.owner).toBe('group:default/platform');
+  });
+
+  it('accepts cycle detail, diff, facets, and stats responses', () => {
+    const cycle: HistoryCycle = {
+      cycleId: 'cycle-1',
+      provider: 'reconciler',
+      source: 'reconciler',
+      mutationType: 'full',
+      startedAt: '2026-07-06T08:00:00Z',
+      finishedAt: '2026-07-06T08:00:05Z',
+      counts: { inserted: 1, updated: 0, deleted: 0, unchanged: 10 },
+    };
+    const detail: HistoryCycleDetailResponse = {
+      cycle,
+      changes: {
+        items: [
+          {
+            id: '11',
+            cycleId: 'cycle-1',
+            entityRef: 'user:default/alice',
+            kind: 'User',
+            namespace: 'default',
+            name: 'alice',
+            source: 'reconciler',
+            provider: 'reconciler',
+            op: 'insert',
+            changedAt: '2026-07-06T08:00:05Z',
+            summary: {},
+          },
+        ],
+      },
+    };
+    const diff: HistoryEntityDiffResponse = {
+      entityRef: 'user:default/alice',
+      changes: [
+        {
+          path: ['spec', 'profile', 'displayName'],
+          op: 'replace',
+          before: 'Alice A.',
+          after: 'Alice Example',
+        },
+      ],
+    };
+    const facets: HistoryFacetsResponse = {
+      sources: [{ value: 'reconciler', count: 1 }],
+      providers: [{ value: 'reconciler', count: 1 }],
+      operations: [{ value: 'insert', count: 1 }],
+      mutationTypes: [{ value: 'full', count: 1 }],
+      kinds: [{ value: 'User', count: 1 }],
+    };
+    const stats: HistoryStatsResponse = {
+      totals: cycle.counts,
+      buckets: [{ key: 'reconciler', counts: cycle.counts }],
+    };
+    const detailRequest: HistoryCycleDetailRequest = {
+      cycleId: 'cycle-1',
+      limit: 50,
+      cursor: 'next-change-page',
+    };
+
+    expect(detail.changes.items[0].kind).toBe('User');
+    expect(detailRequest.cursor).toBe('next-change-page');
+    expect(diff.changes[0].path).toEqual(['spec', 'profile', 'displayName']);
+    expect(facets.sources[0].value).toBe('reconciler');
+    expect(stats.totals.inserted).toBe(1);
   });
 });
