@@ -63,13 +63,13 @@
   "dependencies": {
     "@backstage/backend-plugin-api": "^1.9.2",
     "@kunickiaj/catalog-history-node": "^0.1.0",
-    "knex": "^3.2.10"
+    "knex": "^3.2.10",
+    "pg": "^8.22.0"
   },
   "devDependencies": {
     "@backstage/backend-test-utils": "^1.11.4",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.13.2",
-    "@types/pg": "^8.20.0",
-    "pg": "^8.22.0"
+    "@types/pg": "^8.20.0"
   }
 }
