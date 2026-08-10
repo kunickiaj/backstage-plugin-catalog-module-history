@@ -6216,14 +6216,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/pg@npm:^8.20.0":
-  version: 8.20.0
-  resolution: "@types/pg@npm:8.20.0"
+"@types/pg@npm:^8.20.4":
+  version: 8.20.4
+  resolution: "@types/pg@npm:8.20.4"
   dependencies:
     "@types/node": "npm:*"
     pg-protocol: "npm:*"
     pg-types: "npm:^2.2.0"
-  checksum: 10c0/c8b5aa794ea074aa20d0c1ef6c721ce0fe16f2c084d0ccc32b7f12909a08ec969e6b01a094ce8e7019cc425381c4b59f261bd0133daf0c6d4aca5c6c492e8312
+  checksum: 10c0/5b47632681517ea0bbd228cc370b85fc789e48098e4eb29635e74e4a0932503e479e0b29e034e62e54ed4c9368df8f3dfe8dff20592354786056eec6b831ac7f
   languageName: node
   linkType: hard
 
@@ -7622,7 +7622,7 @@ __metadata:
     "@types/jsdom": "npm:^27.0.0"
     "@types/json-stable-stringify": "npm:^1.2.0"
     "@types/node": "npm:^24.13.3"
-    "@types/pg": "npm:^8.20.0"
+    "@types/pg": "npm:^8.20.4"
     jest: "npm:^30.4.2"
     jsdom: "npm:^27.1.0"
     json-stable-stringify: "npm:^1.3.0"
