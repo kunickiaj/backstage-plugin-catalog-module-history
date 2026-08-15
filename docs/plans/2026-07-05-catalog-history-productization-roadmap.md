@@ -116,7 +116,8 @@ Owns:
 
 - `HistoryStore` interface;
 - `HistoryQueryService` interface;
-- service refs such as `historyStoreServiceRef` and `historyQueryServiceRef`;
+- service refs such as `historyStoreServiceRef`, with query service wiring added
+  once the backend router can bind reads to the same storage used by the writer;
 - backend-only utility types;
 - test utilities such as `InMemoryHistoryStore` if exported intentionally.
 

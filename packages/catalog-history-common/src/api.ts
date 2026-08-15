@@ -445,6 +445,13 @@ export interface HistoryFacetsResponse {
 }
 
 /**
+ * Facets request options.
+ *
+ * @public
+ */
+export interface HistoryFacetsRequest extends HistoryChangeFilter {}
+
+/**
  * Aggregate stats request options.
  *
  * @public

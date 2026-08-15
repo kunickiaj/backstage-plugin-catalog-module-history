@@ -13,4 +13,5 @@ export type {
 } from './store/types';
 export type { CurrentEtag, HistoryStore } from './store/HistoryStore';
 export { RECONCILER_PROVIDER } from './store/HistoryStore';
+export type { HistoryQueryService } from './query/HistoryQueryService';
 export { historyStoreServiceRef } from './service/historyStoreServiceRef';
