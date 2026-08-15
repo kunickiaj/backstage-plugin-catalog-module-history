@@ -25,6 +25,32 @@ export type CurrentEtag = {
  */
 export interface HistoryStore {
   /**
+   * Prepares the backing store for reads and writes.
+   *
+   * Implementations that need schema bootstrap or other startup work should
+   * perform it here. Implementations that are always ready can omit this
+   * method. Callers should treat it as idempotent.
+   */
+  ensureReady?(): Promise<void>;
+
+  /**
+   * Registers work that must complete before the backing store is shut down.
+   *
+   * Implementations that own their database connection should run these hooks
+   * before closing that connection. This is primarily used by buffered capture
+   * layers that need to flush before a self-managed pool is destroyed.
+   */
+  addShutdownHook?(hook: () => Promise<void>): void;
+
+  /**
+   * Flushes registered shutdown hooks and releases store-owned resources.
+   *
+   * Implementations that use Backstage-managed services may only need to run
+   * registered hooks. Callers should treat it as idempotent.
+   */
+  shutdown?(): Promise<void>;
+
+  /**
    * Returns the latest non-delete etag per entity_ref recorded for the
    * given provider.
    */

@@ -8,6 +8,8 @@ This package owns:
 - `historyStoreServiceRef`, the plugin-scoped service ref that backend modules use to obtain a history store through Backstage DI;
 - `InMemoryHistoryStore`, a test double for history integrations, exported from the `@kunickiaj/catalog-history-node/testUtils` subpath so it stays out of the production contract surface.
 
+Custom store implementations can optionally implement `HistoryStore.ensureReady()` for schema bootstrap or other startup preparation. Consumers call it before registering capture layers; simple in-memory or always-ready stores can omit it.
+
 `CaptureSource` and `MutationType` are aliases of the isomorphic enums in
 `@kunickiaj/catalog-history-common`, so backend and frontend code share one
 vocabulary.

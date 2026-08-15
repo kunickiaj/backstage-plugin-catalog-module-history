@@ -8,3 +8,4 @@
 export { ensureSchema } from './postgres/ensureSchema';
 export { PostgresHistoryStore } from './postgres/PostgresHistoryStore';
 export { historyStoreServiceFactory } from './service/historyStoreServiceFactory';
+export { historyStoreServiceFactory as default } from './service/historyStoreServiceFactory';

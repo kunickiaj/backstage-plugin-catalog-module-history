@@ -7,21 +7,19 @@ import {
   catalogProcessingExtensionPoint,
   catalogServiceRef,
 } from '@backstage/plugin-catalog-node';
-import { type Knex, knex as createKnex } from 'knex';
 import {
-  ensureSchema,
-  PostgresHistoryStore,
-} from '@kunickiaj/catalog-history-backend';
+  type HistoryStore,
+  historyStoreServiceRef,
+} from '@kunickiaj/catalog-history-node';
 import { HistoryRecordingCatalogProcessor } from '../processor/HistoryRecordingCatalogProcessor';
 import { CatalogServiceEntityFetcher } from '../reconciler/CatalogServiceEntityFetcher';
 import { reconcile } from '../reconciler/reconcile';
 
 /**
  * Backstage backend module for the catalog-history plugin. On init it
- * resolves the database connection (either an explicit catalog.history.
- * database config or Backstage's shared database service) and runs the
- * history schema migrations. When processor-layer capture is enabled, it also
- * registers a history processor with the catalog processing extension point.
+ * resolves the history store from Backstage DI and prepares it for use. When
+ * processor-layer capture is enabled, it also registers a history processor
+ * with the catalog processing extension point.
  *
  * Wrapping individual EntityProviders for cycle recording is handled at
  * backend wiring time via the exported `HistoryRecordingEntityProvider`.
@@ -36,7 +34,7 @@ import { reconcile } from '../reconciler/reconcile';
  * catalog:
  *   history:
  *     enabled: true       # set to false to skip schema bootstrap entirely
- *     database:           # optional; falls back to Backstage's DB
+ *     database:           # deprecated compatibility override honored by the default historyStoreServiceFactory
  *       client: pg
  *       connection: ${PG_HISTORY_URL}
  *     provider:
@@ -59,7 +57,7 @@ export const catalogModuleHistory = createBackendModule({
       deps: {
         logger: coreServices.logger,
         config: coreServices.rootConfig,
-        database: coreServices.database,
+        historyStore: historyStoreServiceRef,
         catalog: catalogProcessingExtensionPoint,
         catalogService: catalogServiceRef,
         scheduler: coreServices.scheduler,
@@ -69,7 +67,7 @@ export const catalogModuleHistory = createBackendModule({
       async init({
         logger,
         config,
-        database,
+        historyStore,
         catalog,
         catalogService,
         scheduler,
@@ -84,19 +82,7 @@ export const catalogModuleHistory = createBackendModule({
           return;
         }
 
-        // Note: catalog.history.database only affects the stores created by
-        // this module (processor-layer capture and the scheduled reconciler).
-        // Provider-layer capture is wired externally via the exported
-        // HistoryRecordingEntityProvider and writes to whatever database that
-        // wiring passes in — point it at the same connection if you use a
-        // dedicated history database.
-        const dbConfig = moduleConfig?.getOptionalConfig('database');
-        const db: Knex = dbConfig
-          ? createKnex({
-              client: dbConfig.getOptionalString('client') ?? 'pg',
-              connection: dbConfig.get('connection') as Knex.PgConnectionConfig,
-            })
-          : await database.getClient();
+        const store: HistoryStore = historyStore;
 
         // Backstage runs shutdown hooks as an unordered batch, so teardown
         // steps that depend on each other must live in a single hook:
@@ -107,17 +93,9 @@ export const catalogModuleHistory = createBackendModule({
           for (const step of teardown) {
             await step();
           }
+          await store.shutdown?.();
         });
-        if (dbConfig) {
-          // The framework owns the shared client's lifecycle, but a
-          // connection pool we created ourselves is ours to close. Runs
-          // last (steps are unshifted ahead of it below).
-          teardown.push(async () => {
-            await db.destroy();
-          });
-        }
-
-        await ensureSchema(db);
+        await store.ensureReady?.();
         const providerEnabled =
           moduleConfig
             ?.getOptionalConfig('provider')
@@ -141,14 +119,21 @@ export const catalogModuleHistory = createBackendModule({
 
         if (processingEnabled) {
           const processor = new HistoryRecordingCatalogProcessor({
-            store: new PostgresHistoryStore(db),
+            store,
             logger,
           });
           catalog.addProcessor(processor);
-          // Runs before the pool-destroy step registered above.
-          teardown.unshift(async () => {
+          const stopProcessor = async () => {
             await processor.stop();
-          });
+          };
+          // If the store owns a database pool, the store-level hook keeps this
+          // flush ordered before pool destruction even if Backstage starts
+          // lifecycle hooks as an unordered batch.
+          if (store.addShutdownHook) {
+            store.addShutdownHook(stopProcessor);
+          } else {
+            teardown.unshift(stopProcessor);
+          }
         }
 
         if (reconcilerEnabled) {
@@ -156,7 +141,6 @@ export const catalogModuleHistory = createBackendModule({
             catalog: catalogService,
             auth,
           });
-          const store = new PostgresHistoryStore(db);
           const scheduleConfig = moduleConfig
             ?.getOptionalConfig('reconciler')
             ?.getOptionalConfig('schedule');
@@ -186,7 +170,7 @@ export const catalogModuleHistory = createBackendModule({
           });
         }
 
-        logger.info('catalog-history schema is ready');
+        logger.info('catalog-history store is ready');
       },
     });
   },
