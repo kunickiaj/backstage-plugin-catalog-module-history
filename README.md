@@ -16,7 +16,7 @@ Ships with a Postgres backend in v1; designed around a pluggable `HistoryStore` 
 ## Install
 
 ```sh
-yarn add backstage-plugin-catalog-backend-module-history
+yarn add backstage-plugin-catalog-backend-module-history @kunickiaj/catalog-history-node
 ```
 
 ## Wire it up
@@ -36,13 +36,13 @@ backend.add(import('backstage-plugin-catalog-backend-module-history'));
 backend.start();
 ```
 
-That gives you schema bootstrap, optional processor capture, and optional scheduled reconciliation. Provider capture still needs provider wiring: wrap each provider you care about with `HistoryRecordingEntityProvider`:
+The module package default export installs both the catalog backend module and the default Postgres `historyStoreServiceRef` factory from `@kunickiaj/catalog-history-backend`. That gives you schema bootstrap, optional processor capture, and optional scheduled reconciliation.
+
+Provider capture still needs provider wiring: in the catalog module where you create the provider, depend on `historyStoreServiceRef` and pass the injected store into `HistoryRecordingEntityProvider`:
 
 ```ts
-import {
-  HistoryRecordingEntityProvider,
-  PostgresHistoryStore,
-} from 'backstage-plugin-catalog-backend-module-history';
+import { HistoryRecordingEntityProvider } from 'backstage-plugin-catalog-backend-module-history';
+import { historyStoreServiceRef } from '@kunickiaj/catalog-history-node';
 import { OktaOrgEntityProvider } from '@backstage/plugin-catalog-backend-module-okta';
 
 backend.add(
@@ -55,15 +55,14 @@ backend.add(
           catalog: catalogProcessingExtensionPoint,
           logger: coreServices.logger,
           config: coreServices.rootConfig,
-          database: coreServices.database,
+          historyStore: historyStoreServiceRef,
         },
-        async init({ catalog, logger, config, database }) {
-          const store = new PostgresHistoryStore(await database.getClient());
+        async init({ catalog, logger, config, historyStore }) {
           const inner = OktaOrgEntityProvider.fromConfig(/* ... */);
           catalog.addEntityProvider(
             new HistoryRecordingEntityProvider({
               inner,
-              store,
+              store: historyStore,
               logger,
               enabled:
                 config.getOptionalBoolean('catalog.history.provider.enabled') ??
@@ -86,8 +85,9 @@ catalog:
   history:
     enabled: true
 
-    # Optional: write to a different Postgres instance than Backstage's
-    # main catalog DB. Defaults to the same DB Backstage uses.
+    # Deprecated compatibility path: write to a different Postgres instance
+    # than Backstage's main catalog DB. Prefer a custom historyStoreServiceRef
+    # factory for new dedicated-storage setups.
     database:
       client: pg
       connection: ${PG_HISTORY_URL}
@@ -109,24 +109,47 @@ catalog:
         initialDelay: { seconds: 30 }
 ```
 
-| Key                                                | Default                    | Effect                                                                                     |
-| -------------------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------ |
-| `catalog.history.enabled`                          | `true`                     | Master switch. Set to `false` to skip schema bootstrap, processor capture, and reconciler. |
-| `catalog.history.database`                         | unset                      | Optional history database override; omitted uses Backstage's database service.             |
-| `catalog.history.database.client`                  | `pg`                       | Knex client for the history database override.                                             |
-| `catalog.history.database.connection`              | Backstage database service | Knex connection string or object for history storage. Treated as secret config.            |
-| `catalog.history.provider`                         | unset                      | Provider-layer capture settings.                                                           |
-| `catalog.history.provider.enabled`                 | `true`                     | Gates provider-layer recording when passed to `HistoryRecordingEntityProvider`.            |
-| `catalog.history.processing`                       | unset                      | Processor-layer capture settings.                                                          |
-| `catalog.history.processing.enabled`               | `false`                    | Enables processor-layer capture via `HistoryRecordingCatalogProcessor`.                    |
-| `catalog.history.reconciler`                       | unset                      | Scheduled in-process reconciler settings.                                                  |
-| `catalog.history.reconciler.enabled`               | `false`                    | Enables scheduled in-process reconciliation.                                               |
-| `catalog.history.reconciler.schedule`              | unset                      | Optional Backstage scheduler config; omitted uses the defaults below.                      |
-| `catalog.history.reconciler.schedule.frequency`    | `{ hours: 1 }`             | Scheduler frequency for the in-process reconciler.                                         |
-| `catalog.history.reconciler.schedule.timeout`      | `{ minutes: 10 }`          | Scheduler timeout for one reconcile run.                                                   |
-| `catalog.history.reconciler.schedule.initialDelay` | `{ seconds: 30 }`          | Delay before the first scheduled reconcile run.                                            |
+| Key                                                | Default                    | Effect                                                                                                                                      |
+| -------------------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `catalog.history.enabled`                          | `true`                     | Master switch. Set to `false` to skip schema bootstrap, processor capture, and reconciler.                                                  |
+| `catalog.history.database`                         | unset                      | Deprecated history database override honored by the default store factory. Prefer custom `historyStoreServiceRef` factories for new setups. |
+| `catalog.history.database.client`                  | `pg`                       | Knex client for the deprecated history database override.                                                                                   |
+| `catalog.history.database.connection`              | Backstage database service | Knex connection string or object for the deprecated history storage override. Treated as secret config.                                     |
+| `catalog.history.provider`                         | unset                      | Provider-layer capture settings.                                                                                                            |
+| `catalog.history.provider.enabled`                 | `true`                     | Gates provider-layer recording when passed to `HistoryRecordingEntityProvider`.                                                             |
+| `catalog.history.processing`                       | unset                      | Processor-layer capture settings.                                                                                                           |
+| `catalog.history.processing.enabled`               | `false`                    | Enables processor-layer capture via `HistoryRecordingCatalogProcessor`.                                                                     |
+| `catalog.history.reconciler`                       | unset                      | Scheduled in-process reconciler settings.                                                                                                   |
+| `catalog.history.reconciler.enabled`               | `false`                    | Enables scheduled in-process reconciliation.                                                                                                |
+| `catalog.history.reconciler.schedule`              | unset                      | Optional Backstage scheduler config; omitted uses the defaults below.                                                                       |
+| `catalog.history.reconciler.schedule.frequency`    | `{ hours: 1 }`             | Scheduler frequency for the in-process reconciler.                                                                                          |
+| `catalog.history.reconciler.schedule.timeout`      | `{ minutes: 10 }`          | Scheduler timeout for one reconcile run.                                                                                                    |
+| `catalog.history.reconciler.schedule.initialDelay` | `{ seconds: 30 }`          | Delay before the first scheduled reconcile run.                                                                                             |
 
 Processing capture and the scheduled reconciler are config-only after `backend.add(import('backstage-plugin-catalog-backend-module-history'))`; no extra code wiring is needed.
+
+### Custom history storage
+
+For custom storage, register your own service factory and use the named catalog module export instead of the default loader:
+
+```ts
+import { createServiceFactory } from '@backstage/backend-plugin-api';
+import { historyStoreServiceRef } from '@kunickiaj/catalog-history-node';
+import { catalogModuleHistory } from 'backstage-plugin-catalog-backend-module-history';
+
+const myHistoryStoreServiceFactory = createServiceFactory({
+  service: historyStoreServiceRef,
+  deps: {
+    // your deps here
+  },
+  async factory() {
+    return createMyHistoryStore();
+  },
+});
+
+backend.add(catalogModuleHistory);
+backend.add(myHistoryStoreServiceFactory);
+```
 
 ## Query the history
 

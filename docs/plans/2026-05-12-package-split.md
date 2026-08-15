@@ -2,7 +2,12 @@
 
 > Tracking issue: [#11](https://github.com/kunickiaj/backstage-plugin-catalog-module-history/issues/11)
 >
-> Status: **partially executed.** The private Yarn workspace root and initial `packages/catalog-backend-module-history` move have landed. The package-boundary split, service-ref extraction, backend storage package, and frontend package remain planned follow-up work.
+> Status: **historical / superseded by the 2026-07 productization stack.**
+> The executed package names are `@kunickiaj/catalog-history-common`,
+> `@kunickiaj/catalog-history-node`, `@kunickiaj/catalog-history-backend`,
+> and `backstage-plugin-catalog-backend-module-history`; see
+> [2026-07-05 productization roadmap](./2026-07-05-catalog-history-productization-roadmap.md)
+> and the package READMEs for current wiring and publish shape.
 
 ## Goal
 
