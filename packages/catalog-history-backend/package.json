@@ -66,12 +66,12 @@
     "@kunickiaj/catalog-history-common": "^0.1.0",
     "@kunickiaj/catalog-history-node": "^0.1.0",
     "knex": "^3.2.10",
-    "pg": "^8.22.0"
+    "pg": "^8.23.0"
   },
   "devDependencies": {
     "@backstage/backend-test-utils": "^1.11.5",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.13.3",
-    "@types/pg": "^8.20.4"
+    "@types/pg": "^8.21.0"
   }
 }
