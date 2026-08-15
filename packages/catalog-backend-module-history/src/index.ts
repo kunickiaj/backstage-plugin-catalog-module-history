@@ -1,11 +1,16 @@
-export type { HistoryStore, CurrentEtag } from './store/HistoryStore';
-export { RECONCILER_PROVIDER } from './store/HistoryStore';
+// Store contracts moved to @kunickiaj/catalog-history-node; re-exported here
+// for compatibility with existing imports.
+/** @deprecated Import from `@kunickiaj/catalog-history-node` instead; these re-exports will be removed in a future release. */
 export type {
   CaptureSource,
+  CurrentEtag,
   CycleInput,
   EntityRow,
+  HistoryStore,
   MutationType,
-} from './store/types';
+} from '@kunickiaj/catalog-history-node';
+/** @deprecated Import from `@kunickiaj/catalog-history-node` instead; this re-export will be removed in a future release. */
+export { RECONCILER_PROVIDER } from '@kunickiaj/catalog-history-node';
 export { ensureSchema } from './postgres/ensureSchema';
 export { PostgresHistoryStore } from './postgres/PostgresHistoryStore';
 export { entityToRow } from './mapping/entityToRow';

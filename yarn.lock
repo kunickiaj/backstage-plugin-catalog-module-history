@@ -2579,7 +2579,6 @@ __metadata:
 "@esbuild/aix-ppc64@npm:0.27.7":
   version: 0.27.7
   resolution: "@esbuild/aix-ppc64@npm:0.27.7"
-  checksum: 10c0/undefined
   conditions: os=aix & cpu=ppc64
   languageName: node
   linkType: hard
@@ -2587,7 +2586,6 @@ __metadata:
 "@esbuild/android-arm64@npm:0.27.7":
   version: 0.27.7
   resolution: "@esbuild/android-arm64@npm:0.27.7"
-  checksum: 10c0/undefined
   conditions: os=android & cpu=arm64
   languageName: node
   linkType: hard
@@ -2595,7 +2593,6 @@ __metadata:
 "@esbuild/android-arm@npm:0.27.7":
   version: 0.27.7
   resolution: "@esbuild/android-arm@npm:0.27.7"
-  checksum: 10c0/undefined
   conditions: os=android & cpu=arm
   languageName: node
   linkType: hard
@@ -2603,7 +2600,6 @@ __metadata:
 "@esbuild/android-x64@npm:0.27.7":
   version: 0.27.7
   resolution: "@esbuild/android-x64@npm:0.27.7"
-  checksum: 10c0/undefined
   conditions: os=android & cpu=x64
   languageName: node
   linkType: hard
@@ -2611,7 +2607,6 @@ __metadata:
 "@esbuild/darwin-arm64@npm:0.27.7":
   version: 0.27.7
   resolution: "@esbuild/darwin-arm64@npm:0.27.7"
-  checksum: 10c0/undefined
   conditions: os=darwin & cpu=arm64
   languageName: node
   linkType: hard
@@ -2619,7 +2614,6 @@ __metadata:
 "@esbuild/darwin-x64@npm:0.27.7":
   version: 0.27.7
   resolution: "@esbuild/darwin-x64@npm:0.27.7"
-  checksum: 10c0/undefined
   conditions: os=darwin & cpu=x64
   languageName: node
   linkType: hard
@@ -2627,7 +2621,6 @@ __metadata:
 "@esbuild/freebsd-arm64@npm:0.27.7":
   version: 0.27.7
   resolution: "@esbuild/freebsd-arm64@npm:0.27.7"
-  checksum: 10c0/undefined
   conditions: os=freebsd & cpu=arm64
   languageName: node
   linkType: hard
@@ -2635,7 +2628,6 @@ __metadata:
 "@esbuild/freebsd-x64@npm:0.27.7":
   version: 0.27.7
   resolution: "@esbuild/freebsd-x64@npm:0.27.7"
-  checksum: 10c0/undefined
   conditions: os=freebsd & cpu=x64
   languageName: node
   linkType: hard
@@ -2643,7 +2635,6 @@ __metadata:
 "@esbuild/linux-arm64@npm:0.27.7":
   version: 0.27.7
   resolution: "@esbuild/linux-arm64@npm:0.27.7"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=arm64
   languageName: node
   linkType: hard
@@ -2651,7 +2642,6 @@ __metadata:
 "@esbuild/linux-arm@npm:0.27.7":
   version: 0.27.7
   resolution: "@esbuild/linux-arm@npm:0.27.7"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=arm
   languageName: node
   linkType: hard
@@ -2659,7 +2649,6 @@ __metadata:
 "@esbuild/linux-ia32@npm:0.27.7":
   version: 0.27.7
   resolution: "@esbuild/linux-ia32@npm:0.27.7"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=ia32
   languageName: node
   linkType: hard
@@ -2667,7 +2656,6 @@ __metadata:
 "@esbuild/linux-loong64@npm:0.27.7":
   version: 0.27.7
   resolution: "@esbuild/linux-loong64@npm:0.27.7"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=loong64
   languageName: node
   linkType: hard
@@ -2675,7 +2663,6 @@ __metadata:
 "@esbuild/linux-mips64el@npm:0.27.7":
   version: 0.27.7
   resolution: "@esbuild/linux-mips64el@npm:0.27.7"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=mips64el
   languageName: node
   linkType: hard
@@ -2683,7 +2670,6 @@ __metadata:
 "@esbuild/linux-ppc64@npm:0.27.7":
   version: 0.27.7
   resolution: "@esbuild/linux-ppc64@npm:0.27.7"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=ppc64
   languageName: node
   linkType: hard
@@ -2691,7 +2677,6 @@ __metadata:
 "@esbuild/linux-riscv64@npm:0.27.7":
   version: 0.27.7
   resolution: "@esbuild/linux-riscv64@npm:0.27.7"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=riscv64
   languageName: node
   linkType: hard
@@ -2699,7 +2684,6 @@ __metadata:
 "@esbuild/linux-s390x@npm:0.27.7":
   version: 0.27.7
   resolution: "@esbuild/linux-s390x@npm:0.27.7"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=s390x
   languageName: node
   linkType: hard
@@ -2707,7 +2691,6 @@ __metadata:
 "@esbuild/linux-x64@npm:0.27.7":
   version: 0.27.7
   resolution: "@esbuild/linux-x64@npm:0.27.7"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=x64
   languageName: node
   linkType: hard
@@ -2715,7 +2698,6 @@ __metadata:
 "@esbuild/netbsd-arm64@npm:0.27.7":
   version: 0.27.7
   resolution: "@esbuild/netbsd-arm64@npm:0.27.7"
-  checksum: 10c0/undefined
   conditions: os=netbsd & cpu=arm64
   languageName: node
   linkType: hard
@@ -2723,7 +2705,6 @@ __metadata:
 "@esbuild/netbsd-x64@npm:0.27.7":
   version: 0.27.7
   resolution: "@esbuild/netbsd-x64@npm:0.27.7"
-  checksum: 10c0/undefined
   conditions: os=netbsd & cpu=x64
   languageName: node
   linkType: hard
@@ -2731,7 +2712,6 @@ __metadata:
 "@esbuild/openbsd-arm64@npm:0.27.7":
   version: 0.27.7
   resolution: "@esbuild/openbsd-arm64@npm:0.27.7"
-  checksum: 10c0/undefined
   conditions: os=openbsd & cpu=arm64
   languageName: node
   linkType: hard
@@ -2739,7 +2719,6 @@ __metadata:
 "@esbuild/openbsd-x64@npm:0.27.7":
   version: 0.27.7
   resolution: "@esbuild/openbsd-x64@npm:0.27.7"
-  checksum: 10c0/undefined
   conditions: os=openbsd & cpu=x64
   languageName: node
   linkType: hard
@@ -2747,7 +2726,6 @@ __metadata:
 "@esbuild/openharmony-arm64@npm:0.27.7":
   version: 0.27.7
   resolution: "@esbuild/openharmony-arm64@npm:0.27.7"
-  checksum: 10c0/undefined
   conditions: os=openharmony & cpu=arm64
   languageName: node
   linkType: hard
@@ -2755,7 +2733,6 @@ __metadata:
 "@esbuild/sunos-x64@npm:0.27.7":
   version: 0.27.7
   resolution: "@esbuild/sunos-x64@npm:0.27.7"
-  checksum: 10c0/undefined
   conditions: os=sunos & cpu=x64
   languageName: node
   linkType: hard
@@ -2763,7 +2740,6 @@ __metadata:
 "@esbuild/win32-arm64@npm:0.27.7":
   version: 0.27.7
   resolution: "@esbuild/win32-arm64@npm:0.27.7"
-  checksum: 10c0/undefined
   conditions: os=win32 & cpu=arm64
   languageName: node
   linkType: hard
@@ -2771,7 +2747,6 @@ __metadata:
 "@esbuild/win32-ia32@npm:0.27.7":
   version: 0.27.7
   resolution: "@esbuild/win32-ia32@npm:0.27.7"
-  checksum: 10c0/undefined
   conditions: os=win32 & cpu=ia32
   languageName: node
   linkType: hard
@@ -2779,7 +2754,6 @@ __metadata:
 "@esbuild/win32-x64@npm:0.27.7":
   version: 0.27.7
   resolution: "@esbuild/win32-x64@npm:0.27.7"
-  checksum: 10c0/undefined
   conditions: os=win32 & cpu=x64
   languageName: node
   linkType: hard
@@ -3683,10 +3657,21 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@kunickiaj/catalog-history-common@workspace:packages/catalog-history-common":
+"@kunickiaj/catalog-history-common@npm:^0.1.0, @kunickiaj/catalog-history-common@workspace:packages/catalog-history-common":
   version: 0.0.0-use.local
   resolution: "@kunickiaj/catalog-history-common@workspace:packages/catalog-history-common"
   dependencies:
+    "@types/jest": "npm:^30.0.0"
+  languageName: unknown
+  linkType: soft
+
+"@kunickiaj/catalog-history-node@npm:^0.1.0, @kunickiaj/catalog-history-node@workspace:packages/catalog-history-node":
+  version: 0.0.0-use.local
+  resolution: "@kunickiaj/catalog-history-node@workspace:packages/catalog-history-node"
+  dependencies:
+    "@backstage/backend-plugin-api": "npm:^1.9.3"
+    "@backstage/types": "npm:^1.2.2"
+    "@kunickiaj/catalog-history-common": "npm:^0.1.0"
     "@types/jest": "npm:^30.0.0"
   languageName: unknown
   linkType: soft
@@ -4714,7 +4699,6 @@ __metadata:
 "@rollup/rollup-android-arm-eabi@npm:4.60.3":
   version: 4.60.3
   resolution: "@rollup/rollup-android-arm-eabi@npm:4.60.3"
-  checksum: 10c0/undefined
   conditions: os=android & cpu=arm
   languageName: node
   linkType: hard
@@ -4722,7 +4706,6 @@ __metadata:
 "@rollup/rollup-android-arm64@npm:4.60.3":
   version: 4.60.3
   resolution: "@rollup/rollup-android-arm64@npm:4.60.3"
-  checksum: 10c0/undefined
   conditions: os=android & cpu=arm64
   languageName: node
   linkType: hard
@@ -4730,7 +4713,6 @@ __metadata:
 "@rollup/rollup-darwin-arm64@npm:4.60.3":
   version: 4.60.3
   resolution: "@rollup/rollup-darwin-arm64@npm:4.60.3"
-  checksum: 10c0/undefined
   conditions: os=darwin & cpu=arm64
   languageName: node
   linkType: hard
@@ -4738,7 +4720,6 @@ __metadata:
 "@rollup/rollup-darwin-x64@npm:4.60.3":
   version: 4.60.3
   resolution: "@rollup/rollup-darwin-x64@npm:4.60.3"
-  checksum: 10c0/undefined
   conditions: os=darwin & cpu=x64
   languageName: node
   linkType: hard
@@ -4746,7 +4727,6 @@ __metadata:
 "@rollup/rollup-freebsd-arm64@npm:4.60.3":
   version: 4.60.3
   resolution: "@rollup/rollup-freebsd-arm64@npm:4.60.3"
-  checksum: 10c0/undefined
   conditions: os=freebsd & cpu=arm64
   languageName: node
   linkType: hard
@@ -4754,7 +4734,6 @@ __metadata:
 "@rollup/rollup-freebsd-x64@npm:4.60.3":
   version: 4.60.3
   resolution: "@rollup/rollup-freebsd-x64@npm:4.60.3"
-  checksum: 10c0/undefined
   conditions: os=freebsd & cpu=x64
   languageName: node
   linkType: hard
@@ -4762,7 +4741,6 @@ __metadata:
 "@rollup/rollup-linux-arm-gnueabihf@npm:4.60.3":
   version: 4.60.3
   resolution: "@rollup/rollup-linux-arm-gnueabihf@npm:4.60.3"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=arm & libc=glibc
   languageName: node
   linkType: hard
@@ -4770,7 +4748,6 @@ __metadata:
 "@rollup/rollup-linux-arm-musleabihf@npm:4.60.3":
   version: 4.60.3
   resolution: "@rollup/rollup-linux-arm-musleabihf@npm:4.60.3"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=arm & libc=musl
   languageName: node
   linkType: hard
@@ -4778,7 +4755,6 @@ __metadata:
 "@rollup/rollup-linux-arm64-gnu@npm:4.60.3":
   version: 4.60.3
   resolution: "@rollup/rollup-linux-arm64-gnu@npm:4.60.3"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=arm64 & libc=glibc
   languageName: node
   linkType: hard
@@ -4786,7 +4762,6 @@ __metadata:
 "@rollup/rollup-linux-arm64-musl@npm:4.60.3":
   version: 4.60.3
   resolution: "@rollup/rollup-linux-arm64-musl@npm:4.60.3"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=arm64 & libc=musl
   languageName: node
   linkType: hard
@@ -4794,7 +4769,6 @@ __metadata:
 "@rollup/rollup-linux-loong64-gnu@npm:4.60.3":
   version: 4.60.3
   resolution: "@rollup/rollup-linux-loong64-gnu@npm:4.60.3"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=loong64 & libc=glibc
   languageName: node
   linkType: hard
@@ -4802,7 +4776,6 @@ __metadata:
 "@rollup/rollup-linux-loong64-musl@npm:4.60.3":
   version: 4.60.3
   resolution: "@rollup/rollup-linux-loong64-musl@npm:4.60.3"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=loong64 & libc=musl
   languageName: node
   linkType: hard
@@ -4810,7 +4783,6 @@ __metadata:
 "@rollup/rollup-linux-ppc64-gnu@npm:4.60.3":
   version: 4.60.3
   resolution: "@rollup/rollup-linux-ppc64-gnu@npm:4.60.3"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=ppc64 & libc=glibc
   languageName: node
   linkType: hard
@@ -4818,7 +4790,6 @@ __metadata:
 "@rollup/rollup-linux-ppc64-musl@npm:4.60.3":
   version: 4.60.3
   resolution: "@rollup/rollup-linux-ppc64-musl@npm:4.60.3"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=ppc64 & libc=musl
   languageName: node
   linkType: hard
@@ -4826,7 +4797,6 @@ __metadata:
 "@rollup/rollup-linux-riscv64-gnu@npm:4.60.3":
   version: 4.60.3
   resolution: "@rollup/rollup-linux-riscv64-gnu@npm:4.60.3"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=riscv64 & libc=glibc
   languageName: node
   linkType: hard
@@ -4834,7 +4804,6 @@ __metadata:
 "@rollup/rollup-linux-riscv64-musl@npm:4.60.3":
   version: 4.60.3
   resolution: "@rollup/rollup-linux-riscv64-musl@npm:4.60.3"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=riscv64 & libc=musl
   languageName: node
   linkType: hard
@@ -4842,7 +4811,6 @@ __metadata:
 "@rollup/rollup-linux-s390x-gnu@npm:4.60.3":
   version: 4.60.3
   resolution: "@rollup/rollup-linux-s390x-gnu@npm:4.60.3"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=s390x & libc=glibc
   languageName: node
   linkType: hard
@@ -4850,7 +4818,6 @@ __metadata:
 "@rollup/rollup-linux-x64-gnu@npm:4.60.3":
   version: 4.60.3
   resolution: "@rollup/rollup-linux-x64-gnu@npm:4.60.3"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=x64 & libc=glibc
   languageName: node
   linkType: hard
@@ -4858,7 +4825,6 @@ __metadata:
 "@rollup/rollup-linux-x64-musl@npm:4.60.3":
   version: 4.60.3
   resolution: "@rollup/rollup-linux-x64-musl@npm:4.60.3"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=x64 & libc=musl
   languageName: node
   linkType: hard
@@ -4866,7 +4832,6 @@ __metadata:
 "@rollup/rollup-openbsd-x64@npm:4.60.3":
   version: 4.60.3
   resolution: "@rollup/rollup-openbsd-x64@npm:4.60.3"
-  checksum: 10c0/undefined
   conditions: os=openbsd & cpu=x64
   languageName: node
   linkType: hard
@@ -4874,7 +4839,6 @@ __metadata:
 "@rollup/rollup-openharmony-arm64@npm:4.60.3":
   version: 4.60.3
   resolution: "@rollup/rollup-openharmony-arm64@npm:4.60.3"
-  checksum: 10c0/undefined
   conditions: os=openharmony & cpu=arm64
   languageName: node
   linkType: hard
@@ -4882,7 +4846,6 @@ __metadata:
 "@rollup/rollup-win32-arm64-msvc@npm:4.60.3":
   version: 4.60.3
   resolution: "@rollup/rollup-win32-arm64-msvc@npm:4.60.3"
-  checksum: 10c0/undefined
   conditions: os=win32 & cpu=arm64
   languageName: node
   linkType: hard
@@ -4890,7 +4853,6 @@ __metadata:
 "@rollup/rollup-win32-ia32-msvc@npm:4.60.3":
   version: 4.60.3
   resolution: "@rollup/rollup-win32-ia32-msvc@npm:4.60.3"
-  checksum: 10c0/undefined
   conditions: os=win32 & cpu=ia32
   languageName: node
   linkType: hard
@@ -4898,7 +4860,6 @@ __metadata:
 "@rollup/rollup-win32-x64-gnu@npm:4.60.3":
   version: 4.60.3
   resolution: "@rollup/rollup-win32-x64-gnu@npm:4.60.3"
-  checksum: 10c0/undefined
   conditions: os=win32 & cpu=x64
   languageName: node
   linkType: hard
@@ -4906,7 +4867,6 @@ __metadata:
 "@rollup/rollup-win32-x64-msvc@npm:4.60.3":
   version: 4.60.3
   resolution: "@rollup/rollup-win32-x64-msvc@npm:4.60.3"
-  checksum: 10c0/undefined
   conditions: os=win32 & cpu=x64
   languageName: node
   linkType: hard
@@ -4914,7 +4874,6 @@ __metadata:
 "@rspack/binding-darwin-arm64@npm:1.7.11":
   version: 1.7.11
   resolution: "@rspack/binding-darwin-arm64@npm:1.7.11"
-  checksum: 10c0/undefined
   conditions: os=darwin & cpu=arm64
   languageName: node
   linkType: hard
@@ -4922,7 +4881,6 @@ __metadata:
 "@rspack/binding-darwin-x64@npm:1.7.11":
   version: 1.7.11
   resolution: "@rspack/binding-darwin-x64@npm:1.7.11"
-  checksum: 10c0/undefined
   conditions: os=darwin & cpu=x64
   languageName: node
   linkType: hard
@@ -4930,7 +4888,6 @@ __metadata:
 "@rspack/binding-linux-arm64-gnu@npm:1.7.11":
   version: 1.7.11
   resolution: "@rspack/binding-linux-arm64-gnu@npm:1.7.11"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=arm64 & libc=glibc
   languageName: node
   linkType: hard
@@ -4938,7 +4895,6 @@ __metadata:
 "@rspack/binding-linux-arm64-musl@npm:1.7.11":
   version: 1.7.11
   resolution: "@rspack/binding-linux-arm64-musl@npm:1.7.11"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=arm64 & libc=musl
   languageName: node
   linkType: hard
@@ -4946,7 +4902,6 @@ __metadata:
 "@rspack/binding-linux-x64-gnu@npm:1.7.11":
   version: 1.7.11
   resolution: "@rspack/binding-linux-x64-gnu@npm:1.7.11"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=x64 & libc=glibc
   languageName: node
   linkType: hard
@@ -4954,7 +4909,6 @@ __metadata:
 "@rspack/binding-linux-x64-musl@npm:1.7.11":
   version: 1.7.11
   resolution: "@rspack/binding-linux-x64-musl@npm:1.7.11"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=x64 & libc=musl
   languageName: node
   linkType: hard
@@ -4964,7 +4918,6 @@ __metadata:
   resolution: "@rspack/binding-wasm32-wasi@npm:1.7.11"
   dependencies:
     "@napi-rs/wasm-runtime": "npm:1.0.7"
-  checksum: 10c0/undefined
   conditions: cpu=wasm32
   languageName: node
   linkType: hard
@@ -4972,7 +4925,6 @@ __metadata:
 "@rspack/binding-win32-arm64-msvc@npm:1.7.11":
   version: 1.7.11
   resolution: "@rspack/binding-win32-arm64-msvc@npm:1.7.11"
-  checksum: 10c0/undefined
   conditions: os=win32 & cpu=arm64
   languageName: node
   linkType: hard
@@ -4980,7 +4932,6 @@ __metadata:
 "@rspack/binding-win32-ia32-msvc@npm:1.7.11":
   version: 1.7.11
   resolution: "@rspack/binding-win32-ia32-msvc@npm:1.7.11"
-  checksum: 10c0/undefined
   conditions: os=win32 & cpu=ia32
   languageName: node
   linkType: hard
@@ -4988,7 +4939,6 @@ __metadata:
 "@rspack/binding-win32-x64-msvc@npm:1.7.11":
   version: 1.7.11
   resolution: "@rspack/binding-win32-x64-msvc@npm:1.7.11"
-  checksum: 10c0/undefined
   conditions: os=win32 & cpu=x64
   languageName: node
   linkType: hard
@@ -5642,7 +5592,6 @@ __metadata:
 "@swc/core-darwin-arm64@npm:1.15.33":
   version: 1.15.33
   resolution: "@swc/core-darwin-arm64@npm:1.15.33"
-  checksum: 10c0/undefined
   conditions: os=darwin & cpu=arm64
   languageName: node
   linkType: hard
@@ -5650,7 +5599,6 @@ __metadata:
 "@swc/core-darwin-x64@npm:1.15.33":
   version: 1.15.33
   resolution: "@swc/core-darwin-x64@npm:1.15.33"
-  checksum: 10c0/undefined
   conditions: os=darwin & cpu=x64
   languageName: node
   linkType: hard
@@ -5658,7 +5606,6 @@ __metadata:
 "@swc/core-linux-arm-gnueabihf@npm:1.15.33":
   version: 1.15.33
   resolution: "@swc/core-linux-arm-gnueabihf@npm:1.15.33"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=arm
   languageName: node
   linkType: hard
@@ -5666,7 +5613,6 @@ __metadata:
 "@swc/core-linux-arm64-gnu@npm:1.15.33":
   version: 1.15.33
   resolution: "@swc/core-linux-arm64-gnu@npm:1.15.33"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=arm64 & libc=glibc
   languageName: node
   linkType: hard
@@ -5674,7 +5620,6 @@ __metadata:
 "@swc/core-linux-arm64-musl@npm:1.15.33":
   version: 1.15.33
   resolution: "@swc/core-linux-arm64-musl@npm:1.15.33"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=arm64 & libc=musl
   languageName: node
   linkType: hard
@@ -5682,7 +5627,6 @@ __metadata:
 "@swc/core-linux-ppc64-gnu@npm:1.15.33":
   version: 1.15.33
   resolution: "@swc/core-linux-ppc64-gnu@npm:1.15.33"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=ppc64 & libc=glibc
   languageName: node
   linkType: hard
@@ -5690,7 +5634,6 @@ __metadata:
 "@swc/core-linux-s390x-gnu@npm:1.15.33":
   version: 1.15.33
   resolution: "@swc/core-linux-s390x-gnu@npm:1.15.33"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=s390x & libc=glibc
   languageName: node
   linkType: hard
@@ -5698,7 +5641,6 @@ __metadata:
 "@swc/core-linux-x64-gnu@npm:1.15.33":
   version: 1.15.33
   resolution: "@swc/core-linux-x64-gnu@npm:1.15.33"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=x64 & libc=glibc
   languageName: node
   linkType: hard
@@ -5706,7 +5648,6 @@ __metadata:
 "@swc/core-linux-x64-musl@npm:1.15.33":
   version: 1.15.33
   resolution: "@swc/core-linux-x64-musl@npm:1.15.33"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=x64 & libc=musl
   languageName: node
   linkType: hard
@@ -5714,7 +5655,6 @@ __metadata:
 "@swc/core-win32-arm64-msvc@npm:1.15.33":
   version: 1.15.33
   resolution: "@swc/core-win32-arm64-msvc@npm:1.15.33"
-  checksum: 10c0/undefined
   conditions: os=win32 & cpu=arm64
   languageName: node
   linkType: hard
@@ -5722,7 +5662,6 @@ __metadata:
 "@swc/core-win32-ia32-msvc@npm:1.15.33":
   version: 1.15.33
   resolution: "@swc/core-win32-ia32-msvc@npm:1.15.33"
-  checksum: 10c0/undefined
   conditions: os=win32 & cpu=ia32
   languageName: node
   linkType: hard
@@ -5730,7 +5669,6 @@ __metadata:
 "@swc/core-win32-x64-msvc@npm:1.15.33":
   version: 1.15.33
   resolution: "@swc/core-win32-x64-msvc@npm:1.15.33"
-  checksum: 10c0/undefined
   conditions: os=win32 & cpu=x64
   languageName: node
   linkType: hard
@@ -6710,7 +6648,6 @@ __metadata:
 "@unrs/resolver-binding-android-arm-eabi@npm:1.11.1":
   version: 1.11.1
   resolution: "@unrs/resolver-binding-android-arm-eabi@npm:1.11.1"
-  checksum: 10c0/undefined
   conditions: os=android & cpu=arm
   languageName: node
   linkType: hard
@@ -6718,7 +6655,6 @@ __metadata:
 "@unrs/resolver-binding-android-arm64@npm:1.11.1":
   version: 1.11.1
   resolution: "@unrs/resolver-binding-android-arm64@npm:1.11.1"
-  checksum: 10c0/undefined
   conditions: os=android & cpu=arm64
   languageName: node
   linkType: hard
@@ -6726,7 +6662,6 @@ __metadata:
 "@unrs/resolver-binding-darwin-arm64@npm:1.11.1":
   version: 1.11.1
   resolution: "@unrs/resolver-binding-darwin-arm64@npm:1.11.1"
-  checksum: 10c0/undefined
   conditions: os=darwin & cpu=arm64
   languageName: node
   linkType: hard
@@ -6734,7 +6669,6 @@ __metadata:
 "@unrs/resolver-binding-darwin-x64@npm:1.11.1":
   version: 1.11.1
   resolution: "@unrs/resolver-binding-darwin-x64@npm:1.11.1"
-  checksum: 10c0/undefined
   conditions: os=darwin & cpu=x64
   languageName: node
   linkType: hard
@@ -6742,7 +6676,6 @@ __metadata:
 "@unrs/resolver-binding-freebsd-x64@npm:1.11.1":
   version: 1.11.1
   resolution: "@unrs/resolver-binding-freebsd-x64@npm:1.11.1"
-  checksum: 10c0/undefined
   conditions: os=freebsd & cpu=x64
   languageName: node
   linkType: hard
@@ -6750,7 +6683,6 @@ __metadata:
 "@unrs/resolver-binding-linux-arm-gnueabihf@npm:1.11.1":
   version: 1.11.1
   resolution: "@unrs/resolver-binding-linux-arm-gnueabihf@npm:1.11.1"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=arm
   languageName: node
   linkType: hard
@@ -6758,7 +6690,6 @@ __metadata:
 "@unrs/resolver-binding-linux-arm-musleabihf@npm:1.11.1":
   version: 1.11.1
   resolution: "@unrs/resolver-binding-linux-arm-musleabihf@npm:1.11.1"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=arm
   languageName: node
   linkType: hard
@@ -6766,7 +6697,6 @@ __metadata:
 "@unrs/resolver-binding-linux-arm64-gnu@npm:1.11.1":
   version: 1.11.1
   resolution: "@unrs/resolver-binding-linux-arm64-gnu@npm:1.11.1"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=arm64 & libc=glibc
   languageName: node
   linkType: hard
@@ -6774,7 +6704,6 @@ __metadata:
 "@unrs/resolver-binding-linux-arm64-musl@npm:1.11.1":
   version: 1.11.1
   resolution: "@unrs/resolver-binding-linux-arm64-musl@npm:1.11.1"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=arm64 & libc=musl
   languageName: node
   linkType: hard
@@ -6782,7 +6711,6 @@ __metadata:
 "@unrs/resolver-binding-linux-ppc64-gnu@npm:1.11.1":
   version: 1.11.1
   resolution: "@unrs/resolver-binding-linux-ppc64-gnu@npm:1.11.1"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=ppc64 & libc=glibc
   languageName: node
   linkType: hard
@@ -6790,7 +6718,6 @@ __metadata:
 "@unrs/resolver-binding-linux-riscv64-gnu@npm:1.11.1":
   version: 1.11.1
   resolution: "@unrs/resolver-binding-linux-riscv64-gnu@npm:1.11.1"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=riscv64 & libc=glibc
   languageName: node
   linkType: hard
@@ -6798,7 +6725,6 @@ __metadata:
 "@unrs/resolver-binding-linux-riscv64-musl@npm:1.11.1":
   version: 1.11.1
   resolution: "@unrs/resolver-binding-linux-riscv64-musl@npm:1.11.1"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=riscv64 & libc=musl
   languageName: node
   linkType: hard
@@ -6806,7 +6732,6 @@ __metadata:
 "@unrs/resolver-binding-linux-s390x-gnu@npm:1.11.1":
   version: 1.11.1
   resolution: "@unrs/resolver-binding-linux-s390x-gnu@npm:1.11.1"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=s390x & libc=glibc
   languageName: node
   linkType: hard
@@ -6814,7 +6739,6 @@ __metadata:
 "@unrs/resolver-binding-linux-x64-gnu@npm:1.11.1":
   version: 1.11.1
   resolution: "@unrs/resolver-binding-linux-x64-gnu@npm:1.11.1"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=x64 & libc=glibc
   languageName: node
   linkType: hard
@@ -6822,7 +6746,6 @@ __metadata:
 "@unrs/resolver-binding-linux-x64-musl@npm:1.11.1":
   version: 1.11.1
   resolution: "@unrs/resolver-binding-linux-x64-musl@npm:1.11.1"
-  checksum: 10c0/undefined
   conditions: os=linux & cpu=x64 & libc=musl
   languageName: node
   linkType: hard
@@ -6832,7 +6755,6 @@ __metadata:
   resolution: "@unrs/resolver-binding-wasm32-wasi@npm:1.11.1"
   dependencies:
     "@napi-rs/wasm-runtime": "npm:^0.2.11"
-  checksum: 10c0/undefined
   conditions: cpu=wasm32
   languageName: node
   linkType: hard
@@ -6840,7 +6762,6 @@ __metadata:
 "@unrs/resolver-binding-win32-arm64-msvc@npm:1.11.1":
   version: 1.11.1
   resolution: "@unrs/resolver-binding-win32-arm64-msvc@npm:1.11.1"
-  checksum: 10c0/undefined
   conditions: os=win32 & cpu=arm64
   languageName: node
   linkType: hard
@@ -6848,7 +6769,6 @@ __metadata:
 "@unrs/resolver-binding-win32-ia32-msvc@npm:1.11.1":
   version: 1.11.1
   resolution: "@unrs/resolver-binding-win32-ia32-msvc@npm:1.11.1"
-  checksum: 10c0/undefined
   conditions: os=win32 & cpu=ia32
   languageName: node
   linkType: hard
@@ -6856,7 +6776,6 @@ __metadata:
 "@unrs/resolver-binding-win32-x64-msvc@npm:1.11.1":
   version: 1.11.1
   resolution: "@unrs/resolver-binding-win32-x64-msvc@npm:1.11.1"
-  checksum: 10c0/undefined
   conditions: os=win32 & cpu=x64
   languageName: node
   linkType: hard
@@ -7715,6 +7634,7 @@ __metadata:
     "@backstage/catalog-model": "npm:^1.9.0"
     "@backstage/plugin-catalog-node": "npm:^2.2.3"
     "@backstage/types": "npm:^1.2.2"
+    "@kunickiaj/catalog-history-node": "npm:^0.1.0"
     "@types/jest": "npm:^30.0.0"
     "@types/json-stable-stringify": "npm:^1.2.0"
     "@types/node": "npm:^24.13.3"
@@ -7724,7 +7644,6 @@ __metadata:
     pg: "npm:^8.22.0"
   bin:
     reconcile-catalog-history: ./bin/reconcile-catalog-history.js
-  checksum: 10c0/undefined
   languageName: unknown
   linkType: soft
 
@@ -7745,7 +7664,6 @@ __metadata:
     jsdom: "npm:^27.1.0"
     prettier: "npm:^3.8.4"
     typescript: "npm:~6.0.3"
-  checksum: 10c0/undefined
   languageName: unknown
   linkType: soft
 
@@ -11271,7 +11189,6 @@ __metadata:
   resolution: "fsevents@patch:fsevents@npm%3A2.3.3#optional!builtin<compat/fsevents>::version=2.3.3&hash=df0bf1"
   dependencies:
     node-gyp: "npm:latest"
-  checksum: 10c0/undefined
   conditions: os=darwin
   languageName: node
   linkType: hard

@@ -2,14 +2,27 @@ import { CaptureSource, CycleInput } from './types';
 
 /**
  * The provider name under which the reconciler records its drift cycles.
+ *
+ * @public
  */
 export const RECONCILER_PROVIDER = 'reconciler';
 
+/**
+ * The latest etag recorded for an entity, along with the provider that
+ * recorded it.
+ *
+ * @public
+ */
 export type CurrentEtag = {
   etag: string;
   provider: string;
 };
 
+/**
+ * Write-side contract for catalog history storage backends.
+ *
+ * @public
+ */
 export interface HistoryStore {
   /**
    * Returns the latest non-delete etag per entity_ref recorded for the

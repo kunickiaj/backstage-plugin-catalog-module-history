@@ -1,5 +1,5 @@
-import { InMemoryHistoryStore } from './InMemoryHistoryStore';
-import { CycleInput, EntityRow } from '../types';
+import { InMemoryHistoryStore } from '../InMemoryHistoryStore';
+import { CycleInput, EntityRow } from '../../store/types';
 
 function row(
   name: string,
