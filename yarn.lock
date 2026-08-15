@@ -1568,8 +1568,8 @@ __metadata:
   linkType: hard
 
 "@backstage/backend-defaults@npm:^0.17.5":
-  version: 0.17.5
-  resolution: "@backstage/backend-defaults@npm:0.17.5"
+  version: 0.17.6
+  resolution: "@backstage/backend-defaults@npm:0.17.6"
   dependencies:
     "@aws-sdk/abort-controller": "npm:^3.347.0"
     "@aws-sdk/client-codecommit": "npm:^3.350.0"
@@ -1584,7 +1584,7 @@ __metadata:
     "@backstage/backend-plugin-api": "npm:^1.9.3"
     "@backstage/cli-node": "npm:^0.3.4"
     "@backstage/config": "npm:^1.3.8"
-    "@backstage/config-loader": "npm:^1.11.0"
+    "@backstage/config-loader": "npm:^1.11.1"
     "@backstage/errors": "npm:^1.3.1"
     "@backstage/integration": "npm:^2.0.3"
     "@backstage/integration-aws-node": "npm:^0.2.0"
@@ -1652,7 +1652,7 @@ __metadata:
       optional: true
     better-sqlite3:
       optional: true
-  checksum: 10c0/bd37cfb65c181ec91941cbc183d3d520bb571e60a73d8f150afb2aa44593c77d00cc0a3b0b73ed9b87acd43df0534c84ca2e6224fa94798daca014519e424421
+  checksum: 10c0/a9a2d68c086a7dd626bf928df887af87a689740fafbe3016739505e69d1a8b64d2d2cc219ddef5cdf7f536ec83c523679b06103454ec4c511340ccde8db3f447
   languageName: node
   linkType: hard
 
@@ -1829,13 +1829,13 @@ __metadata:
   linkType: hard
 
 "@backstage/cli-module-build@npm:^0.1.5":
-  version: 0.1.5
-  resolution: "@backstage/cli-module-build@npm:0.1.5"
+  version: 0.1.6
+  resolution: "@backstage/cli-module-build@npm:0.1.6"
   dependencies:
     "@backstage/cli-common": "npm:^0.3.0"
     "@backstage/cli-node": "npm:^0.3.4"
     "@backstage/config": "npm:^1.3.8"
-    "@backstage/config-loader": "npm:^1.11.0"
+    "@backstage/config-loader": "npm:^1.11.1"
     "@backstage/errors": "npm:^1.3.1"
     "@backstage/module-federation-common": "npm:^0.1.4"
     "@manypkg/get-packages": "npm:^1.1.3"
@@ -1900,18 +1900,18 @@ __metadata:
       optional: true
   bin:
     cli-module-build: bin/backstage-cli-module-build
-  checksum: 10c0/5a14f389d150f51753ab332a67102dfd34d36795553ce4be72cab1607790172c5f77c751813deb552c268bd75a0eeac7a95e2b74aa616af709e8ab9f483ad0c4
+  checksum: 10c0/8d97f14c73739776eb4acb506b8912e50016cc8f4c0ff283d1a9740e391a55a4e813a05c97d611a3f1ed8adf3f8a515574c77ab20dd7b0e55530168dbaeb3642
   languageName: node
   linkType: hard
 
 "@backstage/cli-module-config@npm:^0.1.4":
-  version: 0.1.4
-  resolution: "@backstage/cli-module-config@npm:0.1.4"
+  version: 0.1.5
+  resolution: "@backstage/cli-module-config@npm:0.1.5"
   dependencies:
     "@backstage/cli-common": "npm:^0.3.0"
     "@backstage/cli-node": "npm:^0.3.4"
     "@backstage/config": "npm:^1.3.8"
-    "@backstage/config-loader": "npm:^1.11.0"
+    "@backstage/config-loader": "npm:^1.11.1"
     "@backstage/types": "npm:^1.2.2"
     "@manypkg/get-packages": "npm:^1.1.3"
     chalk: "npm:^4.0.0"
@@ -1920,7 +1920,7 @@ __metadata:
     yaml: "npm:^2.0.0"
   bin:
     cli-module-config: bin/backstage-cli-module-config
-  checksum: 10c0/62f06670b47c5bd8da7d7b278e0b674781c1b6db3e3fb630770b89fa1366edfd9734596eb8e06b6ca3937cec62f66977a10f12d59db4501e651f37e4c5210faf
+  checksum: 10c0/c3a27c0378ce82e1184a6d8233e3f66a02899b17a9eb439271db0c3374e9925885435081c741a5227dfb106e81da5014369ab63d5de3c7b47ad40116f6ab237c
   languageName: node
   linkType: hard
 
@@ -2175,9 +2175,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@backstage/config-loader@npm:^1.11.0":
-  version: 1.11.0
-  resolution: "@backstage/config-loader@npm:1.11.0"
+"@backstage/config-loader@npm:^1.11.1":
+  version: 1.11.1
+  resolution: "@backstage/config-loader@npm:1.11.1"
   dependencies:
     "@backstage/cli-common": "npm:^0.3.0"
     "@backstage/config": "npm:^1.3.8"
@@ -2194,7 +2194,7 @@ __metadata:
     ts-json-schema-generator: "npm:^2.9.0"
     typescript: "npm:^5.9.3"
     yaml: "npm:^2.0.0"
-  checksum: 10c0/c3a030bd7a03e09d08658919eeb8a7af944aeb5f0dcbdd33e07354922ebf22eff2ac57eeb4b05f30623ee1551e365858d40b4e10f8576a4165db38b99a41d55c
+  checksum: 10c0/049ce1dd070623ea9b217022daf1ec1d31dd6222c1397247f48ee736e69f6bf37f8960dd76398eda2a69700ffd4ca4ed76fdfecc916860fd627dbfcdb35c3713
   languageName: node
   linkType: hard
 
