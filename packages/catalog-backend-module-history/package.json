@@ -73,7 +73,7 @@
     "@types/jest": "^30.0.0",
     "@types/json-stable-stringify": "^1.2.0",
     "@types/node": "^24.13.3",
-    "@types/pg": "^8.21.0"
+    "@types/pg": "^8.23.1"
   },
   "dependencies": {
     "@backstage/backend-plugin-api": "^1.10.0",
