@@ -34,7 +34,7 @@
     "@types/json-stable-stringify": "^1.2.0",
     "@types/node": "^24.13.3",
     "@types/pg": "^8.23.1",
-    "jest": "^30.4.2",
+    "jest": "^30.5.0",
     "jsdom": "^27.1.0",
     "prettier": "^3.8.5",
     "typescript": "~6.0.3"
