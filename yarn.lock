@@ -3783,7 +3783,7 @@ __metadata:
     "@kunickiaj/catalog-history-common": "npm:^0.1.0"
     "@kunickiaj/catalog-history-node": "npm:^0.1.0"
     "@types/jest": "npm:^30.0.0"
-    "@types/node": "npm:^24.13.3"
+    "@types/node": "npm:^24.13.4"
     "@types/pg": "npm:^8.23.1"
     knex: "npm:^3.2.10"
     pg: "npm:^8.23.0"
@@ -6494,12 +6494,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/node@npm:^24.13.3":
-  version: 24.13.3
-  resolution: "@types/node@npm:24.13.3"
+"@types/node@npm:^24.13.4":
+  version: 24.13.4
+  resolution: "@types/node@npm:24.13.4"
   dependencies:
     undici-types: "npm:~7.18.0"
-  checksum: 10c0/a5bc08f49b9581dcdca90e02cd77197a3c799840807664942e5cd5161a553d4d2ae8064f7e3294410d748d7d098b5c1848be7fa50c06f29c4193ab16be4e59eb
+  checksum: 10c0/a12196e984cb09ead549651217b4b395961ea011f3a3791a9f78311d70b5f3be343c6fc935376553c06a34c14d963d4f637ad7829837b0c88cf441919f422893
   languageName: node
   linkType: hard
 
@@ -7945,7 +7945,7 @@ __metadata:
     "@kunickiaj/catalog-history-node": "npm:^0.1.0"
     "@types/jest": "npm:^30.0.0"
     "@types/json-stable-stringify": "npm:^1.2.0"
-    "@types/node": "npm:^24.13.3"
+    "@types/node": "npm:^24.13.4"
     "@types/pg": "npm:^8.23.1"
     json-stable-stringify: "npm:^1.3.0"
     knex: "npm:^3.2.10"
@@ -7966,7 +7966,7 @@ __metadata:
     "@types/jest": "npm:^30.0.0"
     "@types/jsdom": "npm:^27.0.0"
     "@types/json-stable-stringify": "npm:^1.2.0"
-    "@types/node": "npm:^24.13.3"
+    "@types/node": "npm:^24.13.4"
     "@types/pg": "npm:^8.23.1"
     jest: "npm:^30.5.1"
     jsdom: "npm:^27.1.0"
