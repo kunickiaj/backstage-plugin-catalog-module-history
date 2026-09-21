@@ -69,17 +69,17 @@
     "url": "https://github.com/kunickiaj/backstage-plugin-catalog-module-history/issues"
   },
   "devDependencies": {
-    "@backstage/backend-test-utils": "^1.11.6",
+    "@backstage/backend-test-utils": "^1.11.7",
     "@types/jest": "^30.0.0",
     "@types/json-stable-stringify": "^1.2.0",
     "@types/node": "^24.13.4",
     "@types/pg": "^8.23.1"
   },
   "dependencies": {
-    "@backstage/backend-plugin-api": "^1.10.0",
-    "@backstage/catalog-client": "^1.16.1",
-    "@backstage/catalog-model": "^1.10.0",
-    "@backstage/plugin-catalog-node": "^2.2.4",
+    "@backstage/backend-plugin-api": "^1.10.1",
+    "@backstage/catalog-client": "^1.16.2",
+    "@backstage/catalog-model": "^1.10.1",
+    "@backstage/plugin-catalog-node": "^2.2.5",
     "@backstage/types": "^1.2.2",
     "@kunickiaj/catalog-history-backend": "^0.1.0",
     "@kunickiaj/catalog-history-node": "^0.1.0",
