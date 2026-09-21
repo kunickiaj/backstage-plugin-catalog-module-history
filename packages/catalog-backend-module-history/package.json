@@ -72,7 +72,7 @@
     "@backstage/backend-test-utils": "^1.11.7",
     "@types/jest": "^30.0.0",
     "@types/json-stable-stringify": "^1.2.0",
-    "@types/node": "^24.13.4",
+    "@types/node": "^24.13.5",
     "@types/pg": "^8.23.1"
   },
   "dependencies": {
