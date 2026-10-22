@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { LoggerService } from '@backstage/backend-plugin-api';
-import { Entity } from '@backstage/catalog-model';
 import {
   EntityProvider,
   EntityProviderConnection,
@@ -21,27 +20,28 @@ export type HistoryRecordingEntityProviderOptions = {
   store: HistoryStore;
   logger: LoggerService;
   /**
-   * When true, full mutations from the inner provider are diffed against the
-   * history table and forwarded to the catalog as delta mutations instead.
-   * Lets full-snapshot providers act as incremental from the catalog's
-   * perspective, so the catalog's own scan-and-diff sweep is skipped.
+   * When true, full mutations with a history baseline are forwarded as deltas.
+   * Every incoming deferred entry is forwarded unchanged; the catalog compares
+   * its full entity content and location key. History refs are used only to
+   * infer removals, never to filter incoming entries by entity etag.
    *
    * Off by default. Combine with {@link forceFullEvery} when you want a
    * periodic re-convergence safety valve.
    *
-   * The cycle recorded in history always reflects the mutation the provider
-   * actually emitted (audit-honest), regardless of what was forwarded to the
-   * catalog.
+   * History records the original mutation type using its existing entity-etag
+   * comparison. Its counts can differ from catalog changes. Conversion does not
+   * avoid catalog comparisons for unchanged entries or provide deletion safety.
    */
   convertFullToDelta?: boolean;
   /**
    * When {@link convertFullToDelta} is on, this controls how often a real
    * full mutation is allowed through unchanged. Acts as a safety valve so
-   * the catalog can occasionally re-converge against the provider's full
-   * snapshot in case our history etags drift.
+   * the catalog can periodically reconcile removals against its own provider
+   * refs when history refs drift. The first full after this wrapper starts is
+   * also forwarded unchanged, even when history already has a baseline.
    *
-   * If unset, every full past the first is converted. The first full for a
-   * provider is always forwarded as-is because there is no etag baseline.
+   * If unset, full mutations with a nonempty history baseline are converted.
+   * An empty history baseline always forwards the full mutation as-is.
    */
   forceFullEvery?: ForceFullEveryDuration;
   /**
@@ -72,7 +72,9 @@ export type HistoryRecordingEntityProviderOptions = {
  *
  * When {@link HistoryRecordingEntityProviderOptions.convertFullToDelta} is
  * set, full mutations are converted to deltas before forwarding to the
- * catalog, using the history etag table as the diff baseline.
+ * catalog, using history refs to infer removals. Incoming entries are never
+ * filtered by history etags, which cannot describe location-key-only changes
+ * or every content change that the catalog detects.
  */
 export class HistoryRecordingEntityProvider implements EntityProvider {
   private readonly inner: EntityProvider;
@@ -142,6 +144,7 @@ export class HistoryRecordingEntityProvider implements EntityProvider {
             err instanceof Error ? err : { error: String(err) },
           );
           await connection.applyMutation(mutation);
+          this.lastForwardedFullAt = new Date();
           return;
         }
 
@@ -175,26 +178,21 @@ export class HistoryRecordingEntityProvider implements EntityProvider {
     if (existing.size === 0) return mutation; // first run, no baseline
     if (this.shouldForceFull()) return mutation;
 
-    const added: Array<{ entity: Entity }> = [];
     const incomingRefs = new Set<string>();
-    for (const { entity } of mutation.entities) {
-      const row = entityToRow(entity);
+    for (const entry of mutation.entities) {
+      const row = entityToRow(entry.entity);
       incomingRefs.add(row.entityRef);
-      const prev = existing.get(row.entityRef);
-      if (prev === undefined || prev !== row.etag) {
-        added.push({ entity });
-      }
     }
     const removed: Array<{ entityRef: string }> = [];
     for (const ref of existing.keys()) {
       if (!incomingRefs.has(ref)) removed.push({ entityRef: ref });
     }
-    return { type: 'delta', added, removed };
+    return { type: 'delta', added: mutation.entities, removed };
   }
 
   private shouldForceFull(): boolean {
     if (this.forceFullEveryMs === undefined) return false;
-    if (!this.lastForwardedFullAt) return false;
+    if (!this.lastForwardedFullAt) return true;
     return (
       Date.now() - this.lastForwardedFullAt.getTime() >= this.forceFullEveryMs
     );

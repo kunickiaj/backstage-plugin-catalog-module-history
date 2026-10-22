@@ -2,6 +2,7 @@ import { Entity } from '@backstage/catalog-model';
 import {
   EntityProvider,
   EntityProviderConnection,
+  EntityProviderMutation,
 } from '@backstage/plugin-catalog-node';
 import { mockServices } from '@backstage/backend-test-utils';
 import { InMemoryHistoryStore } from '@kunickiaj/catalog-history-node/testUtils';
@@ -375,6 +376,30 @@ describe('HistoryRecordingEntityProvider', () => {
   });
 
   describe('convertFullToDelta option', () => {
+    async function setupEntries(
+      entities: Extract<EntityProviderMutation, { type: 'full' }>['entities'],
+      store = new InMemoryHistoryStore(),
+    ) {
+      let wrapped: EntityProviderConnection | undefined;
+      const inner: EntityProvider = {
+        getProviderName: () => 'example-provider',
+        connect: async connection => {
+          wrapped = connection;
+          await connection.applyMutation({ type: 'full', entities });
+        },
+      };
+      const wrapper = new HistoryRecordingEntityProvider({
+        inner,
+        store,
+        logger: mockServices.logger.mock(),
+        convertFullToDelta: true,
+      });
+      const outer = fakeConnection();
+      await wrapper.connect(outer);
+      if (!wrapped) throw new Error('connect did not install a wrapper');
+      return { store, wrapped, outer };
+    }
+
     async function setupWith(
       initial: Entity[],
       opts: {
@@ -477,6 +502,55 @@ describe('HistoryRecordingEntityProvider', () => {
       expect(secondCall.removed).toEqual([{ entityRef: 'user:default/bob' }]);
     });
 
+    it('preserves all deferred entries including unchanged etags and removes missing refs', async () => {
+      // Arrange: cover keyed and keyless updates/inserts and unchanged entries.
+      const { outer, wrapped } = await setupWith(
+        [
+          user('alice', 'a1'),
+          user('bob', 'b1'),
+          user('dave', 'd1'),
+          user('eve', 'e1'),
+        ],
+        { convertFullToDelta: true },
+      );
+      const changedKeyed = {
+        entity: user('alice', 'a2'),
+        locationKey: 'example:alice',
+      };
+      const addedKeyed = {
+        entity: user('carol', 'c1'),
+        locationKey: 'example:carol',
+      };
+      const changedKeyless = { entity: user('dave', 'd2') };
+      const addedKeyless = { entity: user('frank', 'f1') };
+      const unchangedKeyless = { entity: user('eve', 'e1') };
+      const entries = [
+        changedKeyed,
+        addedKeyed,
+        changedKeyless,
+        addedKeyless,
+        unchangedKeyless,
+      ];
+
+      // Act: convert the full snapshot without filtering its input entries.
+      await wrapped.applyMutation({
+        type: 'full',
+        entities: entries,
+      });
+
+      // Assert: conversion retains complete entries and ref-only removals.
+      expect(outer.applyMutation).toHaveBeenCalledTimes(2);
+      const forwarded = (outer.applyMutation as jest.Mock).mock.calls[1][0];
+      expect(forwarded).toEqual({
+        type: 'delta',
+        added: entries,
+        removed: [{ entityRef: 'user:default/bob' }],
+      });
+      entries.forEach((entry, index) => {
+        expect(forwarded.added[index]).toBe(entry);
+      });
+    });
+
     it('still records the cycle with mutationType=full when converting (audit-honest)', async () => {
       const { store, wrapped } = await setupWith(
         [user('alice', 'a1'), user('bob', 'b1')],
@@ -530,20 +604,246 @@ describe('HistoryRecordingEntityProvider', () => {
       }
     });
 
-    it('emits an empty delta when nothing changed but never crashes', async () => {
+    it('forwards all entries even when their history etags are unchanged', async () => {
+      // Arrange: the catalog must decide whether unchanged entries need work.
       const { outer, wrapped } = await setupWith(
         [user('alice', 'a1'), user('bob', 'b1')],
         { convertFullToDelta: true },
       );
 
-      await applyFull(wrapped, [user('alice', 'a1'), user('bob', 'b1')]);
+      const entities = [user('alice', 'a1'), user('bob', 'b1')];
 
+      // Act
+      await applyFull(wrapped, entities);
+
+      // Assert
       const secondCall = (outer.applyMutation as jest.Mock).mock.calls[1][0];
       expect(secondCall).toMatchObject({
         type: 'delta',
-        added: [],
+        added: entities.map(entity => ({ entity })),
         removed: [],
       });
+    });
+
+    it.each([
+      ['introduction', undefined, 'example:new'],
+      ['replacement', 'example:old', 'example:new'],
+      ['removal', 'example:old', undefined],
+    ])(
+      'forwards a location key %s with the same metadata.etag',
+      async (_name, before, after) => {
+        // Arrange: location keys do not participate in history etag comparison.
+        const entity = user('alice', 'a1');
+        const initial =
+          before === undefined ? { entity } : { entity, locationKey: before };
+        const entry =
+          after === undefined ? { entity } : { entity, locationKey: after };
+        const { outer, wrapped } = await setupEntries([initial]);
+
+        // Act
+        await wrapped.applyMutation({ type: 'full', entities: [entry] });
+
+        // Assert: retain the original complete entry, including an absent key.
+        expect(outer.applyMutation).toHaveBeenLastCalledWith({
+          type: 'delta',
+          added: [entry],
+          removed: [],
+        });
+        expect(
+          (outer.applyMutation as jest.Mock).mock.calls[1][0].added[0],
+        ).toBe(entry);
+      },
+    );
+
+    it('forwards changed content even when metadata.etag stays the same', async () => {
+      // Arrange: a provider etag is not proof of entire-entity equality.
+      const entity = user('alice', 'a1');
+      const { outer, wrapped } = await setupEntries([
+        { entity, locationKey: 'example:alice' },
+      ]);
+      const entry = {
+        entity: {
+          ...entity,
+          spec: { profile: { displayName: 'Changed name' } },
+        },
+        locationKey: 'example:alice',
+      };
+
+      // Act
+      await wrapped.applyMutation({ type: 'full', entities: [entry] });
+
+      // Assert
+      expect(outer.applyMutation).toHaveBeenLastCalledWith({
+        type: 'delta',
+        added: [entry],
+        removed: [],
+      });
+    });
+
+    it('forwards an apiVersion-only change without metadata.etag', async () => {
+      // Arrange: the history fallback hash omits apiVersion.
+      const entity = user('alice', 'a1');
+      delete entity.metadata.etag;
+      const { outer, wrapped } = await setupEntries([{ entity }]);
+      const entry = { entity: { ...entity, apiVersion: 'example.org/v2' } };
+
+      // Act
+      await wrapped.applyMutation({ type: 'full', entities: [entry] });
+
+      // Assert
+      expect(outer.applyMutation).toHaveBeenLastCalledWith({
+        type: 'delta',
+        added: [entry],
+        removed: [],
+      });
+    });
+
+    it('converts an empty full to removals for every history reference', async () => {
+      // Arrange: no incoming entries remain to forward.
+      const { outer, wrapped } = await setupEntries([
+        { entity: user('alice', 'a1'), locationKey: 'example:alice' },
+      ]);
+
+      // Act
+      await wrapped.applyMutation({ type: 'full', entities: [] });
+
+      // Assert: removals contain refs, not reconstructed entries or keys.
+      expect(outer.applyMutation).toHaveBeenLastCalledWith({
+        type: 'delta',
+        added: [],
+        removed: [{ entityRef: 'user:default/alice' }],
+      });
+    });
+
+    it('passes a mixed delta through and forwards all entries in the next full', async () => {
+      // Arrange
+      const alice = {
+        entity: user('alice', 'a1'),
+        locationKey: 'example:alice',
+      };
+      const bob = { entity: user('bob', 'b1'), locationKey: 'example:bob' };
+      const carol = {
+        entity: user('carol', 'c1'),
+        locationKey: 'example:carol',
+      };
+      const { outer, wrapped } = await setupEntries([alice, bob]);
+      const delta: EntityProviderMutation = {
+        type: 'delta',
+        added: [carol],
+        removed: [{ entityRef: 'user:default/bob' }],
+      };
+
+      // Act
+      await wrapped.applyMutation(delta);
+      await wrapped.applyMutation({ type: 'full', entities: [alice, carol] });
+
+      // Assert: native deltas remain untouched; history only supplies removed refs.
+      expect((outer.applyMutation as jest.Mock).mock.calls[1][0]).toBe(delta);
+      expect(outer.applyMutation).toHaveBeenLastCalledWith({
+        type: 'delta',
+        added: [alice, carol],
+        removed: [],
+      });
+    });
+
+    it('forwards original keyed entries after restarting with a populated store', async () => {
+      // Arrange: use a new wrapper with the same persisted history baseline.
+      const entry = {
+        entity: user('alice', 'a1'),
+        locationKey: 'example:alice',
+      };
+      const { store } = await setupEntries([entry]);
+
+      // Act
+      const { outer } = await setupEntries([entry], store);
+
+      // Assert: restarting must not suppress an entry already present in history.
+      expect(outer.applyMutation).toHaveBeenCalledWith({
+        type: 'delta',
+        added: [entry],
+        removed: [],
+      });
+      expect((outer.applyMutation as jest.Mock).mock.calls[0][0].added[0]).toBe(
+        entry,
+      );
+    });
+
+    it('forwards the original full unchanged when reading history fails', async () => {
+      // Arrange
+      const { store, outer, wrapped } = await setupEntries([
+        { entity: user('alice', 'a1') },
+      ]);
+      jest
+        .spyOn(store, 'loadCurrentEtags')
+        .mockRejectedValue(new Error('read failed'));
+      const record = jest.spyOn(store, 'recordCycle');
+      const mutation: EntityProviderMutation = {
+        type: 'full',
+        entities: [
+          { entity: user('alice', 'a1'), locationKey: 'example:alice' },
+        ],
+      };
+
+      // Act
+      await wrapped.applyMutation(mutation);
+
+      // Assert: retain the full mutation object and skip history recording.
+      expect((outer.applyMutation as jest.Mock).mock.calls[1][0]).toBe(
+        mutation,
+      );
+      expect(record).not.toHaveBeenCalled();
+    });
+
+    it('forwards all present entries in the next full after a record failure', async () => {
+      // Arrange: failed recording leaves a stale etag baseline.
+      const alice = {
+        entity: user('alice', 'a1'),
+        locationKey: 'example:alice',
+      };
+      const { store, outer, wrapped } = await setupEntries([alice]);
+      jest
+        .spyOn(store, 'recordCycle')
+        .mockRejectedValueOnce(new Error('write failed'));
+      const changed = {
+        entity: user('alice', 'a2'),
+        locationKey: 'example:changed',
+      };
+      const bob = { entity: user('bob', 'b1') };
+      await wrapped.applyMutation({ type: 'full', entities: [changed, bob] });
+
+      // Act: return to the history etag, but keep the changed location key.
+      const next = {
+        entity: user('alice', 'a1'),
+        locationKey: 'example:changed',
+      };
+      await wrapped.applyMutation({ type: 'full', entities: [next, bob] });
+
+      // Assert: this checks present entries, not deletion safety for absent refs.
+      expect(outer.applyMutation).toHaveBeenLastCalledWith({
+        type: 'delta',
+        added: [next, bob],
+        removed: [],
+      });
+    });
+
+    it('does not record a converted mutation rejected by the catalog', async () => {
+      // Arrange
+      const { store, outer, wrapped } = await setupEntries([
+        { entity: user('alice', 'a1') },
+      ]);
+      const error = new Error('catalog rejected mutation');
+      (outer.applyMutation as jest.Mock).mockRejectedValueOnce(error);
+      const record = jest.spyOn(store, 'recordCycle');
+
+      // Act
+      const result = wrapped.applyMutation({
+        type: 'full',
+        entities: [{ entity: user('alice', 'a2') }],
+      });
+
+      // Assert
+      await expect(result).rejects.toBe(error);
+      expect(record).not.toHaveBeenCalled();
     });
   });
 

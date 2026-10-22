@@ -70,6 +70,7 @@
   },
   "devDependencies": {
     "@backstage/backend-test-utils": "^1.11.7",
+    "@backstage/plugin-catalog-backend": "3.9.0",
     "@types/jest": "^30.0.0",
     "@types/json-stable-stringify": "^1.2.0",
     "@types/node": "^24.13.6",
