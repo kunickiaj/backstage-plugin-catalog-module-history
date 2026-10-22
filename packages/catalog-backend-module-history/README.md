@@ -17,4 +17,16 @@ backend.add(myHistoryStoreServiceFactory);
 
 Provider wrappers should be configured in the same catalog module where the provider is created: depend on `historyStoreServiceRef`, then pass the resolved store into `HistoryRecordingEntityProvider`. The legacy `catalog.history.database` setting remains as a deprecated compatibility path honored by the default store factory, so all consumers of the injected store share the same connection.
 
+## Optional full-to-delta conversion
+
+`HistoryRecordingEntityProvider` defaults to forwarding provider mutations unchanged. With `convertFullToDelta: true`, full snapshots with an existing history baseline become deltas: every incoming entry goes into `added`, with its `locationKey` intact, and history refs missing from the snapshot go into `removed`. The catalog compares each entry's full content and key; the wrapper does not use history etags to filter catalog writes. This preserves key-only changes and content changes even when a provider reuses an etag, but does not avoid comparing unchanged entries.
+
+History still classifies changes using entity etags, so its counts can report an entry as unchanged even when the catalog sees a key or content change. History is best-effort, not a deletion safety check: a missing history ref cannot produce an inferred removal. An empty baseline or a failed baseline read forwards the original full mutation instead.
+
+With `forceFullEvery` configured, the first full after the wrapper starts is forwarded unchanged even when history already has a baseline. Each successfully forwarded full starts the interval, including a fallback full after a history-read failure; rejected catalog writes and native deltas do not reset it. The first full received at or after the interval expires is forwarded unchanged to reconcile against the catalog's own provider refs. This is not a background timer. Keep conversion disabled when deletions must always use the catalog's current provider refs.
+
+### Catalog regression tests
+
+The provider tests include an in-memory SQLite integration with the pinned catalog backend development dependency. Run them from the workspace root with `env CI=1 yarn test packages/catalog-backend-module-history/src/provider --watch=false --runInBand`. They do not require a running catalog or an external database.
+
 For current usage and productization roadmap details, see the [workspace README](../../README.md).
