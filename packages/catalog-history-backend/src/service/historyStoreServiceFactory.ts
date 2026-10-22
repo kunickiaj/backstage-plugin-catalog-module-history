@@ -3,11 +3,11 @@ import {
   createServiceFactory,
 } from '@backstage/backend-plugin-api';
 import { type Knex, knex as createKnex } from 'knex';
-import { historyStoreServiceRef } from '@kunickiaj/catalog-history-node';
+import { historyStoreServiceRef } from '@kunickiaj/backstage-plugin-catalog-history-node';
 import { PostgresHistoryStore } from '../postgres/PostgresHistoryStore';
 
 /**
- * Default factory for {@link @kunickiaj/catalog-history-node#historyStoreServiceRef}.
+ * Default factory for {@link @kunickiaj/backstage-plugin-catalog-history-node#historyStoreServiceRef}.
  *
  * Resolves the consuming plugin's history database and provides a
  * {@link PostgresHistoryStore} bound to that connection. By default it uses
@@ -22,7 +22,7 @@ import { PostgresHistoryStore } from '../postgres/PostgresHistoryStore';
  * Add it to the backend alongside modules that consume the ref:
  *
  * ```ts
- * import { historyStoreServiceFactory } from '@kunickiaj/catalog-history-backend';
+ * import { historyStoreServiceFactory } from '@kunickiaj/backstage-plugin-catalog-history-storage-node';
  *
  * backend.add(historyStoreServiceFactory);
  * ```

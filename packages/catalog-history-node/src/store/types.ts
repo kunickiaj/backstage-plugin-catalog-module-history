@@ -2,12 +2,12 @@ import type { JsonObject } from '@backstage/types';
 import type {
   HistoryMutationType,
   HistorySource,
-} from '@kunickiaj/catalog-history-common';
+} from '@kunickiaj/backstage-plugin-catalog-history-common';
 
 /**
  * The mutation shape of one recorded cycle.
  *
- * Alias of {@link @kunickiaj/catalog-history-common#HistoryMutationType},
+ * Alias of {@link @kunickiaj/backstage-plugin-catalog-history-common#HistoryMutationType},
  * kept under the name the backend store contracts have always used.
  *
  * @public
@@ -17,7 +17,7 @@ export type MutationType = HistoryMutationType;
 /**
  * The capture layer that recorded a cycle or entity row.
  *
- * Alias of {@link @kunickiaj/catalog-history-common#HistorySource}, kept
+ * Alias of {@link @kunickiaj/backstage-plugin-catalog-history-common#HistorySource}, kept
  * under the name the backend store contracts have always used.
  *
  * @public

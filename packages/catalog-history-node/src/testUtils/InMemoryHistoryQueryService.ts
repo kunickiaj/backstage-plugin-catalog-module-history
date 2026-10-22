@@ -17,7 +17,7 @@ import type {
   HistoryFacetsRequest,
   HistoryStatsRequest,
   HistoryStatsResponse,
-} from '@kunickiaj/catalog-history-common';
+} from '@kunickiaj/backstage-plugin-catalog-history-common';
 import type { HistoryQueryService } from '../query/HistoryQueryService';
 
 /**

@@ -4,7 +4,7 @@ import {
   EntityProviderConnection,
   EntityProviderMutation,
 } from '@backstage/plugin-catalog-node';
-import { InMemoryHistoryStore } from '@kunickiaj/catalog-history-node/testUtils';
+import { InMemoryHistoryStore } from '@kunickiaj/backstage-plugin-catalog-history-node/testUtils';
 import {
   ForceFullEveryDuration,
   HistoryRecordingEntityProvider,

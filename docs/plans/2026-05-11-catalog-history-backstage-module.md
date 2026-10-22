@@ -1,8 +1,9 @@
 # Catalog History — Backstage Backend Module — Implementation Plan
 
 > Status: **historical foundation plan.** Current package names, workspace
-> layout, and DI wiring are documented in the root/package READMEs and the
-> [2026-07-05 productization roadmap](./2026-07-05-catalog-history-productization-roadmap.md).
+> layout, and DI wiring are documented in the root/package READMEs. The
+> [2026-07-05 productization roadmap](./2026-07-05-catalog-history-productization-roadmap.md)
+> provides historical context, not current package names.
 
 > **For Claude:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to implement this plan task-by-task.
 
@@ -173,6 +174,7 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
 **Files:** `package.json`, `tsconfig.json`, `.gitignore`, `.editorconfig`, `LICENSE`, `README.md`
 
 **Steps:**
+
 1. `mkdir <project> && cd <project> && git init`
 2. `npm init -y`, edit `package.json`: set `name`, `description`, `license: "Apache-2.0"`, `main: "dist/index.js"`, `types: "dist/index.d.ts"`, `files: ["dist", "README.md", "LICENSE"]`.
 3. Add devDeps: `typescript`, `@types/node`, `jest`, `@types/jest`, `ts-jest`, `eslint`, `@typescript-eslint/{parser,eslint-plugin}`, `prettier`.
@@ -187,6 +189,7 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
 **Files:** `jest.config.ts`, `src/index.ts`, `src/__tests__/smoke.test.ts`
 
 **Steps:**
+
 1. `jest.config.ts`: `preset: 'ts-jest'`, `testEnvironment: 'node'`, `roots: ['<rootDir>/src']`.
 2. Smoke test: `test('jest is wired', () => expect(1+1).toBe(2));`
 3. Run `npx jest`. Expected: 1 passed.
@@ -199,6 +202,7 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
 **Files:** `.eslintrc.cjs`, `.prettierrc`, `.github/workflows/ci.yml`
 
 **Steps:**
+
 1. Standard eslint config for TS + prettier compatibility.
 2. CI workflow: matrix on Node 20.x, run `npm ci`, `npm run lint`, `npm run build`, `npm test`. Add a Postgres service container (`postgres:16` on port 5432).
 3. Commit: `ci: lint, build, test on push and PR`.
@@ -214,6 +218,7 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
 **Files:** `src/store/HistoryStore.ts`, `src/store/types.ts`
 
 **Steps:**
+
 1. `types.ts`: `EntityRow` type (matches the schema's structured columns + jsonb metadata/spec), `CycleInput` type, `MutationType = 'full' | 'delta'`.
 2. `HistoryStore.ts`:
    ```ts
@@ -223,15 +228,15 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
    }
 
    export type CycleInput = {
-     cycleId: string;          // UUID
+     cycleId: string; // UUID
      provider: string;
      mutationType: 'full' | 'delta';
      startedAt: Date;
      finishedAt: Date;
-     inserts: EntityRow[];     // entities new since last seen
-     updates: EntityRow[];     // entities present before with different etag
-     deletes: string[];        // entity_refs of entities present before but absent now
-     unchangedCount: number;   // for cycle metadata
+     inserts: EntityRow[]; // entities new since last seen
+     updates: EntityRow[]; // entities present before with different etag
+     deletes: string[]; // entity_refs of entities present before but absent now
+     unchangedCount: number; // for cycle metadata
    };
    ```
 3. Commit: `feat(store): HistoryStore interface`.
@@ -241,6 +246,7 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
 **Files:** `src/store/__tests__/InMemoryHistoryStore.ts`, `src/store/__tests__/InMemoryHistoryStore.test.ts`
 
 **Steps:**
+
 1. `InMemoryHistoryStore` implements `HistoryStore`. Holds an array of cycles and a Map of current etags. Used by wrapper tests so they don't need a database.
 2. Tests verify: `loadCurrentEtags` returns latest non-deleted etags; `recordCycle` updates state correctly across multiple cycles.
 3. Run: PASS.
@@ -257,6 +263,7 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
 **Files:** `src/postgres/__tests__/ensureSchema.test.ts`
 
 **Steps:**
+
 1. Test imports `ensureSchema(knex)`, calls it twice against a Postgres test DB, asserts both tables exist with the columns from the Schema Reference.
 2. Use a Postgres instance running locally on port 5432 (CI service container, or document `docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=test postgres:16` for local dev).
 3. Run: FAIL.
@@ -267,6 +274,7 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
 **Files:** `src/postgres/ensureSchema.ts`, `src/postgres/migrations/001-initial.sql`
 
 **Steps:**
+
 1. Knex migration approach: use Knex's built-in migrations or roll a thin custom runner. Recommend Knex's: `knex.migrate.latest({ directory })`.
 2. `001-initial.sql` (or `001-initial.ts`): the two `CREATE TABLE` statements + indexes from the Schema Reference, all `IF NOT EXISTS` where supported.
 3. `ensureSchema(db)` calls `db.migrate.latest()`.
@@ -284,6 +292,7 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
 **Files:** `src/postgres/__tests__/PostgresHistoryStore.test.ts`
 
 **Steps:**
+
 1. Pre-seed `catalog_history_entities` with a few entities across multiple cycles (some inserts, some updates, some deletes for the same entity_ref).
 2. Test that `loadCurrentEtags(provider)` returns the etag from the most recent non-`delete` row per `entity_ref`, scoped to the given provider.
 3. Run: FAIL.
@@ -294,6 +303,7 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
 **Files:** `src/postgres/PostgresHistoryStore.ts`
 
 **Steps:**
+
 1. Single SQL query using `DISTINCT ON`:
    ```sql
    SELECT DISTINCT ON (entity_ref) entity_ref, etag
@@ -310,6 +320,7 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
 **Files:** `src/postgres/__tests__/PostgresHistoryStore.test.ts`
 
 **Steps:**
+
 1. Test happy path: a cycle with 2 inserts, 1 update, 1 delete. Assert: 1 row in `catalog_history_cycles` with correct counts; 4 rows in `catalog_history_entities` with correct `op` values.
 2. Test heartbeat: a cycle with 0 inserts/updates/deletes and `unchangedCount: 100`. Assert: 1 row in `cycles` (with all change counts at 0), 0 rows in `entities`.
 3. Test atomicity: simulate a failure mid-write (e.g., violate a constraint). Assert: nothing partially inserted (transaction rolled back).
@@ -321,6 +332,7 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
 **Files:** `src/postgres/PostgresHistoryStore.ts`
 
 **Steps:**
+
 1. Single transaction:
    - INSERT into `catalog_history_cycles`.
    - For each delete, INSERT into `catalog_history_entities` with `op='delete'` (only entity_ref + cycle_id + provider + kind/namespace/name parsed from ref + changed_at; metadata/spec NULL).
@@ -339,6 +351,7 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
 **Files:** `src/mapping/entityToRow.ts`, `src/mapping/__tests__/entityToRow.test.ts`
 
 **Steps:**
+
 1. Tests: given a Backstage `Entity` of kind User, Group, Component → assert structured columns are populated correctly and `metadata` / `spec` round-trip cleanly. Edge cases: missing optional fields, custom annotations, non-default namespace.
 2. Run: FAIL.
 3. Implement `entityToRow(entity, provider): EntityRow`. Compute `entity_ref` as `${kind}:${namespace}/${name}` lowercased.
@@ -351,6 +364,7 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
 **Files:** `src/provider/__tests__/HistoryRecordingEntityProvider.test.ts`
 
 **Steps:**
+
 1. Build a fake `EntityProvider` that, on `connect`, immediately calls `applyMutation({ type: 'full', entities: [user1, user2, group1] })`.
 2. Wrap it with `new HistoryRecordingEntityProvider(fake, new InMemoryHistoryStore(), logger)`.
 3. Provide a fake `EntityProviderConnection` whose `applyMutation` is a spy.
@@ -364,6 +378,7 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
 **Files:** `src/provider/HistoryRecordingEntityProvider.ts`, `src/index.ts`
 
 **Steps:**
+
 1. Class implements `EntityProvider`. Stores `inner`, `store`, `logger`. `getProviderName()` delegates.
 2. `connect(connection)` constructs a wrapped `EntityProviderConnection`:
    - `applyMutation` async function:
@@ -385,6 +400,7 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
 **Files:** `src/provider/__tests__/HistoryRecordingEntityProvider.test.ts`
 
 **Steps:**
+
 1. Test: two consecutive identical full mutations. Assert: first cycle has 3 inserts; second cycle has 0/0/0 with unchangedCount=3 (heartbeat).
 2. Test: second mutation differs in one entity's display_name. Assert: second cycle has 0 inserts, 1 update, 0 deletes, 2 unchanged.
 3. Test: second mutation drops one entity, adds a new one. Assert: 1 insert, 0 updates, 1 delete, 2 unchanged.
@@ -396,6 +412,7 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
 **Files:** `src/provider/__tests__/HistoryRecordingEntityProvider.test.ts`
 
 **Steps:**
+
 1. Wire a `HistoryStore` whose `recordCycle` always throws. Assert: (a) inner connection's `applyMutation` STILL called (PG write still happens), (b) wrapper does not throw, (c) logger received an error-level message.
 2. Run: should already PASS given Task 5.3's try/catch. If not, fix.
 3. Commit: `test: wrapper isolates store failures from postgres path`.
@@ -411,6 +428,7 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
 **Files:** `src/reconciler/__tests__/reconcile.test.ts`
 
 **Steps:**
+
 1. Build a fake `EntityFetcher` that returns a fixed entity set.
 2. Pre-seed an `InMemoryHistoryStore` with a different entity set (simulating drift).
 3. Call `reconcile({ fetcher, store, logger })`.
@@ -424,10 +442,11 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
 **Files:** `src/reconciler/reconcile.ts`, `src/reconciler/EntityFetcher.ts`
 
 **Steps:**
+
 1. Define a minimal `EntityFetcher` interface: `{ getEntities(): AsyncIterable<Entity> }` (or `Promise<Entity[]>` if you prefer non-streaming for v1). Both Backstage's in-process catalog service and the HTTP `CatalogClient` can be adapted to this.
 2. `reconcile({ fetcher, store, logger })`:
    - Fetch all entities from the fetcher (paginate if applicable).
-   - `loadCurrentEtags('reconciler')` is *not* what we want — the reconciler needs visibility across all providers. Add a method to `HistoryStore`: `loadAllCurrentEtags(): Promise<Map<string, { etag: string; provider: string }>>`. Update `InMemoryHistoryStore` and `PostgresHistoryStore` to implement.
+   - `loadCurrentEtags('reconciler')` is _not_ what we want — the reconciler needs visibility across all providers. Add a method to `HistoryStore`: `loadAllCurrentEtags(): Promise<Map<string, { etag: string; provider: string }>>`. Update `InMemoryHistoryStore` and `PostgresHistoryStore` to implement.
    - Diff against the global current state. If non-empty: record one cycle as provider='reconciler', mutationType='full', with appropriate inserts/updates/deletes.
    - Heartbeat if empty.
 3. Run test: PASS.
@@ -438,6 +457,7 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
 **Files:** `src/bin/reconcile.ts`, modify `package.json` (add `bin` field)
 
 **Steps:**
+
 1. **Note:** the default deployment runs the reconciler in-process via the Backstage scheduler (Phase 7.3). This CLI exists for one-shot manual runs (ad-hoc backfills, debugging) and as the entry point for users who want to run the reconciler as an external CronJob (Phase 8). Most users will not run this in production.
 2. Standalone Node script that reads config from env (`BACKSTAGE_BASE_URL`, `BACKSTAGE_TOKEN`, `PG_CONNECTION_STRING`), constructs an HTTP `CatalogClient` adapted to `EntityFetcher` and a Postgres knex, calls `reconcile`, exits.
 3. Manual smoke test: run against a local Backstage + Postgres.
@@ -454,6 +474,7 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
 **Files:** `src/module/__tests__/catalogModuleHistory.test.ts`
 
 **Steps:**
+
 1. Use `@backstage/backend-test-utils` (`startTestBackend`) to construct a test backend with a fake catalog plugin and the `catalogModuleHistory` registered.
 2. Register a fake provider; trigger a refresh; assert a cycle was recorded.
 3. Run: FAIL.
@@ -464,6 +485,7 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
 **Files:** `src/module/catalogModuleHistory.ts`
 
 **Steps:**
+
 1. `createBackendModule({ pluginId: 'catalog', moduleId: 'history', register(reg) { ... } })`.
 2. In `register`, depend on `catalogProcessingExtensionPoint`, `coreServices.rootConfig`, `coreServices.logger`, `coreServices.database` (or a separate connection if the user provides one), and `coreServices.scheduler` (for Task 7.3).
 3. Read config from `catalog.history`:
@@ -471,12 +493,12 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
    catalog:
      history:
        enabled: true
-       providers: ['*']             # or ['okta-org', 'github-org']
-       database:                     # optional; defaults to backstage's DB
+       providers: ['*'] # or ['okta-org', 'github-org']
+       database: # optional; defaults to backstage's DB
          client: pg
          connection: ${HISTORY_PG_URL}
-       reconciler:                   # optional; sensible defaults
-         enabled: true               # set false to use external CronJob (Phase 8) instead
+       reconciler: # optional; sensible defaults
+         enabled: true # set false to use external CronJob (Phase 8) instead
          frequency: { hours: 1 }
          timeout: { minutes: 10 }
    ```
@@ -492,6 +514,7 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
 **Files:** modify `src/module/catalogModuleHistory.ts`, add `src/module/__tests__/catalogModuleHistory.scheduler.test.ts`
 
 **Steps:**
+
 1. Test (red): use `startTestBackend` with the module registered and a fake catalog service that returns a known entity set. Pre-seed the store with drift. Trigger the scheduled task (Backstage's test harness exposes a way to fire scheduled tasks immediately — verify current API). Assert: a drift cycle was recorded with provider='reconciler'.
 2. Test: with `catalog.history.reconciler.enabled: false`, assert `scheduler.scheduleTask` is NOT called.
 3. Implement: in the module's `init`, after constructing the store, build an `EntityFetcher` adapter around the in-process catalog service obtained via DI. Then:
@@ -501,7 +524,7 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
        id: 'catalog-history-reconciler',
        frequency: cfg.reconciler.frequency ?? { hours: 1 },
        timeout: cfg.reconciler.timeout ?? { minutes: 10 },
-       scope: 'global',                  // distributed lock across replicas
+       scope: 'global', // distributed lock across replicas
        fn: async () => {
          await reconcile({ fetcher, store, logger });
        },
@@ -516,6 +539,7 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
 **Files:** `README.md`
 
 **Steps:**
+
 1. Installation: `yarn add backstage-plugin-catalog-backend-module-history`.
 2. Wiring snippet: `backend.add(import('backstage-plugin-catalog-backend-module-history'))`.
 3. Config example.
@@ -529,6 +553,7 @@ The plan is organized into 12 phases. Phases 1-7 are TDD with bite-sized steps; 
 **Goal:** Ship reference materials for the (uncommon) case where a user wants to run the reconciler as an external CronJob instead of in-process. **The default deployment needs none of this** — the in-process scheduler from Task 7.3 covers the standard case with no extra infra.
 
 **When to use this path:**
+
 - You want reconciler runs decoupled from the Backstage backend lifecycle (e.g., reconcile during backend redeploys).
 - You want the reconciler on a different node pool / with different resource limits.
 - Your security model forbids the backend process from running scheduled work.
@@ -540,6 +565,7 @@ For most users, skip this phase. To use this path, set `catalog.history.reconcil
 **Files:** `examples/docker/Reconciler.Dockerfile`
 
 **Steps:**
+
 1. Multi-stage Node 20 build of the reconciler CLI from Task 6.3.
 2. Document required env vars (`BACKSTAGE_BASE_URL`, `BACKSTAGE_TOKEN`, `PG_CONNECTION_STRING`).
 3. Commit: `examples(docker): optional external reconciler image`.
@@ -549,6 +575,7 @@ For most users, skip this phase. To use this path, set `catalog.history.reconcil
 **Files:** `examples/k8s/optional-external-reconciler-cronjob.yaml`
 
 **Steps:**
+
 1. CronJob: schedule `0 * * * *`, runs the reconciler image.
 2. Env from a Secret with `BACKSTAGE_TOKEN` and `PG_CONNECTION_STRING`.
 3. Comment header in the manifest reminds the operator: this is the optional path; requires `catalog.history.reconciler.enabled: false` in the Backstage app config.
@@ -565,6 +592,7 @@ For most users, skip this phase. To use this path, set `catalog.history.reconcil
 **Files:** `src/metrics/index.ts`, modify wrapper, reconciler.
 
 **Steps:**
+
 1. Use Backstage's built-in metrics (verify current API).
 2. Counters: `catalog_history_mutations_total{provider,type,result=success|failure}`, `catalog_history_cycles_total{provider}`, `catalog_history_rows_changed_total{provider,kind=insert|update|delete}`.
 3. Gauges: `catalog_history_last_cycle_age_seconds{provider}`.
@@ -577,6 +605,7 @@ For most users, skip this phase. To use this path, set `catalog.history.reconcil
 **Files:** `src/health/index.ts`
 
 **Steps:**
+
 1. Endpoint that returns 200 if (a) the history DB is reachable AND (b) the most recent cycle is less than 2× the longest provider's refresh interval old. Else 503.
 2. Document for k8s `livenessProbe` / `readinessProbe`.
 3. Commit: `feat(health): readiness endpoint`.
@@ -592,6 +621,7 @@ For most users, skip this phase. To use this path, set `catalog.history.reconcil
 **Files:** `docs/ARCHITECTURE.md`
 
 **Steps:**
+
 1. Copy/adapt the "Architecture Overview" + "Schema Reference" sections of this plan.
 2. Include the data flow diagram.
 3. Explain failure modes and how the reconciler recovers.
@@ -603,6 +633,7 @@ For most users, skip this phase. To use this path, set `catalog.history.reconcil
 **Files:** `docs/USAGE.md`
 
 **Steps:**
+
 1. Write 8-10 example queries against the Postgres tables:
    - Joiners / leavers in last cycle
    - Team transitions (member_of changes between adjacent cycles for a user)
@@ -619,6 +650,7 @@ For most users, skip this phase. To use this path, set `catalog.history.reconcil
 **Files:** `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1)
 
 **Steps:**
+
 1. CONTRIBUTING: dev setup (`docker run` for Postgres, `npm install`, `npm test`), PR flow, commit message convention, how to add a new HistoryStore backend.
 2. Standard Contributor Covenant text.
 3. Commit: `docs: contributing guide and code of conduct`.
@@ -628,6 +660,7 @@ For most users, skip this phase. To use this path, set `catalog.history.reconcil
 **Files:** `docs/INTEGRATION.md`
 
 **Steps:**
+
 1. Walkthrough: take a fresh Backstage app, install this module, configure, run, query the history table.
 2. Reference the Backstage docs for app scaffolding rather than vendoring an example app.
 3. Commit: `docs: integration walkthrough`.
@@ -643,6 +676,7 @@ For most users, skip this phase. To use this path, set `catalog.history.reconcil
 **Files:** `CHANGELOG.md`, configure `release-please`
 
 **Steps:**
+
 1. `release-please` GitHub Action.
 2. Initial version `0.1.0`.
 3. Commit: `chore(release): wire release-please`.
@@ -652,6 +686,7 @@ For most users, skip this phase. To use this path, set `catalog.history.reconcil
 **Files:** `.github/workflows/publish.yml`
 
 **Steps:**
+
 1. On release tag: `npm publish --access public`.
 2. Document `NPM_TOKEN` secret in CONTRIBUTING.
 3. Commit: `ci: npm publish on tag`.
@@ -659,6 +694,7 @@ For most users, skip this phase. To use this path, set `catalog.history.reconcil
 #### Task 11.3: Pre-publish checklist
 
 **Steps (manual):**
+
 1. Verify README renders cleanly on npmjs.com (`npm pack --dry-run`).
 2. Verify no internal company references in any committed file (grep for company name, internal hostnames).
 3. Verify LICENSE is present in the published tarball.
@@ -673,6 +709,7 @@ For most users, skip this phase. To use this path, set `catalog.history.reconcil
 #### Task 12.1: End-to-end test against a real Backstage
 
 **Steps (manual):**
+
 1. Spin up a fresh Backstage app with this module + a fake EntityProvider that emits known fixtures.
 2. Run two cycles — assert the SQL queries from `docs/USAGE.md` return the expected results.
 3. Kill the history DB connection mid-cycle; assert Backstage keeps working; assert the reconciler catches up on next run.

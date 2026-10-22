@@ -3,11 +3,12 @@
 > Tracking issue: [#11](https://github.com/kunickiaj/backstage-plugin-catalog-module-history/issues/11)
 >
 > Status: **historical / superseded by the 2026-07 productization stack.**
-> The executed package names are `@kunickiaj/catalog-history-common`,
+> The historically executed package names were `@kunickiaj/catalog-history-common`,
 > `@kunickiaj/catalog-history-node`, `@kunickiaj/catalog-history-backend`,
 > and `backstage-plugin-catalog-backend-module-history`; see
 > [2026-07-05 productization roadmap](./2026-07-05-catalog-history-productization-roadmap.md)
-> and the package READMEs for current wiring and publish shape.
+> for historical context. The root and package READMEs are now canonical for
+> current package names, wiring, and publish shape.
 
 ## Goal
 
@@ -162,7 +163,10 @@ For ergonomics, `@kunickiaj/plugin-history-backend` should also export a conveni
 
 ```ts
 // index.ts
-export const historyBackendFeatures = [historyPlugin, historyStoreServiceFactory];
+export const historyBackendFeatures = [
+  historyPlugin,
+  historyStoreServiceFactory,
+];
 
 // consumer usage:
 import { historyBackendFeatures } from '@kunickiaj/plugin-history-backend';

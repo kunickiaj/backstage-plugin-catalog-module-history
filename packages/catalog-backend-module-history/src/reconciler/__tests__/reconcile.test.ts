@@ -1,7 +1,10 @@
 import { Entity } from '@backstage/catalog-model';
 import { mockServices } from '@backstage/backend-test-utils';
-import { CaptureSource, EntityRow } from '@kunickiaj/catalog-history-node';
-import { InMemoryHistoryStore } from '@kunickiaj/catalog-history-node/testUtils';
+import {
+  CaptureSource,
+  EntityRow,
+} from '@kunickiaj/backstage-plugin-catalog-history-node';
+import { InMemoryHistoryStore } from '@kunickiaj/backstage-plugin-catalog-history-node/testUtils';
 import { reconcile } from '../reconcile';
 import { EntityFetcher } from '../EntityFetcher';
 

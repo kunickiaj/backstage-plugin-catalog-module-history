@@ -5,7 +5,7 @@ import { knex as createKnex } from 'knex';
 import {
   ensureSchema,
   PostgresHistoryStore,
-} from '@kunickiaj/catalog-history-backend';
+} from '@kunickiaj/backstage-plugin-catalog-history-storage-node';
 import { reconcile } from '../reconciler/reconcile';
 import { EntityFetcher } from '../reconciler/EntityFetcher';
 import { fetchAllEntities } from '../reconciler/paginateEntities';

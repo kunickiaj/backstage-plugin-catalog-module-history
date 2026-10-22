@@ -4,7 +4,7 @@ import {
   EntityRow,
   HistoryStore,
   RECONCILER_PROVIDER,
-} from '@kunickiaj/catalog-history-node';
+} from '@kunickiaj/backstage-plugin-catalog-history-node';
 import { entityToRow } from '../mapping/entityToRow';
 import { EntityFetcher } from './EntityFetcher';
 

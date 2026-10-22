@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { TestDatabases } from '@backstage/backend-test-utils';
 import { Knex } from 'knex';
-import { CaptureSource, EntityRow } from '@kunickiaj/catalog-history-node';
+import {
+  CaptureSource,
+  EntityRow,
+} from '@kunickiaj/backstage-plugin-catalog-history-node';
 import { ensureSchema } from '../ensureSchema';
 import { PostgresHistoryStore } from '../PostgresHistoryStore';
 

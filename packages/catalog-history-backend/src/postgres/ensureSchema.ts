@@ -5,7 +5,7 @@ import { resolvePackagePath } from '@backstage/backend-plugin-api';
 // package to be resolvable in node_modules; bundling this package into a
 // single file will break migration resolution.
 const migrationsDir = resolvePackagePath(
-  '@kunickiaj/catalog-history-backend',
+  '@kunickiaj/backstage-plugin-catalog-history-storage-node',
   'migrations',
 );
 

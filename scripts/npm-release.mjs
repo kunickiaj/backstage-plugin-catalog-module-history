@@ -7,11 +7,17 @@ import { pathToFileURL } from 'node:url';
 export const REGISTRY = 'https://registry.npmjs.org';
 export const REPOSITORY = 'kunickiaj/backstage-plugin-catalog-module-history';
 export const PACKAGES = [
-  ['@kunickiaj/catalog-history-common', 'catalog-history-common'],
-  ['@kunickiaj/catalog-history-node', 'catalog-history-node'],
-  ['@kunickiaj/catalog-history-backend', 'catalog-history-backend'],
   [
-    'backstage-plugin-catalog-backend-module-history',
+    '@kunickiaj/backstage-plugin-catalog-history-common',
+    'catalog-history-common',
+  ],
+  ['@kunickiaj/backstage-plugin-catalog-history-node', 'catalog-history-node'],
+  [
+    '@kunickiaj/backstage-plugin-catalog-history-storage-node',
+    'catalog-history-backend',
+  ],
+  [
+    '@kunickiaj/backstage-plugin-catalog-backend-module-history',
     'catalog-backend-module-history',
   ],
 ];

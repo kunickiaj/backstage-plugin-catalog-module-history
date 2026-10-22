@@ -4,6 +4,8 @@
 **Status:** planned; follow-up work should be split into beads before implementation  
 **Related docs:** [Architecture](../ARCHITECTURE.md), [ADR 2026-07-01](../adr/2026-07-01-entity-capture-layers.md), [original backend module plan](2026-05-11-catalog-history-backstage-module.md), [package split plan](2026-05-12-package-split.md)
 
+> Package names and storage roles below are historical. Use the root and package READMEs for current naming, workspace layout, and wiring.
+
 ## Goal
 
 Turn `backstage-plugin-catalog-backend-module-history` from a backend recording foundation into a usable Backstage history product:
@@ -55,13 +57,13 @@ The finished plugin should let Backstage users answer these questions without wr
 
 ## Target users
 
-| User | Needs |
-| ---- | ----- |
-| Backstage operators | Know whether ingestion is healthy, detect provider drift, understand catalog churn, configure retention. |
-| Service owners | See why ownership, relations, or orphan state changed for their entities. |
-| Platform engineers | Debug processors/providers without direct DB access. |
-| Security/compliance teams | Audit entity lifecycle changes and prove historical ownership or membership. |
-| Plugin developers | Consume typed APIs for dashboards, automation, and custom views. |
+| User                      | Needs                                                                                                    |
+| ------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Backstage operators       | Know whether ingestion is healthy, detect provider drift, understand catalog churn, configure retention. |
+| Service owners            | See why ownership, relations, or orphan state changed for their entities.                                |
+| Platform engineers        | Debug processors/providers without direct DB access.                                                     |
+| Security/compliance teams | Audit entity lifecycle changes and prove historical ownership or membership.                             |
+| Plugin developers         | Consume typed APIs for dashboards, automation, and custom views.                                         |
 
 ## Workspace recommendation
 
@@ -234,17 +236,17 @@ Proposed base path: `/api/catalog-history`.
 
 Endpoints:
 
-| Endpoint | Purpose |
-| -------- | ------- |
-| `GET /entities/:kind/:namespace/:name/history` | Paginated timeline for one entity. |
-| `GET /entities/:kind/:namespace/:name/versions` | Distinct historical versions for one entity. |
-| `GET /entities/:kind/:namespace/:name/diff?from=&to=` | Structured diff between two versions/cycles/timestamps. |
-| `GET /entities/:kind/:namespace/:name/as-of?timestamp=` | Entity state as of a timestamp. |
-| `GET /cycles` | Paginated cycle list with provider/source/op/time filters. |
-| `GET /cycles/:cycleId` | Cycle metadata plus changed entities. |
-| `GET /changes` | Cross-entity change feed for dashboards and audits. |
-| `GET /facets` | Providers, sources, kinds, and operation counts for filters. |
-| `GET /stats` | Churn summaries for operations and product metrics. |
+| Endpoint                                                | Purpose                                                      |
+| ------------------------------------------------------- | ------------------------------------------------------------ |
+| `GET /entities/:kind/:namespace/:name/history`          | Paginated timeline for one entity.                           |
+| `GET /entities/:kind/:namespace/:name/versions`         | Distinct historical versions for one entity.                 |
+| `GET /entities/:kind/:namespace/:name/diff?from=&to=`   | Structured diff between two versions/cycles/timestamps.      |
+| `GET /entities/:kind/:namespace/:name/as-of?timestamp=` | Entity state as of a timestamp.                              |
+| `GET /cycles`                                           | Paginated cycle list with provider/source/op/time filters.   |
+| `GET /cycles/:cycleId`                                  | Cycle metadata plus changed entities.                        |
+| `GET /changes`                                          | Cross-entity change feed for dashboards and audits.          |
+| `GET /facets`                                           | Providers, sources, kinds, and operation counts for filters. |
+| `GET /stats`                                            | Churn summaries for operations and product metrics.          |
 
 #### Query options
 

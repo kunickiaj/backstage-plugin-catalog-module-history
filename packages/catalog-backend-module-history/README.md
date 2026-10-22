@@ -1,11 +1,13 @@
-# backstage-plugin-catalog-backend-module-history
+# @kunickiaj/backstage-plugin-catalog-backend-module-history
 
 Backstage backend module that records catalog entity changes into a versioned history store.
 
-The default backend feature loader installs both the catalog backend module and the default Postgres `historyStoreServiceRef` factory from `@kunickiaj/catalog-history-backend`.
+The default backend feature loader installs both the catalog backend module and the default Postgres `historyStoreServiceRef` factory from `@kunickiaj/backstage-plugin-catalog-history-storage-node`.
 
 ```ts
-backend.add(import('backstage-plugin-catalog-backend-module-history'));
+backend.add(
+  import('@kunickiaj/backstage-plugin-catalog-backend-module-history'),
+);
 ```
 
 Advanced storage overrides should register their own `historyStoreServiceRef` factory and import the named module instead of the default loader:

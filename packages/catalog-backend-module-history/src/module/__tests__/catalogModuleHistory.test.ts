@@ -11,12 +11,12 @@ import {
   startTestBackend,
   type TestBackend,
 } from '@backstage/backend-test-utils';
-import { historyStoreServiceFactory } from '@kunickiaj/catalog-history-backend';
+import { historyStoreServiceFactory } from '@kunickiaj/backstage-plugin-catalog-history-storage-node';
 import {
   historyStoreServiceRef,
   type HistoryStore,
-} from '@kunickiaj/catalog-history-node';
-import { InMemoryHistoryStore } from '@kunickiaj/catalog-history-node/testUtils';
+} from '@kunickiaj/backstage-plugin-catalog-history-node';
+import { InMemoryHistoryStore } from '@kunickiaj/backstage-plugin-catalog-history-node/testUtils';
 import type { Knex } from 'knex';
 import { HistoryRecordingCatalogProcessor } from '../../processor/HistoryRecordingCatalogProcessor';
 import catalogHistoryFeatureLoader from '../..';
