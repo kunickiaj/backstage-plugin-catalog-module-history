@@ -70,8 +70,10 @@
   },
   "devDependencies": {
     "@backstage/backend-test-utils": "^1.11.7",
+    "@backstage/cli": "^0.36.6",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.13.6",
-    "@types/pg": "^8.23.1"
+    "@types/pg": "^8.23.1",
+    "jest": "^30.5.2"
   }
 }
