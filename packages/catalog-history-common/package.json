@@ -62,6 +62,8 @@
     "url": "https://github.com/kunickiaj/backstage-plugin-catalog-module-history/issues"
   },
   "devDependencies": {
-    "@types/jest": "^30.0.0"
+    "@backstage/cli": "^0.36.6",
+    "@types/jest": "^30.0.0",
+    "jest": "^30.5.2"
   }
 }

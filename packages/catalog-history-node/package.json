@@ -70,6 +70,8 @@
     "@kunickiaj/catalog-history-common": "^0.1.0"
   },
   "devDependencies": {
-    "@types/jest": "^30.0.0"
+    "@backstage/cli": "^0.36.6",
+    "@types/jest": "^30.0.0",
+    "jest": "^30.5.2"
   }
 }
