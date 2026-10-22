@@ -4,7 +4,7 @@ import type { HistoryStore } from '../store/HistoryStore';
 /**
  * Service ref for the catalog history store.
  *
- * The default factory is provided by `@kunickiaj/catalog-history-backend`;
+ * The default factory is provided by `@kunickiaj/backstage-plugin-catalog-history-storage-node`;
  * backend modules that record history should depend on this ref instead of
  * constructing their own database clients.
  *

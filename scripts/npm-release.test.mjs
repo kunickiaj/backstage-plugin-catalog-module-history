@@ -145,10 +145,10 @@ test('validates all four shared-version packages, not the private workspace root
   assert.deepEqual(
     result.map(pkg => pkg.name),
     [
-      '@kunickiaj/catalog-history-common',
-      '@kunickiaj/catalog-history-node',
-      '@kunickiaj/catalog-history-backend',
-      'backstage-plugin-catalog-backend-module-history',
+      '@kunickiaj/backstage-plugin-catalog-history-common',
+      '@kunickiaj/backstage-plugin-catalog-history-node',
+      '@kunickiaj/backstage-plugin-catalog-history-storage-node',
+      '@kunickiaj/backstage-plugin-catalog-backend-module-history',
     ],
   );
   assert.ok(result.every(pkg => pkg.version === VERSION));

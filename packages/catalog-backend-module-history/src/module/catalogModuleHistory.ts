@@ -10,7 +10,7 @@ import {
 import {
   type HistoryStore,
   historyStoreServiceRef,
-} from '@kunickiaj/catalog-history-node';
+} from '@kunickiaj/backstage-plugin-catalog-history-node';
 import { HistoryRecordingCatalogProcessor } from '../processor/HistoryRecordingCatalogProcessor';
 import { CatalogServiceEntityFetcher } from '../reconciler/CatalogServiceEntityFetcher';
 import { reconcile } from '../reconciler/reconcile';

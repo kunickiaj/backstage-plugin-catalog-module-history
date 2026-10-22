@@ -2,6 +2,17 @@
 
 The **Publish npm packages** workflow validates and packs all four packages. It publishes only when a maintainer explicitly requests publication from `main`. Ordinary pushes, merges, tags, and pull requests never publish.
 
+All four public packages stay in this repository's existing Yarn workspaces, with one lockfile and shared CI:
+
+| Public package                                               | Existing directory                        |
+| ------------------------------------------------------------ | ----------------------------------------- |
+| `@kunickiaj/backstage-plugin-catalog-history-common`         | `packages/catalog-history-common`         |
+| `@kunickiaj/backstage-plugin-catalog-history-node`           | `packages/catalog-history-node`           |
+| `@kunickiaj/backstage-plugin-catalog-history-storage-node`   | `packages/catalog-history-backend`        |
+| `@kunickiaj/backstage-plugin-catalog-backend-module-history` | `packages/catalog-backend-module-history` |
+
+The storage package is a `node-library`, not a backend plugin. These names apply before the first `0.1.0` release; no compatibility aliases are provided for earlier unpublished names.
+
 ## Validate a release
 
 All four packages use the same stable version. Update their `version` fields and internal dependency ranges together, update the lockfile, and merge the change before publishing. The helper accepts stable versions such as `0.1.0`, not prerelease versions.
@@ -16,6 +27,8 @@ Download the `npm-release-COMMIT_SHA` artifact from that run. It contains:
 4. `catalog-backend-module-history-VERSION.tgz`
 
 The archives contain compiled JavaScript and declarations, not workspace source entry points. Local packing requires `yarn tsc` before `yarn build`, followed by `node scripts/npm-release.mjs pack VERSION`.
+
+Archive filenames still follow the existing workspace directories, not the npm package names. Previously generated archives containing the old package names are invalid for this release: regenerate all four through CI from the renamed manifests and imports. Do not rename or reuse old archives.
 
 ## First release: manual bootstrap
 
@@ -61,7 +74,7 @@ See npm's [trusted publishing](https://docs.npmjs.com/trusted-publishers) and [p
 
 ## Publish and retry
 
-After setup and release approval, dispatch the workflow on `main` with the shared version and **publish** checked. The publishing job waits for successful validation and the GitHub environment's configured approval. It downloads archives from the same workflow run and publishes common → node → backend → module. It does not rebuild in the job that has publishing permission.
+After setup and release approval, dispatch the workflow on `main` with the shared version and **publish** checked. The publishing job waits for successful validation and the GitHub environment's configured approval. It downloads archives from the same workflow run and publishes common → node → storage-node → module. It does not rebuild in the job that has publishing permission.
 
 Before publishing anything, the helper checks every archive and looks up every exact version on npm. Existing versions are skipped only when their registry integrity matches the local archive bytes. Different bytes, malformed metadata, or registry errors other than a missing version stop the run before publication begins.
 

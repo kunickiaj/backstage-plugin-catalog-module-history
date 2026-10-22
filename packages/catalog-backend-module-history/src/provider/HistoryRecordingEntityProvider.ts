@@ -5,7 +5,10 @@ import {
   EntityProviderConnection,
   EntityProviderMutation,
 } from '@backstage/plugin-catalog-node';
-import { EntityRow, HistoryStore } from '@kunickiaj/catalog-history-node';
+import {
+  EntityRow,
+  HistoryStore,
+} from '@kunickiaj/backstage-plugin-catalog-history-node';
 import { entityToRow } from '../mapping/entityToRow';
 
 export type ForceFullEveryDuration = {

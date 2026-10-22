@@ -12,7 +12,7 @@ import {
 import {
   historyStoreServiceRef,
   type HistoryStore,
-} from '@kunickiaj/catalog-history-node';
+} from '@kunickiaj/backstage-plugin-catalog-history-node';
 import type { Knex } from 'knex';
 import { historyStoreServiceFactory } from '../historyStoreServiceFactory';
 

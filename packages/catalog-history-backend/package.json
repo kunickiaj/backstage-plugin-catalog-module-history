@@ -1,5 +1,5 @@
 {
-  "name": "@kunickiaj/catalog-history-backend",
+  "name": "@kunickiaj/backstage-plugin-catalog-history-storage-node",
   "version": "0.1.0",
   "description": "Storage, migrations, and history service factories for the Backstage catalog history plugin family.",
   "main": "src/index.ts",
@@ -63,8 +63,8 @@
   "dependencies": {
     "@backstage/backend-plugin-api": "^1.10.1",
     "@backstage/errors": "^1.3.1",
-    "@kunickiaj/catalog-history-common": "^0.1.0",
-    "@kunickiaj/catalog-history-node": "^0.1.0",
+    "@kunickiaj/backstage-plugin-catalog-history-common": "^0.1.0",
+    "@kunickiaj/backstage-plugin-catalog-history-node": "^0.1.0",
     "knex": "^3.2.10",
     "pg": "^8.23.0"
   },

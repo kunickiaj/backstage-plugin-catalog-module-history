@@ -5,7 +5,7 @@ import {
   CycleInput,
   EntityRow,
   HistoryStore,
-} from '@kunickiaj/catalog-history-node';
+} from '@kunickiaj/backstage-plugin-catalog-history-node';
 import { ensureSchema } from './ensureSchema';
 
 // catalog_history_entities has ~20 inserted columns, so the PostgreSQL

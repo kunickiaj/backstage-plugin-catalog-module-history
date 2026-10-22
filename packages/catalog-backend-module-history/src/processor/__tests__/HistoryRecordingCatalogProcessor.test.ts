@@ -6,7 +6,7 @@ import type {
   LocationSpec,
 } from '@backstage/plugin-catalog-node';
 import { entityToRow } from '../../mapping/entityToRow';
-import { InMemoryHistoryStore } from '@kunickiaj/catalog-history-node/testUtils';
+import { InMemoryHistoryStore } from '@kunickiaj/backstage-plugin-catalog-history-node/testUtils';
 import { HistoryRecordingCatalogProcessor } from '../HistoryRecordingCatalogProcessor';
 
 const location: LocationSpec = {

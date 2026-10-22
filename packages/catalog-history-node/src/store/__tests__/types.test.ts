@@ -1,7 +1,7 @@
 import {
   HISTORY_MUTATION_TYPES,
   HISTORY_SOURCES,
-} from '@kunickiaj/catalog-history-common';
+} from '@kunickiaj/backstage-plugin-catalog-history-common';
 
 /**
  * The store serializes CaptureSource/MutationType values into the Postgres

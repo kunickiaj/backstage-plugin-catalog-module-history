@@ -1,5 +1,5 @@
 {
-  "name": "backstage-plugin-catalog-backend-module-history",
+  "name": "@kunickiaj/backstage-plugin-catalog-backend-module-history",
   "version": "0.1.0",
   "description": "Backstage backend module that records every catalog EntityProvider mutation into a versioned history store.",
   "main": "src/index.ts",
@@ -84,8 +84,8 @@
     "@backstage/catalog-model": "^1.10.1",
     "@backstage/plugin-catalog-node": "^2.2.5",
     "@backstage/types": "^1.2.2",
-    "@kunickiaj/catalog-history-backend": "^0.1.0",
-    "@kunickiaj/catalog-history-node": "^0.1.0",
+    "@kunickiaj/backstage-plugin-catalog-history-node": "^0.1.0",
+    "@kunickiaj/backstage-plugin-catalog-history-storage-node": "^0.1.0",
     "json-stable-stringify": "^1.3.0",
     "knex": "^3.2.10",
     "pg": "^8.23.0"

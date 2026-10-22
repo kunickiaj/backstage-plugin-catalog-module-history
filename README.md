@@ -1,4 +1,4 @@
-# backstage-plugin-catalog-backend-module-history
+# @kunickiaj/backstage-plugin-catalog-backend-module-history
 
 A Backstage backend module that records catalog entity changes into a versioned history store, producing a queryable audit trail across provider, processing, and served-catalog layers.
 
@@ -18,7 +18,7 @@ Maintainers: see [Publishing packages](docs/publishing.md) for validation-only r
 ## Install
 
 ```sh
-yarn add backstage-plugin-catalog-backend-module-history @kunickiaj/catalog-history-node
+yarn add @kunickiaj/backstage-plugin-catalog-backend-module-history @kunickiaj/backstage-plugin-catalog-history-node
 ```
 
 ## Wire it up
@@ -33,18 +33,20 @@ const backend = createBackend();
 // ... your other plugins / modules
 
 backend.add(import('@backstage/plugin-catalog-backend'));
-backend.add(import('backstage-plugin-catalog-backend-module-history'));
+backend.add(
+  import('@kunickiaj/backstage-plugin-catalog-backend-module-history'),
+);
 
 backend.start();
 ```
 
-The module package default export installs both the catalog backend module and the default Postgres `historyStoreServiceRef` factory from `@kunickiaj/catalog-history-backend`. That gives you schema bootstrap, optional processor capture, and optional scheduled reconciliation.
+The module package default export installs both the catalog backend module and the default Postgres `historyStoreServiceRef` factory from `@kunickiaj/backstage-plugin-catalog-history-storage-node`. That gives you schema bootstrap, optional processor capture, and optional scheduled reconciliation.
 
 Provider capture still needs provider wiring: in the catalog module where you create the provider, depend on `historyStoreServiceRef` and pass the injected store into `HistoryRecordingEntityProvider`:
 
 ```ts
-import { HistoryRecordingEntityProvider } from 'backstage-plugin-catalog-backend-module-history';
-import { historyStoreServiceRef } from '@kunickiaj/catalog-history-node';
+import { HistoryRecordingEntityProvider } from '@kunickiaj/backstage-plugin-catalog-backend-module-history';
+import { historyStoreServiceRef } from '@kunickiaj/backstage-plugin-catalog-history-node';
 import { OktaOrgEntityProvider } from '@backstage/plugin-catalog-backend-module-okta';
 
 backend.add(
@@ -128,7 +130,7 @@ catalog:
 | `catalog.history.reconciler.schedule.timeout`      | `{ minutes: 10 }`          | Scheduler timeout for one reconcile run.                                                                                                    |
 | `catalog.history.reconciler.schedule.initialDelay` | `{ seconds: 30 }`          | Delay before the first scheduled reconcile run.                                                                                             |
 
-Processing capture and the scheduled reconciler are config-only after `backend.add(import('backstage-plugin-catalog-backend-module-history'))`; no extra code wiring is needed.
+Processing capture and the scheduled reconciler are config-only after `backend.add(import('@kunickiaj/backstage-plugin-catalog-backend-module-history'))`; no extra code wiring is needed.
 
 ### Custom history storage
 
@@ -136,8 +138,8 @@ For custom storage, register your own service factory and use the named catalog 
 
 ```ts
 import { createServiceFactory } from '@backstage/backend-plugin-api';
-import { historyStoreServiceRef } from '@kunickiaj/catalog-history-node';
-import { catalogModuleHistory } from 'backstage-plugin-catalog-backend-module-history';
+import { historyStoreServiceRef } from '@kunickiaj/backstage-plugin-catalog-history-node';
+import { catalogModuleHistory } from '@kunickiaj/backstage-plugin-catalog-backend-module-history';
 
 const myHistoryStoreServiceFactory = createServiceFactory({
   service: historyStoreServiceRef,

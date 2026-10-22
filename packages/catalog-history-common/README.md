@@ -1,4 +1,4 @@
-# @kunickiaj/catalog-history-common
+# @kunickiaj/backstage-plugin-catalog-history-common
 
 Frontend/backend-safe types and API contracts for the Backstage catalog history plugin family.
 

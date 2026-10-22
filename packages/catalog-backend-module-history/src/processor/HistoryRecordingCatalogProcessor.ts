@@ -8,7 +8,10 @@ import {
   type LocationSpec,
 } from '@backstage/plugin-catalog-node';
 import { entityToRow } from '../mapping/entityToRow';
-import type { EntityRow, HistoryStore } from '@kunickiaj/catalog-history-node';
+import type {
+  EntityRow,
+  HistoryStore,
+} from '@kunickiaj/backstage-plugin-catalog-history-node';
 
 const PROCESSING_PROVIDER = 'processing';
 const DEFAULT_MAX_BATCH_SIZE = 500;

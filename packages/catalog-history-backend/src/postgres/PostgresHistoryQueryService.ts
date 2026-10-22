@@ -4,7 +4,7 @@ import { Knex } from 'knex';
 import {
   DEFAULT_HISTORY_PAGE_LIMIT,
   MAX_HISTORY_PAGE_LIMIT,
-} from '@kunickiaj/catalog-history-common';
+} from '@kunickiaj/backstage-plugin-catalog-history-common';
 import type {
   HistoryEntitySnapshot,
   HistoryEntityTimelineRequest,
@@ -16,7 +16,7 @@ import type {
   HistoryJsonObject,
   HistoryOperation,
   HistorySource,
-} from '@kunickiaj/catalog-history-common';
+} from '@kunickiaj/backstage-plugin-catalog-history-common';
 import { ensureSchema } from './ensureSchema';
 
 const ISO_8601_INSTANT =
