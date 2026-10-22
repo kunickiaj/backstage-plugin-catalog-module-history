@@ -1,0 +1,105 @@
+name: Publish npm packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Shared stable version in all four package manifests
+        required: true
+        type: string
+      publish:
+        description: Publish validated archives (main only; requires npm trust)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-release
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate and pack
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: backstage_plugin_history_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      PUBLISH_REQUESTED: ${{ inputs.publish }}
+      PG_HOST: localhost
+      PG_PORT: 5432
+      PG_USER: postgres
+      PG_PASSWORD: postgres
+      PG_DATABASE: backstage_plugin_history_test
+      BACKSTAGE_TEST_DATABASE_POSTGRES16_CONNECTION_STRING: postgres://postgres:postgres@localhost:5432
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: corepack enable
+      - name: Validate release version and source
+        run: node scripts/npm-release.mjs validate "$RELEASE_VERSION"
+      - run: yarn install --immutable
+      - run: yarn test:release
+      - run: yarn prettier:check
+      - run: yarn lint
+      - run: yarn tsc
+      - run: yarn build
+      - run: yarn test --watch=false --runInBand
+      - name: Pack and inspect all four packages
+        run: node scripts/npm-release.mjs pack "$RELEASE_VERSION"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: npm-release-${{ github.sha }}
+          path: .tmp/npm-release/*.tgz
+          include-hidden-files: true
+          if-no-files-found: error
+
+  publish:
+    name: Publish with npm trusted publishing
+    if: inputs.publish && github.ref == 'refs/heads/main' && github.repository == 'kunickiaj/backstage-plugin-catalog-module-history'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Install npm with trusted publishing support
+        run: npm install --global npm@11.19.1 --ignore-scripts
+      - uses: actions/download-artifact@v8
+        with:
+          name: npm-release-${{ github.sha }}
+          path: .tmp/npm-release
+      - name: Preflight versions and publish in dependency order
+        run: node scripts/npm-release.mjs publish "$RELEASE_VERSION"

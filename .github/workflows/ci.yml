@@ -62,6 +62,9 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
+      - name: Release helper tests
+        run: yarn test:release
+
       - name: Prettier check
         run: yarn prettier:check
 
