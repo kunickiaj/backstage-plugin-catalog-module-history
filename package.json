@@ -19,6 +19,7 @@
     "lint:fix": "backstage-cli repo fix",
     "test": "backstage-cli repo test --passWithNoTests",
     "test:watch": "backstage-cli repo test --watch",
+    "test:release": "node --test scripts/npm-release.test.mjs",
     "start": "backstage-cli repo start",
     "tsc": "tsc",
     "prettier:check": "prettier --ignore-unknown --check .",

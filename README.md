@@ -6,6 +6,8 @@ Ships with a Postgres backend in v1; designed around a pluggable `HistoryStore` 
 
 **Status: pre-alpha.** Under active development; not yet published to npm.
 
+Maintainers: see [Publishing packages](docs/publishing.md) for validation-only runs, the first-release bootstrap, and npm trusted publishing.
+
 ## What it does
 
 1. **Bootstraps the history schema** on backend startup (two tables in the same database Backstage's catalog uses, unless overridden).
