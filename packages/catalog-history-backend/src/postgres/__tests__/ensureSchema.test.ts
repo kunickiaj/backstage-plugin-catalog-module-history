@@ -13,8 +13,13 @@ const migrationsDir = resolvePackagePath(
 const historyLedger = 'catalog_history_knex_migrations';
 const legacyLedger = 'knex_migrations';
 const initialMigration = '20260512000000_initial.js';
-const latestMigration = '20260705000000_source_and_stitched_fields.js';
-const historyMigrationNames = [initialMigration, latestMigration];
+const sourceMigration = '20260705000000_source_and_stitched_fields.js';
+const globalFeedMigration = '20261023000000_global_feed_ordering_index.js';
+const historyMigrationNames = [
+  initialMigration,
+  sourceMigration,
+  globalFeedMigration,
+];
 const catalogMigrationsDir = resolvePackagePath(
   '@backstage/plugin-catalog-backend',
   'migrations',
@@ -123,13 +128,20 @@ describe('ensureSchema', () => {
     );
   });
 
-  it('drops the source and stitched fields when the latest migration is rolled back', async () => {
+  it('drops the source and stitched fields when their migration is rolled back', async () => {
+    // Arrange: the ordering index follows the source and stitched fields.
     await ensureSchema(db);
+    // Act: roll back the index first, then the source migration.
+    await db.migrate.down({
+      directory: migrationsDir,
+      tableName: historyLedger,
+    });
     await db.migrate.down({
       directory: migrationsDir,
       tableName: historyLedger,
     });
 
+    // Assert: rolling back the source migration still removes its columns.
     const cycleCols = await db('information_schema.columns')
       .where({ table_name: 'catalog_history_cycles' })
       .pluck('column_name');
@@ -179,6 +191,7 @@ describe('ensureSchema', () => {
         expect.stringMatching(/catalog_history_entities_cycle_id/),
         expect.stringMatching(/catalog_history_entities_provider_changed_at/),
         expect.stringMatching(/catalog_history_entities_source_changed_at/),
+        'catalog_history_entities_changed_at_id_idx',
         expect.stringMatching(/catalog_history_entities_owner/),
         expect.stringMatching(/catalog_history_entities_parent/),
         expect.stringMatching(/catalog_history_entities_member_of/),
@@ -316,7 +329,7 @@ describe('ensureSchema', () => {
         clients.map(client => ensureSchema(client)),
       );
 
-      // Assert: both migrations appear once, and existing records survive.
+      // Assert: all migrations appear once, and existing records survive.
       expect(results).toEqual(
         clients.map(() => ({ status: 'fulfilled', value: undefined })),
       );

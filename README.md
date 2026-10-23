@@ -8,6 +8,8 @@ Ships with a Postgres backend in v1; designed around a pluggable `HistoryStore` 
 
 Maintainers: see [Publishing packages](docs/publishing.md) for validation-only runs, the first-release bootstrap, and npm trusted publishing.
 
+The unreleased global-feed index builds during history startup and blocks history entity writes while it builds. Plan a maintenance window for large retained histories; see the [index upgrade notes](packages/catalog-history-backend/README.md#global-history-feed-index-unreleased).
+
 ## What it does
 
 1. **Bootstraps the history schema** on backend startup (two history tables in the consuming plugin's database, unless overridden). The current source keeps new installations' migration records in a dedicated history log; existing history-only `0.1.0` logs remain supported.

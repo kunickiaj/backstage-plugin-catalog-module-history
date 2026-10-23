@@ -38,6 +38,16 @@ Without an active dedicated log, mixed history/unrelated legacy records or histo
 
 Downgrading an installation that uses the new dedicated log to `0.1.0` is unsupported. Keep a backup and use a compatible version instead of replaying the old migrations.
 
+## Global history feed index (unreleased)
+
+Migration `20261023000000_global_feed_ordering_index.js` adds the B-tree index `catalog_history_entities_changed_at_id_idx` on `(changed_at DESC, id DESC)`. It supports the global feed's newest-first ordering and cursor pages without sorting the entire retained history.
+
+The index builds during normal history schema bootstrap, including installations with the HTTP API disabled. The existing migration runner uses a transaction and serializes initializers with an advisory lock. PostgreSQL allows reads during this regular index build but blocks writes to `catalog_history_entities` until it finishes; backend startup waits for completion.
+
+**Plan a maintenance window when upgrading large retained histories.** Allow disk space for the index and account for its ongoing write overhead. This migration does not use `CREATE INDEX CONCURRENTLY`, which PostgreSQL prohibits inside the runner's outer transaction; disabling a migration's own transaction would not remove that outer transaction.
+
+Rollback removes only the new index, not recorded entities or cycles. No automatic online-index-build workflow is provided.
+
 ## Knex client compatibility (unreleased fix)
 
 The current source uses the backend API's Knex `^3.0.0` dependency range, allowing applications to reuse their existing supported client. Published `0.1.0` requests `^3.2.10`, which can install a newer nested Knex with incompatible client types; do not hide that mismatch with a type cast.
