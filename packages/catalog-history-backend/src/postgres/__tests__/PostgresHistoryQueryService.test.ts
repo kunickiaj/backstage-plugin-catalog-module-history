@@ -385,7 +385,225 @@ describe('PostgresHistoryQueryService', () => {
       changedAt: '2026-07-07T00:00:00.000Z',
       snapshot: { owner: 'group:default/owner-0' },
     });
+    expect(original.previousVersion).toBeUndefined();
+    expect(original.changes).toBeUndefined();
     expect(versions.items.map(item => item.id)).toEqual([ids[2], ids[1]]);
+  });
+
+  it('compares a repeated A event to the immediate B event, not an etag representative', async () => {
+    // Arrange
+    const at = '2026-07-07T00:00:00Z';
+    const cycleId = await insertCycle(db, {
+      provider: 'okta',
+      source: 'provider',
+      at,
+    });
+    const ids: string[] = [];
+    for (const [index, etag] of ['a', 'b', 'a'].entries()) {
+      ids.push(
+        await insertEntity(db, {
+          cycleId,
+          provider: 'okta',
+          source: 'provider',
+          op: 'update',
+          etag,
+          changedAt: `2026-07-07T0${index}:00:00Z`,
+          owner: `owner-${index}`,
+        }),
+      );
+    }
+
+    // Act
+    const middle = await service.getEntityVersion({
+      entityRef: 'user:default/alice',
+      id: ids[1],
+    });
+    const latest = await service.getEntityVersion({
+      entityRef: 'user:default/alice',
+      id: ids[2],
+    });
+
+    // Assert
+    expect(middle.previousVersion).toMatchObject({
+      id: ids[0],
+      etag: 'a',
+      snapshot: { owner: 'owner-0' },
+    });
+    expect(latest.previousVersion).toMatchObject({
+      id: ids[1],
+      etag: 'b',
+      snapshot: { owner: 'owner-1' },
+    });
+    expect(latest.previousVersion).not.toHaveProperty('previousVersion');
+    expect(latest.changes).toEqual([
+      { path: ['owner'], op: 'replace', before: 'owner-1', after: 'owner-2' },
+    ]);
+  });
+
+  it('isolates the predecessor by entity, source, and provider even when closer rows exist', async () => {
+    // Arrange
+    const scopes = [
+      { provider: 'one', source: 'provider' as const },
+      { provider: 'two', source: 'provider' as const },
+      { provider: 'one', source: 'processing' as const },
+      {
+        provider: 'one',
+        source: 'provider' as const,
+        entityRef: 'user:default/bob',
+      },
+      { provider: 'one', source: 'provider' as const },
+    ];
+    const ids: string[] = [];
+    for (const [index, scope] of scopes.entries()) {
+      const at = `2026-07-07T0${index}:00:00Z`;
+      const cycleId = await insertCycle(db, { ...scope, at });
+      ids.push(
+        await insertEntity(db, {
+          ...scope,
+          cycleId,
+          op: 'update',
+          etag: 'same',
+          changedAt: at,
+        }),
+      );
+    }
+
+    // Act
+    const version = await service.getEntityVersion({
+      entityRef: 'user:default/alice',
+      id: ids[4],
+    });
+    const otherProvider = await service.getEntityVersion({
+      entityRef: 'user:default/alice',
+      id: ids[1],
+    });
+    const otherSource = await service.getEntityVersion({
+      entityRef: 'user:default/alice',
+      id: ids[2],
+    });
+
+    // Assert
+    expect(version.previousVersion?.id).toBe(ids[0]);
+    expect(version.changes).toEqual([]);
+    expect(otherProvider.previousVersion).toBeUndefined();
+    expect(otherProvider.changes).toBeUndefined();
+    expect(otherSource.previousVersion).toBeUndefined();
+    expect(otherSource.changes).toBeUndefined();
+  });
+
+  it.each([
+    [
+      'equal timestamps',
+      ['2026-07-07T00:00:00Z', '2026-07-07T00:00:00Z', '2026-07-07T00:00:00Z'],
+    ],
+    [
+      'stored microseconds',
+      [
+        '2026-07-07T00:00:00.000100Z',
+        '2026-07-07T00:00:00.000200Z',
+        '2026-07-07T00:00:00.000300Z',
+      ],
+    ],
+  ])(
+    'uses the strictly older database tuple for %s',
+    async (_label, timestamps) => {
+      // Arrange: include a later row so neither self nor future rows can become the baseline.
+      const cycleId = await insertCycle(db, {
+        provider: 'okta',
+        source: 'provider',
+        at: timestamps[0],
+      });
+      const ids: string[] = [];
+      for (const changedAt of timestamps) {
+        ids.push(
+          await insertEntity(db, {
+            cycleId,
+            provider: 'okta',
+            source: 'provider',
+            op: 'update',
+            etag: 'a',
+            changedAt,
+          }),
+        );
+      }
+
+      // Act
+      const first = await service.getEntityVersion({
+        entityRef: 'user:default/alice',
+        id: ids[0],
+      });
+      const middle = await service.getEntityVersion({
+        entityRef: 'user:default/alice',
+        id: ids[1],
+      });
+      const last = await service.getEntityVersion({
+        entityRef: 'user:default/alice',
+        id: ids[2],
+      });
+
+      // Assert
+      expect(first.previousVersion).toBeUndefined();
+      expect(first.changes).toBeUndefined();
+      expect(middle.previousVersion?.id).toBe(ids[0]);
+      expect(last.previousVersion?.id).toBe(ids[1]);
+      expect(middle.changes).toEqual([]);
+    },
+  );
+
+  it('keeps the last recorded snapshot separate from deletion and does not diff recreation across a tombstone', async () => {
+    // Arrange
+    const cycleId = await insertCycle(db, {
+      provider: 'okta',
+      source: 'provider',
+      at: '2026-07-07T00:00:00Z',
+    });
+    const ids: string[] = [];
+    for (const [index, op] of (
+      ['insert', 'delete', 'insert'] as const
+    ).entries()) {
+      ids.push(
+        await insertEntity(db, {
+          cycleId,
+          provider: 'okta',
+          source: 'provider',
+          op,
+          etag: op === 'delete' ? null : 'a',
+          changedAt: `2026-07-07T0${index}:00:00Z`,
+        }),
+      );
+    }
+
+    // Act
+    const deleted = await service.getEntityVersion({
+      entityRef: 'user:default/alice',
+      id: ids[1],
+    });
+    const recreated = await service.getEntityVersion({
+      entityRef: 'user:default/alice',
+      id: ids[2],
+    });
+
+    // Assert
+    expect(deleted.snapshot).toBeUndefined();
+    expect(deleted.previousVersion).toMatchObject({
+      id: ids[0],
+      op: 'insert',
+      snapshot: { metadata: { name: 'alice' } },
+    });
+    expect(deleted.changes).toEqual([
+      { path: ['metadata'], op: 'remove', before: { name: 'alice' } },
+      {
+        path: ['spec'],
+        op: 'remove',
+        before: { profile: { displayName: 'alice' } },
+      },
+    ]);
+    expect(recreated.previousVersion).toMatchObject({
+      id: ids[1],
+      op: 'delete',
+    });
+    expect(recreated.previousVersion?.snapshot).toBeUndefined();
+    expect(recreated.changes).toBeUndefined();
   });
 
   it('deduplicates etags within source and provider, preserving the newest representative and pagination', async () => {
@@ -466,6 +684,8 @@ describe('PostgresHistoryQueryService', () => {
     });
     expect(version.snapshot).toBeUndefined();
     expect(version.etag).toBeUndefined();
+    expect(version.previousVersion).toBeUndefined();
+    expect(version.changes).toBeUndefined();
   });
 
   it.each(['0', '-1', '1.5', 'abc', '9223372036854775808'])(

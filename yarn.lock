@@ -2758,6 +2758,26 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@backstage/frontend-dev-utils@npm:^0.1.7":
+  version: 0.1.7
+  resolution: "@backstage/frontend-dev-utils@npm:0.1.7"
+  dependencies:
+    "@backstage/frontend-defaults": "npm:^0.5.7"
+    "@backstage/frontend-plugin-api": "npm:^0.18.2"
+    "@backstage/plugin-app": "npm:^0.5.4"
+    "@backstage/ui": "npm:^0.19.0"
+  peerDependencies:
+    "@types/react": ^17.0.0 || ^18.0.0
+    react: ^17.0.0 || ^18.0.0
+    react-dom: ^17.0.0 || ^18.0.0
+    react-router-dom: ^6.30.2
+  peerDependenciesMeta:
+    "@types/react":
+      optional: true
+  checksum: 10c0/22c806914f07e357e55f88db9fa935381962600b67e24ba592b60fe8d99255c5537488306eb8fae57a21e784ab7665361552bf84e71dd5180277b54d49621323
+  languageName: node
+  linkType: hard
+
 "@backstage/frontend-plugin-api@npm:^0.18.2":
   version: 0.18.2
   resolution: "@backstage/frontend-plugin-api@npm:0.18.2"
@@ -5158,6 +5178,7 @@ __metadata:
     "@backstage/catalog-model": "npm:^1.7.5"
     "@backstage/cli": "npm:^0.36.6"
     "@backstage/core-plugin-api": "npm:^1.12.11"
+    "@backstage/frontend-dev-utils": "npm:^0.1.7"
     "@backstage/frontend-plugin-api": "npm:^0.18.2"
     "@backstage/frontend-test-utils": "npm:^0.6.5"
     "@backstage/plugin-catalog-react": "npm:^3.3.0"

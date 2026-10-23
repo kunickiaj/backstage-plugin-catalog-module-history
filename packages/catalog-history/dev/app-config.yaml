@@ -1,0 +1,6 @@
+app:
+  title: Catalog history preview
+  baseUrl: http://localhost:3000
+  listen:
+    host: localhost
+    port: 3000

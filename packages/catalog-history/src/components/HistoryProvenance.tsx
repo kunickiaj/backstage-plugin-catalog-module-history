@@ -1,12 +1,14 @@
 /** @jsxRuntime automatic */
 import type { HistoryTimelineItem } from '@kunickiaj/backstage-plugin-catalog-history-common';
+import { RecordedTime } from './RecordedTime';
+import styles from './History.module.css';
 
 export function HistoryProvenance({ event }: { event: HistoryTimelineItem }) {
   return (
-    <dl>
+    <dl className={styles.provenance}>
       <dt>Recorded at</dt>
       <dd>
-        <time dateTime={event.changedAt}>{event.changedAt}</time>
+        <RecordedTime value={event.changedAt} />
       </dd>
       <dt>Source</dt>
       <dd>{event.source}</dd>

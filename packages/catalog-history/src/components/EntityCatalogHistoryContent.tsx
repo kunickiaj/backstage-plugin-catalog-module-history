@@ -7,6 +7,7 @@ import { Box, Text } from '@backstage/ui';
 import { catalogHistoryApiRef } from '../api/CatalogHistoryApi';
 import { HistoryFilters, HistoryFiltersValue } from './HistoryFilters';
 import { HistoryTimeline } from './HistoryTimeline';
+import styles from './History.module.css';
 
 /** Entity History tab, using the catalog entity context and history API. @public */
 export function EntityCatalogHistoryContent() {
@@ -20,11 +21,11 @@ function EntityHistory({ entityRef }: { entityRef: string }) {
   const [filters, setFilters] = useState<HistoryFiltersValue>({});
   const request = { ...filters, entityRef, limit: 25 };
   return (
-    <Box p="4">
+    <Box p="4" className={styles.history}>
       <Text as="h2" variant="title-small">
         History
       </Text>
-      <p>
+      <p className={styles.description}>
         Events show when each capture source recorded a change, not when the
         upstream system changed.
       </p>

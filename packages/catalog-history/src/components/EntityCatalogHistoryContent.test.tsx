@@ -22,6 +22,13 @@ import {
 import { EntityCatalogHistoryContent } from './EntityCatalogHistoryContent';
 
 const entityRef = 'component:default/example';
+const savedSnapshot = {
+  entityRef,
+  kind: 'Component',
+  namespace: 'default',
+  name: 'example',
+  spec: { owner: 'snapshot-owner' },
+};
 
 function event(
   id: string,
@@ -74,6 +81,210 @@ function setup() {
 }
 
 describe('EntityCatalogHistoryContent', () => {
+  it('shows the initial inspector and loaded count without adding row action buttons', async () => {
+    // Arrange
+    const { api, mount } = setup();
+    api.getEntityTimeline.mockResolvedValue({
+      items: [event('first'), event('second')],
+    });
+
+    // Act
+    mount();
+    await screen.findByRole('grid', {
+      name: 'Entity history, newest recorded events first',
+    });
+
+    // Assert
+    expect(
+      screen.getByText('2 events loaded · Newest first'),
+    ).toBeInTheDocument();
+    expect(
+      within(
+        screen.getByRole('region', { name: 'Recorded event details' }),
+      ).getByRole('heading', { name: 'Select an event' }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole('row', { selected: false })).toHaveLength(2);
+    expect(
+      screen.queryByRole('button', { name: /Inspect|View event/ }),
+    ).not.toBeInTheDocument();
+    expect(api.getEntityVersion).not.toHaveBeenCalled();
+  });
+
+  it.each(['Enter', ' '])(
+    'inspects a row with %s and keeps only one row selected',
+    async key => {
+      // Arrange
+      const { api, mount } = setup();
+      api.getEntityTimeline.mockResolvedValue({
+        items: [event('first'), event('second')],
+      });
+      api.getEntityVersion.mockImplementation(async request =>
+        event(request.id),
+      );
+      mount();
+      const first = await screen.findByRole('row', { name: /^Event first,/ });
+      fireEvent.click(first);
+      await screen.findByText('cycle-first');
+      const second = screen.getByRole('row', { name: /^Event second,/ });
+
+      // Act
+      act(() => second.focus());
+      fireEvent.keyDown(second, {
+        key,
+        code: key === 'Enter' ? 'Enter' : 'Space',
+      });
+      fireEvent.keyUp(second, {
+        key,
+        code: key === 'Enter' ? 'Enter' : 'Space',
+      });
+
+      // Assert
+      await screen.findByText('cycle-second');
+      expect(screen.getAllByRole('row', { selected: true })).toEqual([second]);
+      expect(first).toHaveAttribute('aria-selected', 'false');
+      expect(
+        screen.getByRole('region', { name: 'Recorded event details' }),
+      ).toHaveFocus();
+    },
+  );
+
+  it('shows update comparisons and exposes the exact current snapshot through its disclosure', async () => {
+    // Arrange
+    const { api, mount } = setup();
+    api.getEntityTimeline.mockResolvedValue({ items: [event('selected')] });
+    api.getEntityVersion.mockResolvedValue(
+      event('selected', {
+        snapshot: savedSnapshot,
+        previousVersion: event('previous', {
+          snapshot: { ...savedSnapshot, spec: { owner: 'old-owner' } },
+        }),
+        changes: [
+          {
+            path: ['spec', 'owner'],
+            op: 'replace',
+            before: 'old-owner',
+            after: 'snapshot-owner',
+          },
+        ],
+      }),
+    );
+    mount();
+
+    // Act
+    fireEvent.click(
+      await screen.findByRole('row', { name: /^Event selected,/ }),
+    );
+    const comparison = await screen.findByRole('region', {
+      name: 'Changes from previous event',
+    });
+    const raw = screen.getByText('Raw snapshot');
+
+    // Assert
+    expect(within(comparison).getByText('/spec/owner')).toBeInTheDocument();
+    expect(
+      within(comparison).getByText('Before').nextElementSibling,
+    ).toHaveTextContent('"old-owner"');
+    expect(
+      within(comparison).getByText('After').nextElementSibling,
+    ).toHaveTextContent('"snapshot-owner"');
+    expect(raw.closest('details')).not.toHaveAttribute('open');
+    fireEvent.click(raw);
+    expect(raw.closest('details')).toHaveAttribute('open');
+    expect(
+      within(raw.closest('details')!).getByText(/"snapshot-owner"/),
+    ).toBeVisible();
+  });
+
+  it.each([
+    {
+      previousVersion: undefined,
+      changes: undefined,
+      message: 'No previous saved snapshot is available for comparison.',
+    },
+    {
+      previousVersion: event('deleted-prior', { op: 'delete' }),
+      changes: undefined,
+      message: 'No previous saved snapshot is available for comparison.',
+    },
+    {
+      previousVersion: event('same', { snapshot: savedSnapshot }),
+      changes: [],
+      message: 'No saved field differences.',
+    },
+  ])(
+    'explains update comparison gaps without hiding the current snapshot: $message',
+    async context => {
+      // Arrange
+      const { api, mount } = setup();
+      api.getEntityTimeline.mockResolvedValue({ items: [event('selected')] });
+      api.getEntityVersion.mockResolvedValue(
+        event('selected', {
+          snapshot: savedSnapshot,
+          previousVersion: context.previousVersion,
+          changes: context.changes,
+        }),
+      );
+      mount();
+
+      // Act
+      fireEvent.click(
+        await screen.findByRole('row', { name: /^Event selected,/ }),
+      );
+
+      // Assert
+      await screen.findByText(context.message);
+      expect(screen.queryByText('Before')).not.toBeInTheDocument();
+      const raw = screen.getByText('Raw snapshot').closest('details')!;
+      if (!raw.open) fireEvent.click(within(raw).getByText('Raw snapshot'));
+      expect(within(raw).getByText(/"snapshot-owner"/)).toBeVisible();
+    },
+  );
+
+  it('labels the last saved snapshot and its provenance separately from the deletion payload', async () => {
+    // Arrange
+    const { api, mount } = setup();
+    const previousVersion = event('before-delete', {
+      snapshot: savedSnapshot,
+      changedAt: '2026-10-22T12:00:00.000Z',
+    });
+    api.getEntityTimeline.mockResolvedValue({
+      items: [event('deleted', { op: 'delete' })],
+    });
+    api.getEntityVersion.mockResolvedValue(
+      event('deleted', { op: 'delete', etag: undefined, previousVersion }),
+    );
+    mount();
+
+    // Act
+    fireEvent.click(
+      await screen.findByRole('row', { name: /^Event deleted,/ }),
+    );
+    const previous = await screen.findByRole('region', {
+      name: 'Last recorded snapshot before deletion',
+    });
+
+    // Assert
+    expect(
+      screen.getByText(
+        'Entity deleted. This event is a deletion record and has no snapshot.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(previous).getByText(/not the deletion payload/),
+    ).toBeInTheDocument();
+    expect(within(previous).getByText('before-delete')).toBeInTheDocument();
+    expect(
+      within(previous).getByText('cycle-before-delete'),
+    ).toBeInTheDocument();
+    expect(
+      within(previous).getByText('directory-provider'),
+    ).toBeInTheDocument();
+    expect(within(previous).getByText(/"snapshot-owner"/)).toBeInTheDocument();
+    expect(screen.queryByText('Raw snapshot')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('region', { name: 'Changes from previous event' }),
+    ).not.toBeInTheDocument();
+  });
   it('focuses the detail region immediately while the selected event is loading', async () => {
     // Arrange: moving focus must not wait for the detail request to finish.
     const { api, mount } = setup();
@@ -81,10 +292,10 @@ describe('EntityCatalogHistoryContent', () => {
     api.getEntityTimeline.mockResolvedValue({ items: [event('selected')] });
     api.getEntityVersion.mockReturnValue(detail.promise);
     mount();
-    const button = await screen.findByRole('button', {
-      name: 'View event selected',
+    const button = await screen.findByRole('row', {
+      name: /^Event selected,/,
     });
-    button.focus();
+    act(() => button.focus());
 
     // Act
     fireEvent.click(button);
@@ -108,17 +319,18 @@ describe('EntityCatalogHistoryContent', () => {
     api.getEntityTimeline.mockResolvedValue({ items: [event('selected')] });
     api.getEntityVersion.mockResolvedValue(event('selected'));
     mount();
-    const button = await screen.findByRole('button', {
-      name: 'View event selected',
+    const button = await screen.findByRole('row', {
+      name: /^Event selected,/,
     });
     fireEvent.click(button);
     await screen.findByText('cycle-selected');
     const provider = screen.getByRole('textbox', { name: 'Provider' });
-    provider.focus();
+    act(() => provider.focus());
     expect(provider).toHaveFocus();
 
     // Act
-    fireEvent.click(button);
+    const currentRow = screen.getByRole('row', { name: /^Event selected,/ });
+    fireEvent.click(currentRow);
 
     // Assert
     expect(
@@ -150,7 +362,7 @@ describe('EntityCatalogHistoryContent', () => {
 
     // Act
     fireEvent.click(
-      await screen.findByRole('button', { name: 'View event selected' }),
+      await screen.findByRole('row', { name: /^Event selected,/ }),
     );
 
     // Assert
@@ -167,7 +379,7 @@ describe('EntityCatalogHistoryContent', () => {
       .mockResolvedValueOnce(event('selected'));
     mount();
     fireEvent.click(
-      await screen.findByRole('button', { name: 'View event selected' }),
+      await screen.findByRole('row', { name: /^Event selected,/ }),
     );
     await screen.findByText(
       'This recorded event is no longer available. Refresh the timeline.',
@@ -271,14 +483,21 @@ describe('EntityCatalogHistoryContent', () => {
 
     // Act
     mount();
-    await screen.findByRole('button', { name: 'View event newest' });
+    await screen.findByRole('row', { name: /^Event newest,/ });
     fireEvent.click(screen.getByRole('button', { name: 'Load older' }));
 
     // Assert
-    await screen.findByRole('button', { name: 'View event older' });
+    await screen.findByRole('row', { name: /^Event older,/ });
     const rows = screen.getAllByRole('row').slice(1);
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toHaveTextContent('2026-10-23T12:00:00.000Z');
+    expect(rows[0].querySelector('time')).toHaveAttribute(
+      'dateTime',
+      '2026-10-23T12:00:00.000Z',
+    );
+    expect(rows[0].querySelector('time')).toHaveAttribute(
+      'title',
+      '2026-10-23T12:00:00.000Z',
+    );
     expect(rows[0]).toHaveTextContent('provider');
     expect(rows[0]).toHaveTextContent('directory-provider');
     expect(rows[0]).toHaveTextContent('update');
@@ -313,10 +532,10 @@ describe('EntityCatalogHistoryContent', () => {
 
     // Assert: retry must not discard the successful first page or fetch it again.
     expect(
-      screen.getByRole('button', { name: 'View event newest' }),
+      screen.getByRole('row', { name: /^Event newest,/ }),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-    await screen.findByRole('button', { name: 'View event older' });
+    await screen.findByRole('row', { name: /^Event older,/ });
     expect(screen.getAllByRole('row')).toHaveLength(3);
     expect(api.getEntityTimeline).toHaveBeenLastCalledWith({
       entityRef,
@@ -336,23 +555,21 @@ describe('EntityCatalogHistoryContent', () => {
       .mockResolvedValueOnce({ items: [event('fresh')] });
     api.getEntityVersion.mockResolvedValue(event('old'));
     mount();
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'View event old' }),
-    );
+    fireEvent.click(await screen.findByRole('row', { name: /^Event old,/ }));
     await screen.findByRole('heading', { name: 'Recorded event' });
 
     // Act
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
 
     // Assert
-    await screen.findByRole('button', { name: 'View event fresh' });
+    await screen.findByRole('row', { name: /^Event fresh,/ });
     expect(api.getEntityTimeline).toHaveBeenLastCalledWith({
       entityRef,
       limit: 25,
       cursor: undefined,
     });
     expect(
-      screen.queryByRole('button', { name: 'View event old' }),
+      screen.queryByRole('row', { name: /^Event old,/ }),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole('heading', { name: 'Recorded event' }),
@@ -374,11 +591,15 @@ describe('EntityCatalogHistoryContent', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Load older' }));
 
     // Act
+    jest.useFakeTimers();
     fireEvent.change(screen.getByRole('textbox', { name: 'Provider' }), {
       target: { value: ' chosen-provider ' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }));
-    await screen.findByRole('button', { name: 'View event filtered' });
+    act(() => jest.advanceTimersByTime(299));
+    expect(api.getEntityTimeline).toHaveBeenCalledTimes(2);
+    act(() => jest.advanceTimersByTime(1));
+    jest.useRealTimers();
+    await screen.findByRole('row', { name: /^Event filtered,/ });
     await act(async () =>
       obsolete.resolve({
         items: [event('obsolete')],
@@ -394,14 +615,59 @@ describe('EntityCatalogHistoryContent', () => {
       }),
     );
     expect(
-      screen.queryByRole('button', { name: 'View event old' }),
+      screen.queryByRole('row', { name: /^Event old,/ }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole('button', { name: 'View event obsolete' }),
+      screen.queryByRole('row', { name: /^Event obsolete,/ }),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: 'Load older' }),
     ).not.toBeInTheDocument();
+  });
+
+  it('resets an automatically applied filter from the first page and clears its selected detail', async () => {
+    // Arrange
+    const { api, mount } = setup();
+    api.getEntityTimeline
+      .mockResolvedValueOnce({ items: [event('initial')] })
+      .mockResolvedValueOnce({
+        items: [event('filtered')],
+        nextCursor: 'filtered-older',
+      })
+      .mockResolvedValueOnce({ items: [event('reset')] });
+    api.getEntityVersion.mockResolvedValue(event('filtered'));
+    mount();
+    await screen.findByRole('row', { name: /^Event initial,/ });
+    jest.useFakeTimers();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Provider' }), {
+      target: { value: 'chosen-provider' },
+    });
+    act(() => jest.advanceTimersByTime(300));
+    jest.useRealTimers();
+    fireEvent.click(
+      await screen.findByRole('row', { name: /^Event filtered,/ }),
+    );
+    await screen.findByText('cycle-filtered');
+
+    // Act
+    fireEvent.click(screen.getByRole('button', { name: 'Reset filters' }));
+
+    // Assert
+    await screen.findByRole('row', { name: /^Event reset,/ });
+    expect(api.getEntityTimeline).toHaveBeenCalledTimes(3);
+    expect(api.getEntityTimeline).toHaveBeenLastCalledWith({
+      entityRef,
+      limit: 25,
+      cursor: undefined,
+    });
+    expect(
+      screen.getByRole('heading', { name: 'Select an event' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('cycle-filtered')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Load older' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Provider' })).toHaveValue('');
   });
 
   it('selects exact row IDs for A-B-A versions rather than reusing an ETag match', async () => {
@@ -415,11 +681,13 @@ describe('EntityCatalogHistoryContent', () => {
     api.getEntityTimeline.mockResolvedValue({ items: events });
     api.getEntityVersion.mockImplementation(async request => event(request.id));
     mount();
-    await screen.findByRole('button', { name: 'View event second-A' });
+    await screen.findByRole('row', { name: /^Event second-A,/ });
 
     // Act
     for (const id of ['first-A', 'B', 'second-A']) {
-      fireEvent.click(screen.getByRole('button', { name: `View event ${id}` }));
+      fireEvent.click(
+        screen.getByRole('row', { name: new RegExp(`^Event ${id},`) }),
+      );
       await waitFor(() =>
         expect(api.getEntityVersion).toHaveBeenLastCalledWith({
           entityRef,
@@ -448,18 +716,30 @@ describe('EntityCatalogHistoryContent', () => {
       .mockReturnValueOnce(obsolete.promise)
       .mockResolvedValueOnce(event('selected'));
     mount();
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'View event old' }),
-    );
+    fireEvent.click(await screen.findByRole('row', { name: /^Event old,/ }));
     expect(screen.getByText('Loading recorded event…')).toBeInTheDocument();
 
     // Act
-    screen.getByRole('button', { name: 'View event selected' }).focus();
-    fireEvent.click(
-      screen.getByRole('button', { name: 'View event selected' }),
-    );
+    act(() => screen.getByRole('row', { name: /^Event selected,/ }).focus());
+    fireEvent.click(screen.getByRole('row', { name: /^Event selected,/ }));
     await screen.findByText('cycle-selected');
-    await act(async () => obsolete.resolve(event('old')));
+    await act(async () =>
+      obsolete.resolve(
+        event('old', {
+          previousVersion: event('obsolete-previous', {
+            snapshot: savedSnapshot,
+          }),
+          changes: [
+            {
+              path: ['spec', 'owner'],
+              op: 'replace',
+              before: 'obsolete-owner',
+              after: 'obsolete-replacement',
+            },
+          ],
+        }),
+      ),
+    );
 
     // Assert
     expect(
@@ -471,6 +751,11 @@ describe('EntityCatalogHistoryContent', () => {
     });
     expect(screen.getByText('cycle-selected')).toBeInTheDocument();
     expect(screen.queryByText('cycle-old')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        /obsolete-owner|obsolete-replacement|obsolete-previous/,
+      ),
+    ).not.toBeInTheDocument();
   });
 
   it('renders an exact snapshot for updates but no fabricated snapshot for delete tombstones', async () => {
@@ -492,11 +777,9 @@ describe('EntityCatalogHistoryContent', () => {
     mount();
 
     // Act
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'View event update' }),
-    );
+    fireEvent.click(await screen.findByRole('row', { name: /^Event update,/ }));
     await screen.findByText(/"snapshot-owner"/);
-    fireEvent.click(screen.getByRole('button', { name: 'View event delete' }));
+    fireEvent.click(screen.getByRole('row', { name: /^Event delete,/ }));
 
     // Assert
     await screen.findByText(
@@ -505,7 +788,14 @@ describe('EntityCatalogHistoryContent', () => {
     expect(screen.queryByText('Raw snapshot')).not.toBeInTheDocument();
     expect(screen.queryByText(/"snapshot-owner"/)).not.toBeInTheDocument();
     expect(
-      within(screen.getByRole('table')).getByText('delete', { selector: 'td' }),
+      screen.getByText(
+        'The last recorded snapshot before deletion is unavailable.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('grid')).getByRole('gridcell', {
+        name: 'delete',
+      }),
     ).toBeInTheDocument();
   });
 });
