@@ -18,6 +18,133 @@ function setup() {
 }
 
 describe('CatalogHistoryClient', () => {
+  it('discovers the global feed without constructing an entity path and omits absent filters', async () => {
+    // Arrange
+    const { client, fetch, getBaseUrl } = setup();
+    // Act
+    const result = await client.getChangeFeed({});
+    // Assert
+    expect(getBaseUrl).toHaveBeenCalledWith('catalog');
+    expect(fetch).toHaveBeenCalledWith(
+      'https://catalog.example/api/catalog/history/changes?limit=25',
+    );
+    expect(result).toEqual({ items: [], nextCursor: 'opaque+/=' });
+  });
+
+  it('rejects an explicitly empty entity filter rather than broadening to all entities', async () => {
+    // Arrange
+    const { client, fetch, getBaseUrl } = setup();
+    // Act
+    const result = client.getChangeFeed({ entityRef: '' });
+    // Assert
+    await expect(result).rejects.toThrow('Entity reference must not be empty');
+    expect(fetch).not.toHaveBeenCalled();
+    expect(getBaseUrl).not.toHaveBeenCalled();
+  });
+
+  it.each(['group:default/team', ''])(
+    'rejects unsupported owner %j without discovery or fetch',
+    async owner => {
+      // Arrange: rejecting an unsupported filter prevents a broader global request.
+      const { client, fetch, getBaseUrl } = setup();
+
+      // Act
+      const result = client.getChangeFeed({ owner });
+
+      // Assert
+      await expect(result).rejects.toThrow('Owner filtering is not supported');
+      expect(fetch).not.toHaveBeenCalled();
+      expect(getBaseUrl).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['', '   '])(
+    'preserves an explicitly empty kind %j for backend rejection',
+    async kind => {
+      // Arrange
+      const { client, fetch } = setup();
+      fetch.mockResolvedValue({ ok: false, status: 400 });
+
+      // Act
+      const result = client.getChangeFeed({ kind });
+
+      // Assert
+      await expect(result).rejects.toEqual(new CatalogHistoryApiError(400));
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(
+        Object.fromEntries(new URL(fetch.mock.calls[0][0]).searchParams),
+      ).toEqual({ limit: '25', kind: '' });
+    },
+  );
+
+  it('encodes all feed filters and cursor as query values, with an exact normalized entity and kind', async () => {
+    // Arrange
+    const { client, fetch } = setup();
+    const filters = {
+      source: 'provider' as const,
+      provider: 'team & service/one',
+      op: 'delete' as const,
+      changedAfter: '2026-10-23T12:00:00.000Z',
+      changedBefore: '2026-10-23T12:00:00.000Z',
+      cursor: 'opaque+/=&?%',
+    };
+    // Act
+    await client.getChangeFeed({
+      ...filters,
+      entityRef: 'Group:Teams/Retired-Team',
+      kind: ' gRoUp ',
+      limit: 7,
+    });
+    // Assert
+    const url = new URL(fetch.mock.calls[0][0]);
+    expect(url.pathname).toBe('/api/catalog/history/changes');
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      ...filters,
+      entityRef: 'group:teams/retired-team',
+      kind: 'gRoUp',
+      limit: '7',
+    });
+  });
+
+  it('normalizes short feed references and caps oversized limits', async () => {
+    // Arrange
+    const { client, fetch } = setup();
+    // Act
+    await client.getChangeFeed({ entityRef: 'Example', limit: 10000 });
+    // Assert
+    expect(
+      Object.fromEntries(new URL(fetch.mock.calls[0][0]).searchParams),
+    ).toEqual({ entityRef: 'component:default/example', limit: '100' });
+  });
+
+  it.each([0, -1, 1.5, Number.NaN])(
+    'rejects feed limit %s without discovery or fetch',
+    async limit => {
+      // Arrange
+      const { client, fetch, getBaseUrl } = setup();
+      // Act
+      const result = client.getChangeFeed({ limit });
+      // Assert
+      await expect(result).rejects.toThrow('positive integer');
+      expect(fetch).not.toHaveBeenCalled();
+      expect(getBaseUrl).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([401, 403, 404, 500])(
+    'preserves feed HTTP %s without exposing backend bodies',
+    async status => {
+      // Arrange
+      const { client, fetch } = setup();
+      const json = jest.fn();
+      fetch.mockResolvedValue({ ok: false, status, json });
+      // Act
+      const result = client.getChangeFeed({});
+      // Assert
+      await expect(result).rejects.toEqual(new CatalogHistoryApiError(status));
+      expect(json).not.toHaveBeenCalled();
+    },
+  );
   it('discovers catalog and reads a normalized entity ref through authenticated fetch', async () => {
     // Arrange: Backstage supplies discovery and authentication, not a manual token.
     const { client, fetch, getBaseUrl } = setup();

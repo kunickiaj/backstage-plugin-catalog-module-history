@@ -29,7 +29,8 @@ export interface HistoryStore {
   readonly query?: Pick<
     HistoryQueryService,
     'getEntityTimeline' | 'getEntityVersions' | 'getEntityVersion'
-  >;
+  > &
+    Partial<Pick<HistoryQueryService, 'getChangeFeed'>>;
 
   /**
    * Prepares the backing store for reads and writes.

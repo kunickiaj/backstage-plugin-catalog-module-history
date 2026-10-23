@@ -6,6 +6,9 @@ import {
   MAX_HISTORY_PAGE_LIMIT,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import type {
+  HistoryChangeFeedRequest,
+  HistoryChangeFeedResponse,
+  HistoryCycleChange,
   HistoryEntitySnapshot,
   HistoryEntityTimelineRequest,
   HistoryEntityTimelineResponse,
@@ -25,7 +28,7 @@ import { diffSnapshots } from './diffSnapshots';
 const ISO_8601_INSTANT =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
-type HistoryEntityRow = {
+type HistoryChangeRow = {
   id: string;
   cycle_id: string;
   entity_ref: string;
@@ -36,6 +39,10 @@ type HistoryEntityRow = {
   source: HistorySource;
   op: HistoryOperation;
   etag: string | null;
+  changed_at: Date;
+};
+
+type HistoryEntityRow = HistoryChangeRow & {
   display_name: string | null;
   email: string | null;
   parent: string | null;
@@ -46,7 +53,6 @@ type HistoryEntityRow = {
   relations: unknown;
   status_items: unknown;
   orphan: boolean | null;
-  changed_at: Date;
 };
 
 type CursorPayload = {
@@ -66,7 +72,7 @@ function normalizeLimit(limit: number | undefined): number {
   return Math.min(limit, MAX_HISTORY_PAGE_LIMIT);
 }
 
-function encodeCursor(row: HistoryEntityRow): string {
+function encodeCursor(row: HistoryChangeRow): string {
   const payload: CursorPayload = {
     changedAt: row.changed_at.toISOString(),
     id: row.id,
@@ -148,7 +154,7 @@ function rowToSnapshot(row: HistoryEntityRow): HistoryEntitySnapshot {
   };
 }
 
-function rowToTimelineItem(row: HistoryEntityRow): HistoryTimelineItem {
+function rowToTimelineItem(row: HistoryChangeRow): HistoryTimelineItem {
   return {
     id: row.id,
     cycleId: row.cycle_id,
@@ -159,6 +165,15 @@ function rowToTimelineItem(row: HistoryEntityRow): HistoryTimelineItem {
     changedAt: row.changed_at.toISOString(),
     etag: row.etag ?? undefined,
     summary: {},
+  };
+}
+
+function rowToChange(row: HistoryChangeRow): HistoryCycleChange {
+  return {
+    ...rowToTimelineItem(row),
+    kind: row.kind,
+    namespace: row.namespace,
+    name: row.name,
   };
 }
 
@@ -207,6 +222,58 @@ export class PostgresHistoryQueryService {
 
     return {
       items: rows.slice(0, limit).map(rowToTimelineItem),
+      nextCursor:
+        rows.length > limit ? encodeCursor(rows[limit - 1]) : undefined,
+    };
+  }
+
+  async getChangeFeed(
+    request: HistoryChangeFeedRequest,
+  ): Promise<HistoryChangeFeedResponse> {
+    if (request.owner !== undefined) {
+      throw new InputError(
+        'Owner filtering is not supported by the history change feed',
+      );
+    }
+    await this.ensureReady();
+    const limit = normalizeLimit(request.limit);
+    const query = this.applyChangeFilters(
+      this.db<HistoryEntityRow>('catalog_history_entities'),
+      request,
+    );
+    if (request.entityRef !== undefined) {
+      query.where('entity_ref', request.entityRef);
+    }
+    if (request.kind !== undefined) {
+      query.whereRaw('LOWER(??) = LOWER(?)', ['kind', request.kind]);
+    }
+    const cursor = decodeCursor(request.cursor);
+    if (cursor) {
+      // Use the stored timestamp, not its millisecond-rounded cursor value.
+      query.whereRaw(
+        '(changed_at, id) < (select changed_at, id from catalog_history_entities where id = ?)',
+        [cursor.id],
+      );
+    }
+    const rows = await query
+      .orderBy('changed_at', 'desc')
+      .orderBy('id', 'desc')
+      .limit(limit + 1)
+      .select(
+        'id',
+        'cycle_id',
+        'entity_ref',
+        'kind',
+        'namespace',
+        'name',
+        'source',
+        'provider',
+        'op',
+        'changed_at',
+        'etag',
+      );
+    return {
+      items: rows.slice(0, limit).map(rowToChange),
       nextCursor:
         rows.length > limit ? encodeCursor(rows[limit - 1]) : undefined,
     };
@@ -306,6 +373,16 @@ export class PostgresHistoryQueryService {
     if (request.owner !== undefined) {
       query.where('owner', request.owner);
     }
+    return this.applyChangeFilters(query, request);
+  }
+
+  private applyChangeFilters<TRecord extends {}>(
+    query: Knex.QueryBuilder<TRecord, HistoryEntityRow[]>,
+    request: Pick<
+      HistoryChangeFeedRequest,
+      'source' | 'provider' | 'op' | 'changedAfter' | 'changedBefore'
+    >,
+  ): Knex.QueryBuilder<TRecord, HistoryEntityRow[]> {
     if (request.source) {
       query.where('source', request.source);
     }
@@ -335,12 +412,12 @@ export class PostgresHistoryQueryService {
   private parseTimestamp(
     timestamp: string,
     field: 'changedAfter' | 'changedBefore',
-  ): Date {
+  ): string {
     const parsed = new Date(timestamp);
     if (!ISO_8601_INSTANT.test(timestamp) || Number.isNaN(parsed.getTime())) {
       throw new InputError(`Invalid history ${field} timestamp`);
     }
-    return parsed;
+    return timestamp;
   }
 
   private applyCursor<TRecord extends {}>(

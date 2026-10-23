@@ -1,10 +1,12 @@
-import { parseEntityRef } from '@backstage/catalog-model';
+import { parseEntityRef, stringifyEntityRef } from '@backstage/catalog-model';
 import type { DiscoveryApi, FetchApi } from '@backstage/core-plugin-api';
 import {
   DEFAULT_HISTORY_PAGE_LIMIT,
   MAX_HISTORY_PAGE_LIMIT,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import type {
+  HistoryChangeFeedRequest,
+  HistoryChangeFeedResponse,
   HistoryEntityTimelineRequest,
   HistoryEntityTimelineResponse,
   HistoryEntityVersionRequest,
@@ -21,6 +23,46 @@ export interface CatalogHistoryClientOptions {
 /** Catalog history HTTP client. @public */
 export class CatalogHistoryClient implements CatalogHistoryApi {
   constructor(private readonly options: CatalogHistoryClientOptions) {}
+
+  async getChangeFeed(
+    request: HistoryChangeFeedRequest,
+  ): Promise<HistoryChangeFeedResponse> {
+    if (request.owner !== undefined) {
+      throw new Error('Owner filtering is not supported by the history API.');
+    }
+    const limit = request.limit ?? DEFAULT_HISTORY_PAGE_LIMIT;
+    if (!Number.isInteger(limit) || limit < 1) {
+      throw new Error('History page size must be a positive integer.');
+    }
+    const query = new URLSearchParams({
+      limit: String(Math.min(limit, MAX_HISTORY_PAGE_LIMIT)),
+    });
+    (
+      [
+        'source',
+        'provider',
+        'op',
+        'changedAfter',
+        'changedBefore',
+        'cursor',
+      ] as const
+    ).forEach(key => {
+      if (request[key] !== undefined) query.set(key, request[key]);
+    });
+    if (request.entityRef !== undefined) {
+      query.set(
+        'entityRef',
+        stringifyEntityRef(
+          parseEntityRef(request.entityRef, {
+            defaultKind: 'Component',
+            defaultNamespace: 'default',
+          }),
+        ),
+      );
+    }
+    if (request.kind !== undefined) query.set('kind', request.kind.trim());
+    return this.fetch(`/history/changes?${query}`);
+  }
 
   async getEntityTimeline(
     request: HistoryEntityTimelineRequest,
@@ -64,10 +106,12 @@ export class CatalogHistoryClient implements CatalogHistoryApi {
     const path = [kind, namespace, name]
       .map(part => encodeURIComponent(part.toLowerCase()))
       .join('/');
+    return this.fetch(`/history/entities/${path}${suffix}`);
+  }
+
+  private async fetch<T>(path: string): Promise<T> {
     const baseUrl = await this.options.discoveryApi.getBaseUrl('catalog');
-    const response = await this.options.fetchApi.fetch(
-      `${baseUrl}/history/entities/${path}${suffix}`,
-    );
+    const response = await this.options.fetchApi.fetch(`${baseUrl}${path}`);
     if (!response.ok) throw new CatalogHistoryApiError(response.status);
     return response.json();
   }

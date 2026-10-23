@@ -1,4 +1,8 @@
-import { makeValidator, stringifyEntityRef } from '@backstage/catalog-model';
+import {
+  makeValidator,
+  parseEntityRef,
+  stringifyEntityRef,
+} from '@backstage/catalog-model';
 import { InputError } from '@backstage/errors';
 import type { Request } from 'express';
 import {
@@ -6,6 +10,7 @@ import {
   MAX_HISTORY_PAGE_LIMIT,
   isHistoryOperation,
   isHistorySource,
+  type HistoryChangeFeedRequest,
   type HistoryEntityTimelineRequest,
   type HistoryEntityVersionRequest,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
@@ -52,11 +57,15 @@ function pageLimit(value: string | undefined): number {
 
 function queryValues(
   req: Request,
-  endpoint: 'history' | 'versions' | 'version',
+  endpoint: 'history' | 'versions' | 'version' | 'changes',
 ) {
   const allowed = new Set(endpoint === 'version' ? [] : COMMON_QUERY_KEYS);
-  if (endpoint === 'history') {
+  if (endpoint === 'history' || endpoint === 'changes') {
     allowed.add('op');
+  }
+  if (endpoint === 'changes') {
+    allowed.add('entityRef');
+    allowed.add('kind');
   }
   const values: Record<string, string> = {};
   // Parse the raw query so repeated keys are rejected independently of the
@@ -78,6 +87,15 @@ function queryValues(
 
 function entityRef(req: Request): string {
   const { kind, namespace, name } = req.params;
+  return validatedEntityRef({ kind, namespace, name });
+}
+
+function validatedEntityRef(ref: {
+  kind: string;
+  namespace: string;
+  name: string;
+}): string {
+  const { kind, namespace, name } = ref;
   if (
     !validators.isValidKind(kind) ||
     !validators.isValidNamespace(namespace.toLowerCase()) ||
@@ -105,6 +123,37 @@ export function parseHistoryRequest(
 ): HistoryEntityTimelineRequest {
   const ref = entityRef(req);
   const values = queryValues(req, endpoint);
+  return { entityRef: ref, ...changeFilters(values) };
+}
+
+export function parseHistoryChangeFeedRequest(
+  req: Request,
+): HistoryChangeFeedRequest {
+  const values = queryValues(req, 'changes');
+  if (values.kind !== undefined && !validators.isValidKind(values.kind)) {
+    throw new InputError('Invalid history entity kind');
+  }
+  let ref: string | undefined;
+  if (values.entityRef !== undefined) {
+    try {
+      ref = validatedEntityRef(
+        parseEntityRef(values.entityRef, {
+          defaultKind: 'Component',
+          defaultNamespace: 'default',
+        }),
+      );
+    } catch {
+      throw new InputError('Invalid history entity reference');
+    }
+  }
+  return {
+    ...changeFilters(values),
+    entityRef: ref,
+    kind: values.kind,
+  };
+}
+
+function changeFilters(values: Record<string, string>) {
   const { source, op } = values;
   if (source !== undefined && !isHistorySource(source)) {
     throw new InputError('Invalid history source');
@@ -122,7 +171,6 @@ export function parseHistoryRequest(
     throw new InputError('changedAfter must not be later than changedBefore');
   }
   return {
-    entityRef: ref,
     source,
     provider: values.provider,
     op,

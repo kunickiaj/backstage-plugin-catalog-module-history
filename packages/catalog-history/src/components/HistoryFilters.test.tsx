@@ -10,6 +10,89 @@ describe('HistoryFilters', () => {
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());
 
+  it.each([
+    [' Example ', 'component:default/example'],
+    ['Group:Teams/Retired-Team', 'group:teams/retired-team'],
+  ])('normalizes exact entity reference %s after 300ms', (input, expected) => {
+    // Arrange
+    const onApply = jest.fn();
+    render(<HistoryFilters scope="all" onApply={onApply} />);
+    // Act
+    fireEvent.change(
+      screen.getByRole('textbox', { name: 'Entity reference' }),
+      { target: { value: input } },
+    );
+    act(() => jest.advanceTimersByTime(299));
+    expect(onApply).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    // Assert
+    expect(onApply).toHaveBeenCalledTimes(1);
+    expect(onApply).toHaveBeenLastCalledWith(
+      expect.objectContaining({ entityRef: expected }),
+    );
+  });
+
+  it('accepts mixed-case kind, trims it, and cancels pending entity filters on reset', () => {
+    // Arrange
+    const onApply = jest.fn();
+    render(<HistoryFilters scope="all" onApply={onApply} />);
+    // Act
+    fireEvent.change(screen.getByRole('textbox', { name: 'Kind' }), {
+      target: { value: ' gRoUp ' },
+    });
+    act(() => jest.advanceTimersByTime(300));
+    expect(onApply).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kind: 'gRoUp' }),
+    );
+    fireEvent.change(
+      screen.getByRole('textbox', { name: 'Entity reference' }),
+      { target: { value: 'pending' } },
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Reset filters' }));
+    act(() => jest.advanceTimersByTime(300));
+    // Assert
+    expect(onApply).toHaveBeenCalledTimes(2);
+    expect(onApply).toHaveBeenLastCalledWith({});
+    expect(
+      screen.getByRole('textbox', { name: 'Entity reference' }),
+    ).toHaveValue('');
+    expect(screen.getByRole('textbox', { name: 'Kind' })).toHaveValue('');
+  });
+
+  it.each([
+    ['Entity reference', 'component:default/invalid name'],
+    ['Entity reference', 'component:default/'],
+    ['Kind', 'invalid kind'],
+  ])(
+    'rejects invalid %s without applying or retaining an earlier pending edit',
+    (label, value) => {
+      // Arrange
+      const onApply = jest.fn();
+      render(<HistoryFilters scope="all" onApply={onApply} />);
+      fireEvent.change(screen.getByRole('textbox', { name: 'Provider' }), {
+        target: { value: 'pending' },
+      });
+      // Act
+      fireEvent.change(screen.getByRole('textbox', { name: label }), {
+        target: { value },
+      });
+      act(() => jest.advanceTimersByTime(300));
+      // Assert
+      expect(onApply).not.toHaveBeenCalled();
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Enter a valid entity reference and kind',
+      );
+      fireEvent.change(screen.getByRole('textbox', { name: label }), {
+        target: { value: '' },
+      });
+      act(() => jest.advanceTimersByTime(300));
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(onApply).toHaveBeenLastCalledWith(
+        expect.objectContaining({ provider: 'pending' }),
+      );
+    },
+  );
+
   it('does not apply initial filters or expose an Apply button', () => {
     // Arrange
     const onApply = jest.fn();

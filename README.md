@@ -8,13 +8,15 @@ Ships with a Postgres backend in v1; designed around a pluggable `HistoryStore` 
 
 Maintainers: see [Publishing packages](docs/publishing.md) for validation-only runs, the first-release bootstrap, and npm trusted publishing.
 
+The unreleased global-feed index builds during history startup and blocks history entity writes while it builds. Plan a maintenance window for large retained histories; see the [index upgrade notes](packages/catalog-history-backend/README.md#global-history-feed-index-unreleased).
+
 ## What it does
 
 1. **Bootstraps the history schema** on backend startup (two history tables in the consuming plugin's database, unless overridden). The current source keeps new installations' migration records in a dedicated history log; existing history-only `0.1.0` logs remain supported.
 2. **Captures provider-origin truth** with `HistoryRecordingEntityProvider` (`source='provider'`). It mirrors every `full` or `delta` `applyMutation` after forwarding to the catalog. Cheap: one cycle per provider refresh/mutation. Best fit: identity-shaped entities like Users and Groups.
 3. **Optionally observes processing output** with `catalog.history.processing.enabled` (`source='processing'`). It sees processor mutations and processor-emitted entities, but cannot observe deletes and cannot guarantee registration order across independent modules. It hash-skips unchanged entities and micro-batches changes (default: 500 rows or 10s). Note: the first processing cycle after enabling records the entire catalog as inserts under `source='processing'` — expected one-time cost, since each source keeps its own baseline.
 4. **Optionally reconciles served catalog truth** (`source='reconciler'`). The in-process scheduler reads the public Catalog API, including stitched `relations`, `status.items`, and orphan state. Defaults when enabled: hourly, 10m timeout, 30s initial delay, task id `catalog-history-reconcile`. The external CLI remains available for isolated CronJobs or ad-hoc runs.
-5. **Optionally serves entity history** from the same store (`catalog.history.api.enabled`). The catalog module exposes authenticated, permission-controlled routes under `/api/catalog/history`; it does not require a separate backend plugin or database.
+5. **Optionally serves retained history** from the same store (`catalog.history.api.enabled`). The catalog module exposes authenticated, permission-controlled routes under `/api/catalog/history`, including a feed across entities that were later deleted; it does not require a separate backend plugin or database.
 
 ## Install
 
@@ -129,7 +131,7 @@ catalog:
 | `catalog.history.processing`                       | unset                      | Processor-layer capture settings.                                                                                                           |
 | `catalog.history.processing.enabled`               | `false`                    | Enables processor-layer capture via `HistoryRecordingCatalogProcessor`.                                                                     |
 | `catalog.history.api`                              | unset                      | HTTP history API settings.                                                                                                                  |
-| `catalog.history.api.enabled`                      | `false`                    | Enables entity history and version routes under `/api/catalog/history`.                                                                     |
+| `catalog.history.api.enabled`                      | `false`                    | Enables entity history, version, and cross-entity change-feed routes under `/api/catalog/history`.                                          |
 | `catalog.history.reconciler`                       | unset                      | Scheduled in-process reconciler settings.                                                                                                   |
 | `catalog.history.reconciler.enabled`               | `false`                    | Enables scheduled in-process reconciliation.                                                                                                |
 | `catalog.history.reconciler.schedule`              | unset                      | Optional Backstage scheduler config; omitted uses the defaults below.                                                                       |
@@ -163,7 +165,7 @@ curl -H 'Authorization: Bearer <TOKEN>' \
   'https://backstage.example.com/api/catalog/history/entities/User/default/alice/versions/42'
 ```
 
-`GET /api/catalog/history/entities/:kind/:namespace/:name/history` returns all recorded changes, including `insert`, `update`, and `delete`. `GET /api/catalog/history/entities/:kind/:namespace/:name/versions` omits deletes and returns the latest representative for each `source`/`provider`/etag combination. It excludes null etags. Both list responses use the shared `{ items, nextCursor }` shape.
+`GET /api/catalog/history/entities/:kind/:namespace/:name/history` returns all recorded changes, including `insert`, `update`, and `delete`. `GET /api/catalog/history/entities/:kind/:namespace/:name/versions` omits deletes and returns the latest representative for each `source`/`provider`/etag combination. It excludes null etags. `GET /api/catalog/history/changes` returns retained changes across entities. All list responses use the shared `{ items, nextCursor }` shape. Feed items include the affected entity's `entityRef`, `kind`, `namespace`, and `name`.
 
 `GET /api/catalog/history/entities/:kind/:namespace/:name/versions/:id` returns the exact history row for the canonical entity reference and row ID, including provenance and snapshot. It can also include `previousVersion`, the immediately preceding saved row for the same entity, source, and provider, ordered by `changedAt` and then `id`; etags do not deduplicate events. A delete row has no current snapshot, but `previousVersion` can provide the last saved snapshot from that source and provider.
 
@@ -171,11 +173,11 @@ For update rows with both snapshots available, `changes` contains field paths an
 
 Use a timeline item's `id` to inspect that event. Do not look it up by etag or use the versions list: an `A → B → A` sequence retains all three event occurrences.
 
-The list routes accept `source` (`provider`, `processing`, or `reconciler`), `provider`, `changedAfter`, `changedBefore`, `limit`, and `cursor`; the history route also accepts `op` (`insert`, `update`, or `delete`). Timestamps must be ISO 8601 instants. `limit` is a positive integer, defaults to `25`, and is capped at `100`. Cursors are opaque and paginate live data, not a frozen result set. Pass `nextCursor` as `cursor` unchanged, and reset pagination after changing filters or refreshing results. Unknown or repeated query parameters, invalid values, and the unsupported `owner` filter return `400`.
+The entity list routes accept `source` (`provider`, `processing`, or `reconciler`), `provider`, `changedAfter`, `changedBefore`, `limit`, and `cursor`; the history route also accepts `op` (`insert`, `update`, or `delete`). The change-feed route accepts those filters plus `entityRef` and `kind`. `entityRef` is an exact canonical entity reference, not a partial search. `kind` is an exact, case-insensitive match and supports custom kinds. Timestamps must be ISO 8601 instants. `limit` is a positive integer, defaults to `25`, and is capped at `100`. Cursors are opaque and paginate live data, not a frozen result set. Pass `nextCursor` as `cursor` unchanged, and reset pagination after changing filters or refreshing results. Unknown, empty, or repeated query parameters, invalid values, and the unsupported `owner` filter return `400`.
 
-The detail route accepts no query parameters. Invalid, nonpositive, or out-of-range PostgreSQL bigint IDs return `400`; an absent row or an ID for another entity returns `404`. The API returns retained history for deleted entities and does not filter rows by current catalog visibility. An empty list is `200` with `items: []`. Errors are `401` for missing authentication, `403` for a rejected permission decision, and `500` for a sanitized backend failure. Global history, cycle, as-of, arbitrary diff, and timeline-summary routes are not available yet; the current timeline summary is `{}` and has no semantic badges.
+The detail route accepts no query parameters. Invalid, nonpositive, or out-of-range PostgreSQL bigint IDs return `400`; an absent row or an ID for another entity returns `404`. The API returns retained history for deleted entities and does not filter rows by current catalog visibility. An approved `catalog-history.read` permission grants access to all retained history, not only entities visible in the current catalog. An empty list is `200` with `items: []`. Errors are `401` for missing authentication, `403` for a rejected permission decision, and `500` for a sanitized backend failure. Cycle, stats, facets, as-of, arbitrary diff, and timeline-summary routes are not available yet; the current timeline summary is `{}` and has no semantic badges.
 
-## Add the frontend History tab (unreleased)
+## Add the frontend History tab and page (unreleased)
 
 `packages/catalog-history` contains the unreleased `@kunickiaj/backstage-plugin-catalog-history` NFS frontend package. It is versioned as `0.1.0` in this workspace, but is not on npm and is not part of the four-package release or trusted-publishing setup. The four published packages named above remain unchanged.
 
@@ -197,11 +199,15 @@ export default createApp({
 });
 ```
 
-The plugin adds a **History** entity tab at the `history` extension path. It uses BUI and needs the application's BUI stylesheet. The tab filters the current entity's retained events by source, provider, operation, and recorded time. Source and operation filters apply immediately; provider input waits 300 ms after typing. Date fields use local time and apply valid ISO instants automatically; an invalid range shows an error instead of changing results. **Reset filters** clears every filter and pending provider input.
+The plugin adds a **History** entity tab at the `history` extension path and a navigation page at `/catalog-history` titled **Catalog history**. It uses BUI and needs the application's BUI stylesheet. The tab stays scoped to its current entity and filters its retained events only by source, provider, operation, and recorded time. It has no entity-reference or kind filter.
+
+The standalone page browses retained history across all entities, including deleted entities. Its table shows each affected entity's kind, namespace, and name, as does the entity-scoped table. It can filter by an exact entity reference, kind, source, provider, operation, and recorded time. Entity-reference short names default to `Component:default`; canonical references are preserved. Kind matching is case-insensitive and accepts custom kinds.
+
+Text fields apply after 300 ms; dropdowns and valid dates apply immediately. Date fields use local time and convert to ISO instants. An invalid date or range shows an error without changing results. Any filter change resets pagination. **Reset filters** clears filters and cancels pending text input.
 
 Select a timeline row by pointer or keyboard to inspect its exact event; there is no separate inspect action. The responsive timeline and inspector panels show update field changes when available, plus raw JSON separately. Delete events remain tombstones with no current snapshot; when a prior saved snapshot is available, the inspector labels it as the last recorded snapshot before deletion and shows its provenance. It is not the deletion payload.
 
-The backend requires an authenticated user and, when permissions are enabled, an explicit `ALLOW` for `catalog-history.read`. A disabled or unreachable backend route appears as a history `404`; expired sessions return `401`; rejected permission decisions return `403`. Deleted entities may have retained API history, but the entity tab cannot open after the catalog entity itself is absent. There is no arbitrary version-comparison endpoint, as-of view, global dashboard, or standalone deleted-entity view.
+The backend requires an authenticated user and, when permissions are enabled, an explicit `ALLOW` for `catalog-history.read`. A disabled, unreachable, or older backend without the route appears as a history `404`; expired sessions return `401`; rejected permission decisions return `403`. The standalone page shows a compatibility message when a custom history API does not implement the change feed (`501`); the entity tab remains available. Deleted entities may have retained API history, but the entity tab cannot open after the catalog entity itself is absent. There is no cycle, stats, facets, as-of, or arbitrary version-comparison view.
 
 See the [frontend package README](packages/catalog-history/README.md) for workspace use, NFS exports, and user-facing error guidance.
 

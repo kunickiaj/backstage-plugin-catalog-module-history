@@ -10,6 +10,7 @@ import {
   InputError,
   NotAllowedError,
   NotFoundError,
+  NotImplementedError,
 } from '@backstage/errors';
 import { AuthorizeResult } from '@backstage/plugin-permission-common';
 import type { Request, Router } from 'express';
@@ -17,6 +18,7 @@ import PromiseRouter from 'express-promise-router';
 import { catalogHistoryReadPermission } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import type { HistoryStore } from '@kunickiaj/backstage-plugin-catalog-history-node';
 import {
+  parseHistoryChangeFeedRequest,
   parseHistoryRequest,
   parseHistoryVersionRequest,
 } from './parseHistoryRequest';
@@ -77,6 +79,18 @@ async function retrieve<T>(
  */
 export function createHistoryRouter(options: HistoryRouterOptions): Router {
   const router = PromiseRouter();
+  router.get('/history/changes', async (req, res) => {
+    await authorize(req, options);
+    const getChangeFeed = options.query.getChangeFeed?.bind(options.query);
+    if (!getChangeFeed) {
+      throw new NotImplementedError(
+        'This history store does not support browsing changes. Use entity history or configure a store with change-feed support.',
+      );
+    }
+    const request = parseHistoryChangeFeedRequest(req);
+    const result = await retrieve(() => getChangeFeed(request), options);
+    res.json(result);
+  });
   for (const endpoint of ['history', 'versions'] as const) {
     router.get(
       `/history/entities/:kind/:namespace/:name/${endpoint}`,

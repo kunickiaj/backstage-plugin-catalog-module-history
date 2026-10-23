@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   HistoryEntityTimelineRequest,
+  HistoryChangeFeedRequest,
   HistoryEntityTimelineResponse,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
+import { CatalogHistoryApiError } from '../api/CatalogHistoryApi';
 import type { CatalogHistoryApi } from '../api/CatalogHistoryApi';
+
+export type HistoryTimelineScope =
+  | { scope?: 'entity'; request: HistoryEntityTimelineRequest }
+  | { scope: 'all'; request: HistoryChangeFeedRequest };
 
 type TimelineState = HistoryEntityTimelineResponse & {
   loading: boolean;
@@ -13,7 +19,8 @@ type TimelineState = HistoryEntityTimelineResponse & {
 // The caller keys this hook's component by entity and applied filters.
 export function useTimeline(
   api: CatalogHistoryApi,
-  request: HistoryEntityTimelineRequest,
+  request: HistoryChangeFeedRequest,
+  scope: 'entity' | 'all' = 'entity',
 ) {
   const [state, setState] = useState<TimelineState>({
     items: [],
@@ -31,8 +38,21 @@ export function useTimeline(
       retryCursor.current = cursor;
       const current = generation.current;
       setState(previous => ({ ...previous, loading: true, error: undefined }));
-      api
-        .getEntityTimeline({ ...request, cursor })
+      const pageRequest = { ...request, cursor };
+      let response: Promise<HistoryEntityTimelineResponse>;
+      if (scope === 'all') {
+        response = api.getChangeFeed
+          ? api.getChangeFeed(pageRequest)
+          : Promise.reject(new CatalogHistoryApiError(501));
+      } else if (request.entityRef) {
+        response = api.getEntityTimeline({
+          ...pageRequest,
+          entityRef: request.entityRef,
+        });
+      } else {
+        response = Promise.reject(new CatalogHistoryApiError(400));
+      }
+      response
         .then(page => {
           if (generation.current !== current) return;
           setState(previous => ({
@@ -49,7 +69,7 @@ export function useTimeline(
           if (generation.current === current) busy.current = false;
         });
     },
-    [api, request],
+    [api, request, scope],
   );
 
   useEffect(() => {
