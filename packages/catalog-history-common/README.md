@@ -10,7 +10,7 @@ This package owns:
 
 The contracts are intentionally transport-agnostic: they describe request and response payloads, while the backend router decides URL paths, validation, and permission behavior.
 
-This package intentionally defines the Phase 2 backend query API contract ahead of the router implementation so backend services and the future frontend client can build against the same DTO surface.
+The `0.2.0` contracts serve the backend query API and frontend client from the same DTO surface.
 
 It must not depend on backend-only Backstage packages, Knex, or Node-only APIs.
 

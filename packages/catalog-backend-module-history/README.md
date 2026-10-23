@@ -19,7 +19,7 @@ backend.add(myHistoryStoreServiceFactory);
 
 Provider wrappers should be configured in the same catalog module where the provider is created: depend on `historyStoreServiceRef`, then pass the resolved store into `HistoryRecordingEntityProvider`. The legacy `catalog.history.database` setting remains as a deprecated compatibility path honored by the default store factory, so all consumers of the injected store share the same connection.
 
-## Optional HTTP read API (unreleased)
+## Optional HTTP read API in `0.2.0`
 
 Set `catalog.history.api.enabled` to `true` to serve authenticated entity-history routes from this catalog module. The routes use the same history store as recording; no separate backend plugin or database is needed.
 
