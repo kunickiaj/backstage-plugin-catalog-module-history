@@ -1,7 +1,172 @@
 import { createFixtureApi } from './fixture-api';
-import { previewChanges, previewEntityRef, previewRecords } from './fixtures';
+import {
+  crossEntityChanges,
+  crossEntityRecords,
+  previewChanges,
+  previewEntityRef,
+  previewRecords,
+} from './fixtures';
+import type { CatalogHistoryApi } from '../src';
 
 describe('development fixture API', () => {
+  it('pages every cross-entity event once, exposing identity but not snapshots', async () => {
+    // Arrange
+    const api = createFixtureApi() as Required<CatalogHistoryApi>;
+    // Act
+    const first = await api.getChangeFeed({ limit: 100 });
+    const second = await api.getChangeFeed({
+      limit: 100,
+      cursor: first.nextCursor,
+    });
+    const third = await api.getChangeFeed({
+      limit: 100,
+      cursor: second.nextCursor,
+    });
+    const rows = [...first.items, ...second.items, ...third.items];
+    // Assert
+    expect(first.items).toHaveLength(5);
+    expect(second.items).toHaveLength(5);
+    expect(rows.map(row => row.id)).toEqual(
+      crossEntityRecords.map(row => row.id),
+    );
+    expect(new Set(rows.map(row => row.id)).size).toBe(rows.length);
+    expect(third.nextCursor).toBeUndefined();
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          entityRef: 'group:teams/retired-team',
+          kind: 'group',
+          namespace: 'teams',
+          name: 'retired-team',
+          op: 'delete',
+        }),
+        expect.objectContaining({
+          kind: 'api',
+          namespace: 'public',
+          name: 'example-api',
+        }),
+        expect.objectContaining({ kind: 'component', namespace: 'sandbox' }),
+      ]),
+    );
+    expect(rows.every(row => !('snapshot' in row))).toBe(true);
+  });
+
+  it('matches exact normalized entities and case-insensitive kinds without matching prefixes', async () => {
+    // Arrange
+    const api = createFixtureApi() as Required<CatalogHistoryApi>;
+    // Act
+    const group = await api.getChangeFeed({
+      entityRef: 'Group:Teams/Retired-Team',
+      kind: ' gRoUp ',
+      op: 'delete',
+    });
+    const short = await api.getChangeFeed({ entityRef: 'Example-Service' });
+    const prefix = await api.getChangeFeed({
+      entityRef: 'group:teams/retired',
+    });
+    const wrongKind = await api.getChangeFeed({
+      entityRef: 'group:teams/retired-team',
+      kind: 'Component',
+    });
+    // Assert
+    expect(group.items.map(row => row.id)).toEqual(['synthetic-group-delete']);
+    expect(short.items.map(row => row.id)).toEqual(
+      previewRecords.slice(0, 5).map(row => row.id),
+    );
+    expect(prefix.items).toEqual([]);
+    expect(wrongKind.items).toEqual([]);
+  });
+
+  it('combines feed capture filters and inclusive dates without matching unrelated streams', async () => {
+    // Arrange
+    const api = createFixtureApi() as Required<CatalogHistoryApi>;
+    const request = {
+      source: 'provider' as const,
+      provider: 'example-discovery',
+      kind: 'API',
+      op: 'update' as const,
+      changedAfter: '2026-10-14T14:00:00.000Z',
+      changedBefore: '2026-10-14T14:00:00.000Z',
+    };
+    // Act
+    const matching = await api.getChangeFeed(request);
+    const excluded = await api.getChangeFeed({
+      ...request,
+      provider: 'example',
+    });
+    const outside = await api.getChangeFeed({
+      ...request,
+      changedAfter: '2026-10-14T14:00:00.001Z',
+    });
+    // Assert
+    expect(matching.items.map(row => row.id)).toEqual(['synthetic-api-update']);
+    expect(excluded.items).toEqual([]);
+    expect(outside.items).toEqual([]);
+  });
+
+  it.each([0, -1, 1.5, Number.NaN])(
+    'rejects invalid global limit %s',
+    async limit => {
+      // Arrange
+      const api = createFixtureApi() as Required<CatalogHistoryApi>;
+      // Act
+      const result = api.getChangeFeed({ limit });
+      // Assert
+      await expect(result).rejects.toMatchObject({ status: 400 });
+    },
+  );
+
+  it('accepts a global one-row page but rejects unknown and differently filtered cursors', async () => {
+    // Arrange
+    const api = createFixtureApi() as Required<CatalogHistoryApi>;
+    // Act
+    const page = await api.getChangeFeed({ limit: 1 });
+    const unknown = api.getChangeFeed({ cursor: 'unknown' });
+    const incompatible = api.getChangeFeed({
+      kind: 'API',
+      cursor: page.nextCursor,
+    });
+    // Assert
+    expect(page.items.map(row => row.id)).toEqual(['synthetic-group-delete']);
+    await expect(unknown).rejects.toMatchObject({ status: 400 });
+    await expect(incompatible).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('keeps deleted group prior state and API deltas in their own entity histories', async () => {
+    // Arrange
+    const api = createFixtureApi();
+    // Act
+    const deleted = await api.getEntityVersion({
+      entityRef: 'group:teams/retired-team',
+      id: 'synthetic-group-delete',
+    });
+    const updated = await api.getEntityVersion({
+      entityRef: 'api:public/example-api',
+      id: 'synthetic-api-update',
+    });
+    const first = await api.getEntityVersion({
+      entityRef: 'component:sandbox/example-worker',
+      id: 'synthetic-worker-insert',
+    });
+    const wrongEntity = api.getEntityVersion({
+      entityRef: previewEntityRef,
+      id: 'synthetic-group-delete',
+    });
+    // Assert
+    expect(deleted).not.toHaveProperty('snapshot');
+    expect(deleted.previousVersion).toMatchObject({
+      id: 'synthetic-group-insert',
+      snapshot: { entityRef: 'group:teams/retired-team' },
+    });
+    expect(updated.previousVersion).toMatchObject({
+      id: 'synthetic-api-insert',
+      entityRef: 'api:public/example-api',
+    });
+    expect(updated.changes).toEqual(crossEntityChanges['synthetic-api-update']);
+    expect(first).not.toHaveProperty('previousVersion');
+    expect(first).not.toHaveProperty('changes');
+    await expect(wrongEntity).rejects.toMatchObject({ status: 404 });
+  });
   it('pages all ten events newest first with a five-row cap and opaque cursors', async () => {
     // Arrange: use the returned cursor unchanged, without interpreting its format.
     const api = createFixtureApi();

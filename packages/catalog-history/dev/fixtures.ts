@@ -182,3 +182,106 @@ export const previewChanges: Readonly<Record<string, HistoryDiffEntry[]>> = {
   })),
   'synthetic-event-4': ownerToServices,
 };
+
+function crossEntityRecord(options: {
+  id: string;
+  day: number;
+  kind: string;
+  namespace: string;
+  name: string;
+  op: HistoryEntityVersion['op'];
+  description?: string;
+}): HistoryEntityVersion {
+  const { id, day, kind, namespace, name, op, description } = options;
+  const entityRef = `${kind.toLowerCase()}:${namespace}/${name}`;
+  return {
+    id,
+    entityRef,
+    cycleId: `synthetic-cycle-${day}`,
+    changedAt: `2026-10-${String(day).padStart(2, '0')}T14:00:00.000Z`,
+    source: 'provider',
+    provider: 'example-discovery',
+    op,
+    summary: {},
+    ...(op === 'delete'
+      ? {}
+      : {
+          etag: `${id}-etag`,
+          snapshot: {
+            entityRef,
+            kind,
+            namespace,
+            name,
+            metadata: {
+              name,
+              namespace,
+              description: description ?? 'Synthetic cross-entity preview',
+            },
+            spec: { type: 'synthetic' },
+            relations: [],
+            statusItems: [],
+          },
+        }),
+  };
+}
+
+/** Synthetic records for the global preview; original entity fixtures stay unchanged. */
+export const crossEntityRecords: readonly HistoryEntityVersion[] = [
+  ...previewRecords,
+  crossEntityRecord({
+    id: 'synthetic-group-delete',
+    day: 15,
+    kind: 'Group',
+    namespace: 'teams',
+    name: 'retired-team',
+    op: 'delete',
+  }),
+  crossEntityRecord({
+    id: 'synthetic-group-insert',
+    day: 11,
+    kind: 'Group',
+    namespace: 'teams',
+    name: 'retired-team',
+    op: 'insert',
+  }),
+  crossEntityRecord({
+    id: 'synthetic-api-update',
+    day: 14,
+    kind: 'API',
+    namespace: 'public',
+    name: 'example-api',
+    op: 'update',
+    description: 'Synthetic API description updated',
+  }),
+  crossEntityRecord({
+    id: 'synthetic-api-insert',
+    day: 12,
+    kind: 'API',
+    namespace: 'public',
+    name: 'example-api',
+    op: 'insert',
+  }),
+  crossEntityRecord({
+    id: 'synthetic-worker-insert',
+    day: 13,
+    kind: 'Component',
+    namespace: 'sandbox',
+    name: 'example-worker',
+    op: 'insert',
+  }),
+].sort(
+  (a, b) => b.changedAt.localeCompare(a.changedAt) || b.id.localeCompare(a.id),
+);
+
+export const crossEntityChanges: Readonly<Record<string, HistoryDiffEntry[]>> =
+  {
+    ...previewChanges,
+    'synthetic-api-update': [
+      {
+        path: ['metadata', 'description'],
+        op: 'replace',
+        before: 'Synthetic cross-entity preview',
+        after: 'Synthetic API description updated',
+      },
+    ],
+  };

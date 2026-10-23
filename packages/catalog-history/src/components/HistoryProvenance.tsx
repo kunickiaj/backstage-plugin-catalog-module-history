@@ -6,6 +6,8 @@ import styles from './History.module.css';
 export function HistoryProvenance({ event }: { event: HistoryTimelineItem }) {
   return (
     <dl className={styles.provenance}>
+      <dt>Entity</dt>
+      <dd>{event.entityRef}</dd>
       <dt>Recorded at</dt>
       <dd>
         <RecordedTime value={event.changedAt} />

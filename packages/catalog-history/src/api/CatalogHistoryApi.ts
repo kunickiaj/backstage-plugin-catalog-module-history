@@ -1,5 +1,7 @@
 import { createApiRef } from '@backstage/core-plugin-api';
 import type {
+  HistoryChangeFeedRequest,
+  HistoryChangeFeedResponse,
   HistoryEntityTimelineRequest,
   HistoryEntityTimelineResponse,
   HistoryEntityVersionRequest,
@@ -8,6 +10,9 @@ import type {
 
 /** Read recorded events and their exact snapshots. @public */
 export interface CatalogHistoryApi {
+  getChangeFeed?(
+    request: HistoryChangeFeedRequest,
+  ): Promise<HistoryChangeFeedResponse>;
   getEntityTimeline(
     request: HistoryEntityTimelineRequest,
   ): Promise<HistoryEntityTimelineResponse>;

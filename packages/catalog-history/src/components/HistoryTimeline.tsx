@@ -10,23 +10,23 @@ import {
   TableRoot,
   Text,
 } from '@backstage/ui';
-import type {
-  HistoryEntityTimelineRequest,
-  HistoryTimelineItem,
-} from '@kunickiaj/backstage-plugin-catalog-history-common';
+import type { HistoryTimelineItem } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import type { CatalogHistoryApi } from '../api/CatalogHistoryApi';
 import { HistoryDetail } from './HistoryDetail';
 import { HistoryError } from './HistoryError';
 import { useTimeline } from './useTimeline';
+import type { HistoryTimelineScope } from './useTimeline';
 import { RecordedTime } from './RecordedTime';
 import styles from './History.module.css';
 
-export function HistoryTimeline(props: {
-  api: CatalogHistoryApi;
-  request: HistoryEntityTimelineRequest;
-}) {
-  const timeline = useTimeline(props.api, props.request);
+export function HistoryTimeline(
+  props: {
+    api: CatalogHistoryApi;
+  } & HistoryTimelineScope,
+) {
+  const timeline = useTimeline(props.api, props.request, props.scope);
   const [selected, setSelected] = useState<string>();
+  const selectedEvent = timeline.items.find(event => event.id === selected);
   const detailRef = useRef<HTMLElement>(null);
   useEffect(() => {
     if (selected) detailRef.current?.focus();
@@ -100,12 +100,12 @@ export function HistoryTimeline(props: {
           </Text>
         </header>
         <div className={styles.panelBody}>
-          {selected ? (
+          {selectedEvent ? (
             <HistoryDetail
-              key={selected}
+              key={`${selectedEvent.entityRef}:${selectedEvent.id}`}
               api={props.api}
-              entityRef={props.request.entityRef}
-              id={selected}
+              entityRef={selectedEvent.entityRef}
+              id={selectedEvent.id}
             />
           ) : (
             <div className={styles.emptyInspector}>
@@ -145,6 +145,7 @@ function TimelineTable(props: {
         }}
       >
         <TableHeader>
+          <Column id="entity">Entity</Column>
           <Column id="recorded" isRowHeader>
             Recorded at
           </Column>
@@ -158,9 +159,10 @@ function TimelineTable(props: {
         >
           {event => (
             <Row id={event.id} onAction={() => props.onSelect(event.id)}>
+              <Cell>{event.entityRef}</Cell>
               <Cell>
                 <span className={styles.visuallyHidden}>
-                  {`Event ${event.id}, ${event.changedAt}, ${event.source}, ${event.provider}, ${event.op}`}
+                  {`Event ${event.id}, ${event.changedAt}, ${event.source}, ${event.provider}, ${event.op}, ${event.entityRef}`}
                 </span>
                 <span aria-hidden="true">
                   <RecordedTime value={event.changedAt} />

@@ -2,27 +2,59 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Button, Select, TextField } from '@backstage/ui';
 import {
+  makeValidator,
+  parseEntityRef,
+  stringifyEntityRef,
+} from '@backstage/catalog-model';
+import {
   HISTORY_OPERATIONS,
   HISTORY_SOURCES,
   isHistoryOperation,
   isHistorySource,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
-import type { HistoryEntityTimelineRequest } from '@kunickiaj/backstage-plugin-catalog-history-common';
+import type { HistoryChangeFeedRequest } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import styles from './History.module.css';
 
 export type HistoryFiltersValue = Omit<
-  HistoryEntityTimelineRequest,
-  'entityRef' | 'limit' | 'cursor'
+  HistoryChangeFeedRequest,
+  'limit' | 'cursor' | 'owner'
 >;
 const empty = {
   source: 'all',
   provider: '',
+  entityRef: '',
+  kind: '',
   op: 'all',
   after: '',
   before: '',
   afterInvalid: false,
   beforeInvalid: false,
 };
+
+const validators = makeValidator();
+
+function entityFilters(
+  draft: typeof empty,
+): Pick<HistoryFiltersValue, 'entityRef' | 'kind'> | undefined {
+  const kind = draft.kind.trim();
+  if (kind && !validators.isValidKind(kind)) return undefined;
+  if (!draft.entityRef.trim()) return { kind: kind || undefined };
+  try {
+    const ref = parseEntityRef(draft.entityRef.trim(), {
+      defaultKind: 'Component',
+      defaultNamespace: 'default',
+    });
+    if (
+      !validators.isValidKind(ref.kind) ||
+      !validators.isValidNamespace(ref.namespace.toLowerCase()) ||
+      !validators.isValidEntityName(ref.name)
+    )
+      return undefined;
+    return { entityRef: stringifyEntityRef(ref), kind: kind || undefined };
+  } catch {
+    return undefined;
+  }
+}
 
 function parseFilters(draft: typeof empty): HistoryFiltersValue | undefined {
   const after = draft.after ? new Date(draft.after) : undefined;
@@ -37,6 +69,7 @@ function parseFilters(draft: typeof empty): HistoryFiltersValue | undefined {
     return undefined;
   }
   return {
+    ...entityFilters(draft),
     source: isHistorySource(draft.source) ? draft.source : undefined,
     provider: draft.provider.trim() || undefined,
     op: isHistoryOperation(draft.op) ? draft.op : undefined,
@@ -47,6 +80,7 @@ function parseFilters(draft: typeof empty): HistoryFiltersValue | undefined {
 
 export function HistoryFilters(props: {
   onApply: (filters: HistoryFiltersValue) => void;
+  scope?: 'entity' | 'all';
 }) {
   const [draft, setDraft] = useState(empty);
   const [error, setError] = useState('');
@@ -67,6 +101,12 @@ export function HistoryFilters(props: {
   function update(next: typeof empty, debounce = false) {
     cancelPending();
     setDraft(next);
+    if (!entityFilters(next)) {
+      setError(
+        'Enter a valid entity reference and kind. Entity references match exactly, not by part of a name.',
+      );
+      return;
+    }
     const filters = parseFilters(next);
     if (!filters) {
       setError(
@@ -82,7 +122,7 @@ export function HistoryFilters(props: {
       applied.current = key;
       onApply.current(filters);
     };
-    // Selects and dates flush the latest provider instead of waiting for typing.
+    // Selects and dates flush all text filters instead of waiting for typing.
     if (debounce) timer.current = setTimeout(apply, 300);
     else apply();
   }
@@ -93,6 +133,25 @@ export function HistoryFilters(props: {
       className={styles.filters}
     >
       <div className={styles.filterFields}>
+        {props.scope === 'all' && (
+          <>
+            <TextField
+              className={styles.field}
+              label="Entity reference"
+              description="Exact entity reference. Short names default to Component in the default namespace."
+              placeholder="component:default/example-service"
+              value={draft.entityRef}
+              onChange={entityRef => update({ ...draft, entityRef }, true)}
+            />
+            <TextField
+              className={styles.field}
+              label="Kind"
+              placeholder="Component"
+              value={draft.kind}
+              onChange={kind => update({ ...draft, kind }, true)}
+            />
+          </>
+        )}
         <Select
           className={styles.field}
           label="Source"
@@ -171,7 +230,7 @@ export function HistoryFilters(props: {
         <Alert
           role="alert"
           status="danger"
-          title="Check date filters"
+          title="Check history filters"
           description={error}
         />
       )}

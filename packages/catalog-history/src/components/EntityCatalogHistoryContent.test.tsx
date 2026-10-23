@@ -81,6 +81,36 @@ function setup() {
 }
 
 describe('EntityCatalogHistoryContent', () => {
+  it('keeps entity history scoped without exposing global entity or kind controls', async () => {
+    // Arrange
+    const { api, mount } = setup();
+    api.getEntityTimeline.mockResolvedValue({ items: [event('scoped')] });
+    api.getEntityVersion.mockResolvedValue(event('scoped'));
+    // Act
+    mount();
+    fireEvent.click(await screen.findByRole('row', { name: /^Event scoped,/ }));
+    await screen.findByText('cycle-scoped');
+    // Assert
+    expect(api.getEntityTimeline).toHaveBeenCalledWith({
+      entityRef,
+      limit: 25,
+      cursor: undefined,
+    });
+    expect(
+      within(screen.getByRole('grid')).getByText(entityRef),
+    ).toBeInTheDocument();
+    expect(
+      within(
+        screen.getByRole('region', { name: 'Recorded event details' }),
+      ).getByText(entityRef),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('textbox', { name: 'Entity reference' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('textbox', { name: 'Kind' }),
+    ).not.toBeInTheDocument();
+  });
   it('shows the initial inspector and loaded count without adding row action buttons', async () => {
     // Arrange
     const { api, mount } = setup();

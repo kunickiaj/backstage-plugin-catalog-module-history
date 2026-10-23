@@ -11,12 +11,14 @@ import {
   catalogHistoryApi,
   catalogHistoryApiRef,
   catalogHistoryEntityContent,
+  catalogHistoryPage,
   EntityCatalogHistoryContent,
+  CatalogHistoryPage,
 } from '../src';
 import { createFixtureApi } from './fixture-api';
 import { previewEntity, previewEntityRef } from './fixtures';
 
-function Preview() {
+function EntityPreview() {
   return (
     <EntityProvider entity={previewEntity}>
       <Box p="4">
@@ -28,6 +30,20 @@ function Preview() {
       </Box>
       <EntityCatalogHistoryContent />
     </EntityProvider>
+  );
+}
+
+function Preview() {
+  return (
+    <>
+      <Box p="4">
+        <p role="note">
+          Synthetic data only — all entities, no backend connection.
+        </p>
+        <a href="/entity-history">View the single-entity history example</a>
+      </Box>
+      <CatalogHistoryPage />
+    </>
   );
 }
 
@@ -45,11 +61,23 @@ createDevApp({
         }),
         // The standalone preview has no catalog entity page to attach to.
         catalogHistoryEntityContent.override({ disabled: true }),
+        catalogHistoryPage.override({
+          params: { loader: () => Promise.resolve(<Preview />) },
+        }),
       ],
     }),
     createFrontendPlugin({
       pluginId: 'catalog-history-preview',
       extensions: [
+        PageBlueprint.make({
+          name: 'entity',
+          params: {
+            path: '/entity-history',
+            title: 'Entity history example',
+            noHeader: true,
+            loader: () => Promise.resolve(<EntityPreview />),
+          },
+        }),
         PageBlueprint.make({
           params: {
             path: '/',
