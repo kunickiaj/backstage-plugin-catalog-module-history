@@ -967,6 +967,15 @@ describe('default history store API database integration', () => {
     const tombstone = await request(server)
       .get(`${entityPath}/versions/${tombstoneId}`)
       .set('Authorization', mockCredentials.user.header());
+    const repeatedId = timeline.body.items.find(
+      (item: { source: string; provider: string; etag: string }) =>
+        item.source === 'provider' &&
+        item.provider === 'one' &&
+        item.etag === 'a',
+    ).id;
+    const repeated = await request(server)
+      .get(`${entityPath}/versions/${repeatedId}`)
+      .set('Authorization', mockCredentials.user.header());
     const mismatch = await request(server)
       .get(
         `/api/catalog/history/entities/component/default/another/versions/${originalId}`,
@@ -986,6 +995,21 @@ describe('default history store API database integration', () => {
       changedAt: '2026-07-07T00:00:00.000Z',
       snapshot: { metadata: { description: 'recorded-0' } },
     });
+    expect(original.body).not.toHaveProperty('previousVersion');
+    expect(original.body).not.toHaveProperty('changes');
+    expect(repeated.status).toBe(200);
+    expect(repeated.body.previousVersion).toMatchObject({
+      etag: 'b',
+      snapshot: { metadata: { description: 'recorded-1' } },
+    });
+    expect(repeated.body.changes).toEqual([
+      {
+        path: ['metadata', 'description'],
+        op: 'replace',
+        before: 'recorded-1',
+        after: 'recorded-2',
+      },
+    ]);
     expect(versions.status).toBe(200);
     expect(versions.body.items).toHaveLength(4);
     expect(
@@ -1019,6 +1043,27 @@ describe('default history store API database integration', () => {
       changedAt: '2026-07-07T05:00:00.000Z',
     });
     expect(tombstone.body.snapshot).toBeUndefined();
+    expect(tombstone.body.previousVersion).toMatchObject({
+      id: repeatedId,
+      source: 'provider',
+      provider: 'one',
+      snapshot: { metadata: { description: 'recorded-2' } },
+    });
+    expect(tombstone.body.previousVersion).not.toHaveProperty(
+      'previousVersion',
+    );
+    expect(tombstone.body.changes).toEqual([
+      {
+        path: ['metadata'],
+        op: 'remove',
+        before: { name: 'example', description: 'recorded-2' },
+      },
+      {
+        path: ['spec'],
+        op: 'remove',
+        before: { type: 'service', owner: 'group:default/team' },
+      },
+    ]);
     expect(mismatch.status).toBe(404);
     expect(missing.status).toBe(404);
     expect(mismatch.body.error?.stack).toBeUndefined();

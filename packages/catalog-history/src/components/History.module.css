@@ -1,0 +1,326 @@
+.history {
+  color: var(--bui-fg-primary);
+  min-width: 0;
+}
+
+.description {
+  color: var(--bui-fg-secondary);
+  margin: var(--bui-space-2) 0 0;
+  font-size: var(--bui-font-size-3);
+  line-height: 1.5;
+}
+
+.filters {
+  margin: var(--bui-space-6) 0;
+  padding: var(--bui-space-4);
+  background: var(--bui-bg-neutral-1);
+  border: 1px solid var(--bui-border-1);
+  border-radius: var(--bui-radius-3);
+}
+
+.filterFields {
+  display: grid;
+  grid-template-columns:
+    minmax(120px, 1fr) minmax(120px, 1fr) minmax(140px, 1fr)
+    repeat(2, minmax(230px, 1.4fr));
+  gap: var(--bui-space-4);
+  align-items: end;
+}
+
+.field {
+  width: 100%;
+  min-width: 0;
+}
+
+.filters :global(.bui-SelectTrigger),
+.filters :global(.bui-Input) {
+  box-sizing: border-box;
+  border: 1px solid var(--bui-border-2);
+  background: var(--bui-bg-neutral-2);
+}
+
+.dateField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bui-space-2);
+  font-size: var(--bui-font-size-2);
+  min-width: 0;
+}
+
+.dateField input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0 var(--bui-space-3);
+  border: 1px solid var(--bui-border-2);
+  border-radius: var(--bui-radius-2);
+  color: var(--bui-fg-primary);
+  background: var(--bui-bg-neutral-2);
+  font: inherit;
+  font-size: var(--bui-font-size-3);
+  color-scheme: light dark;
+}
+
+.dateField input:focus-visible,
+.panel:focus-visible {
+  outline: 2px solid var(--bui-border-info);
+  outline-offset: 2px;
+}
+
+.filterActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--bui-space-2);
+  margin-top: var(--bui-space-4);
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 1fr);
+  gap: var(--bui-space-4);
+  align-items: start;
+}
+
+.panel {
+  min-width: 0;
+  border: 1px solid var(--bui-border-1);
+  border-radius: var(--bui-radius-3);
+  background: var(--bui-bg-neutral-1);
+  overflow: hidden;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--bui-space-3);
+  padding: var(--bui-space-4);
+  border-bottom: 1px solid var(--bui-border-1);
+}
+
+.panelHeader h2,
+.detail h3,
+.emptyInspector h3 {
+  margin: 0;
+}
+
+.panelBody {
+  padding: var(--bui-space-4);
+}
+
+.panelFooter {
+  padding-top: var(--bui-space-4);
+}
+
+.tableScroll {
+  overflow-x: auto;
+}
+
+.table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--bui-font-size-3);
+  text-align: left;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.table th {
+  color: var(--bui-fg-secondary);
+  font-size: var(--bui-font-size-2);
+  font-weight: var(--bui-font-weight-bold);
+  white-space: nowrap;
+}
+
+.table th,
+.table td {
+  padding: var(--bui-space-3);
+  border-bottom: 1px solid var(--bui-border-1);
+  vertical-align: middle;
+  line-height: 1.5;
+}
+
+.table td:first-child {
+  min-width: 140px;
+  font-variant-numeric: tabular-nums;
+}
+
+.table td:nth-child(3) {
+  overflow-wrap: anywhere;
+  min-width: 100px;
+}
+
+.table tr[data-selected] {
+  background: var(--bui-bg-info);
+  color: var(--bui-fg-info-on-bg);
+}
+
+.table tr[data-focus-visible] {
+  outline: 2px solid var(--bui-border-info);
+  outline-offset: -2px;
+}
+
+.table tbody tr {
+  cursor: pointer;
+}
+
+.changes {
+  display: grid;
+  gap: var(--bui-space-4);
+  margin-top: var(--bui-space-4);
+}
+
+.change {
+  min-width: 0;
+  border: 1px solid var(--bui-border-1);
+  border-radius: var(--bui-radius-2);
+  padding: var(--bui-space-3);
+}
+
+.changeHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: var(--bui-space-2);
+}
+
+.changeHeader code {
+  overflow-wrap: anywhere;
+}
+
+.changeValues {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--bui-space-3);
+  margin-bottom: 0;
+}
+
+.changeValues dd {
+  margin: 0;
+}
+
+.changeValues dt {
+  color: var(--bui-fg-secondary);
+  font-size: var(--bui-font-size-2);
+}
+
+.changeValues pre {
+  margin-top: var(--bui-space-2);
+}
+
+.operation {
+  display: inline-block;
+  padding: var(--bui-space-0_5) var(--bui-space-2);
+  border: 1px solid var(--bui-border-2);
+  border-radius: var(--bui-radius-full);
+  font-size: var(--bui-font-size-2);
+}
+
+.operation[data-operation='delete'] {
+  background: var(--bui-bg-danger);
+  color: var(--bui-fg-danger-on-bg);
+  border-color: var(--bui-border-danger);
+}
+
+.emptyInspector {
+  padding: var(--bui-space-8) var(--bui-space-4);
+  color: var(--bui-fg-secondary);
+  line-height: 1.6;
+}
+
+.emptyInspector p {
+  margin-bottom: 0;
+}
+
+.detail {
+  min-width: 0;
+}
+
+.provenance {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--bui-space-3) var(--bui-space-4);
+  margin: var(--bui-space-4) 0 var(--bui-space-6);
+  font-size: var(--bui-font-size-3);
+  line-height: 1.5;
+}
+
+.provenance dt {
+  color: var(--bui-fg-secondary);
+}
+
+.provenance dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.disclosure {
+  border-top: 1px solid var(--bui-border-1);
+  padding-top: var(--bui-space-4);
+  margin-top: var(--bui-space-4);
+}
+
+.disclosure summary {
+  cursor: pointer;
+  font-weight: var(--bui-font-weight-bold);
+}
+
+.code {
+  overflow: auto;
+  max-height: 480px;
+  padding: var(--bui-space-4);
+  margin-bottom: 0;
+  border-radius: var(--bui-radius-2);
+  background: var(--bui-bg-neutral-2);
+  font-family: var(--bui-font-monospace);
+  font-size: var(--bui-font-size-2);
+  line-height: 1.6;
+  tab-size: 2;
+}
+
+.tombstone {
+  padding: var(--bui-space-4);
+  border-left: 3px solid var(--bui-border-danger);
+  background: var(--bui-bg-danger);
+  color: var(--bui-fg-danger-on-bg);
+  line-height: 1.6;
+}
+
+@media (max-width: 1200px) {
+  .filterFields {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .dateField {
+    grid-column: span 1;
+  }
+
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .changeValues {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .filterFields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .provenance {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--bui-space-1);
+  }
+
+  .provenance dd {
+    margin-bottom: var(--bui-space-3);
+  }
+}

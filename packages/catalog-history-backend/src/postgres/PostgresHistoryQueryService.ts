@@ -20,6 +20,7 @@ import type {
   HistorySource,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import { ensureSchema } from './ensureSchema';
+import { diffSnapshots } from './diffSnapshots';
 
 const ISO_8601_INSTANT =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
@@ -259,7 +260,33 @@ export class PostgresHistoryQueryService {
     if (!row) {
       throw new NotFoundError('History version not found');
     }
-    return rowToVersion(row);
+    // Compare in Postgres to retain timestamp precision beyond JS milliseconds.
+    const previousRow = await this.db<HistoryEntityRow>(
+      'catalog_history_entities',
+    )
+      .where({
+        entity_ref: row.entity_ref,
+        source: row.source,
+        provider: row.provider,
+      })
+      .whereRaw(
+        '(changed_at, id) < (select changed_at, id from catalog_history_entities where id = ?)',
+        [row.id],
+      )
+      .orderBy('changed_at', 'desc')
+      .orderBy('id', 'desc')
+      .first();
+    const version = rowToVersion(row);
+    const previousVersion = previousRow ? rowToVersion(previousRow) : undefined;
+    return {
+      ...version,
+      previousVersion,
+      changes:
+        previousVersion?.snapshot &&
+        (version.snapshot || version.op === 'delete')
+          ? diffSnapshots(previousVersion.snapshot, version.snapshot)
+          : undefined,
+    };
   }
 
   private applyEntityFilters<TRecord extends {}>(

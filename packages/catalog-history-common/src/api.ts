@@ -338,7 +338,16 @@ export interface HistoryEntityVersionRequest {
  *
  * @public
  */
-export type HistoryEntityVersionResponse = HistoryEntityVersion;
+export interface HistoryEntityVersionResponse extends HistoryEntityVersion {
+  /** Immediately preceding recorded row for the same entity, source and provider. */
+  previousVersion?: HistoryEntityVersion;
+  /**
+   * Differences between saved snapshots, or removals from the preceding saved
+   * snapshot to a delete tombstone. Omitted when no prior snapshot is available.
+   * Arrays are compared as whole values, with order preserved.
+   */
+  changes?: HistoryDiffEntry[];
+}
 
 /**
  * Entity version request options.
