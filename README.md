@@ -4,7 +4,7 @@ A Backstage backend module that records catalog entity changes into a versioned 
 
 Ships with a Postgres backend in v1; designed around a pluggable `HistoryStore` interface so additional backends (Dolt, ClickHouse, etc.) can be added without changes to the wrapper.
 
-**Status: pre-alpha.** All four packages are published at `0.1.0`. The HTTP read API and the migration-log isolation fix are unreleased; read the [storage notes](packages/catalog-history-backend/README.md#migration-bookkeeping-unreleased-fix) before using a shared catalog database.
+**Status: pre-alpha.** All four packages are published at `0.1.0`. The HTTP read API, the migration-log isolation fix, and the additional frontend source package are unreleased; read the [storage notes](packages/catalog-history-backend/README.md#migration-bookkeeping-unreleased-fix) before using a shared catalog database.
 
 Maintainers: see [Publishing packages](docs/publishing.md) for validation-only runs, the first-release bootstrap, and npm trusted publishing.
 
@@ -170,6 +170,34 @@ curl -H 'Authorization: Bearer <TOKEN>' \
 The list routes accept `source` (`provider`, `processing`, or `reconciler`), `provider`, `changedAfter`, `changedBefore`, `limit`, and `cursor`; the history route also accepts `op` (`insert`, `update`, or `delete`). Timestamps must be ISO 8601 instants. `limit` is a positive integer, defaults to `25`, and is capped at `100`. Cursors are opaque and paginate live data, not a frozen result set. Pass `nextCursor` as `cursor` unchanged, and reset pagination after changing filters or refreshing results. Unknown or repeated query parameters, invalid values, and the unsupported `owner` filter return `400`.
 
 The detail route accepts no query parameters. Invalid, nonpositive, or out-of-range PostgreSQL bigint IDs return `400`; an absent row or an ID for another entity returns `404`. The API returns retained history for deleted entities and does not filter rows by current catalog visibility. An empty list is `200` with `items: []`. Errors are `401` for missing authentication, `403` for a rejected permission decision, and `500` for a sanitized backend failure. Global history, cycle, as-of, diff, and timeline-summary routes are not available yet; the current timeline summary is `{}` and has no semantic badges.
+
+## Add the frontend History tab (unreleased)
+
+`packages/catalog-history` contains the unreleased `@kunickiaj/backstage-plugin-catalog-history` NFS frontend package. It is versioned as `0.1.0` in this workspace, but is not on npm and is not part of the four-package release or trusted-publishing setup. The four published packages named above remain unchanged.
+
+After adding the workspace package to your app, enable the catalog read API and add the default NFS plugin to `createApp`:
+
+```yaml
+catalog:
+  history:
+    api:
+      enabled: true
+```
+
+```ts
+import { createApp } from '@backstage/frontend-defaults';
+import catalogHistoryPlugin from '@kunickiaj/backstage-plugin-catalog-history';
+
+export default createApp({
+  features: [catalogHistoryPlugin],
+});
+```
+
+The plugin adds a **History** entity tab at the `history` extension path. It uses BUI and needs the application's BUI stylesheet. The tab filters the current entity's retained events by source, provider, operation, and recorded time, and opens exact events by ID. Its raw JSON is a stored snapshot, not a diff; deletes appear as tombstones with no snapshot.
+
+The backend requires an authenticated user and, when permissions are enabled, an explicit `ALLOW` for `catalog-history.read`. A disabled or unreachable backend route appears as a history `404`; expired sessions return `401`; rejected permission decisions return `403`. Deleted entities may have retained API history, but the entity tab cannot open after the catalog entity itself is absent. There is no compare, as-of, global-dashboard, or standalone deleted-entity view.
+
+See the [frontend package README](packages/catalog-history/README.md) for workspace use, NFS exports, and user-facing error guidance.
 
 ### Custom history storage
 
