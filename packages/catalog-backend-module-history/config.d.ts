@@ -13,6 +13,12 @@ export interface Config {
        */
       enabled?: boolean;
 
+      /** Authenticated history reads with Backstage permission checks. */
+      api?: {
+        /** Enables timeline and version routes. Defaults to false. */
+        enabled?: boolean;
+      };
+
       /**
        * Deprecated compatibility database override for history storage.
        *

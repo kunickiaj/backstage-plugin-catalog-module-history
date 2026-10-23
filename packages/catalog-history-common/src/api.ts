@@ -324,6 +324,23 @@ export interface HistoryEntityVersion extends HistoryTimelineItem {
 }
 
 /**
+ * Exact recorded row to retrieve, scoped to its entity reference.
+ *
+ * @public
+ */
+export interface HistoryEntityVersionRequest {
+  entityRef: string;
+  id: string;
+}
+
+/**
+ * One exact recorded row; delete tombstones have no snapshot.
+ *
+ * @public
+ */
+export type HistoryEntityVersionResponse = HistoryEntityVersion;
+
+/**
  * Entity version request options.
  *
  * @public

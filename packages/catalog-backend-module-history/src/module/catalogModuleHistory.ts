@@ -11,9 +11,11 @@ import {
   type HistoryStore,
   historyStoreServiceRef,
 } from '@kunickiaj/backstage-plugin-catalog-history-node';
+import { catalogHistoryReadPermission } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import { HistoryRecordingCatalogProcessor } from '../processor/HistoryRecordingCatalogProcessor';
 import { CatalogServiceEntityFetcher } from '../reconciler/CatalogServiceEntityFetcher';
 import { reconcile } from '../reconciler/reconcile';
+import { createHistoryRouter } from '../service/createHistoryRouter';
 
 /**
  * Backstage backend module for the catalog-history plugin. On init it
@@ -63,6 +65,10 @@ export const catalogModuleHistory = createBackendModule({
         scheduler: coreServices.scheduler,
         auth: coreServices.auth,
         lifecycle: coreServices.rootLifecycle,
+        httpRouter: coreServices.httpRouter,
+        httpAuth: coreServices.httpAuth,
+        permissions: coreServices.permissions,
+        permissionsRegistry: coreServices.permissionsRegistry,
       },
       async init({
         logger,
@@ -73,6 +79,10 @@ export const catalogModuleHistory = createBackendModule({
         scheduler,
         auth,
         lifecycle,
+        httpRouter,
+        httpAuth,
+        permissions,
+        permissionsRegistry,
       }) {
         const moduleConfig = config.getOptionalConfig('catalog.history');
         if (moduleConfig?.getOptionalBoolean('enabled') === false) {
@@ -83,6 +93,27 @@ export const catalogModuleHistory = createBackendModule({
         }
 
         const store: HistoryStore = historyStore;
+        if (moduleConfig?.getOptionalBoolean('api.enabled') === true) {
+          if (
+            !store.query ||
+            typeof store.query.getEntityTimeline !== 'function' ||
+            typeof store.query.getEntityVersions !== 'function' ||
+            typeof store.query.getEntityVersion !== 'function'
+          ) {
+            throw new Error(
+              'Catalog history API requires historyStoreServiceRef to provide timeline, version list, and exact version query methods backed by the recording store',
+            );
+          }
+          const router = createHistoryRouter({
+            query: store.query,
+            httpAuth,
+            permissions,
+            config,
+            logger,
+          });
+          permissionsRegistry.addPermissions([catalogHistoryReadPermission]);
+          httpRouter.use(router);
+        }
 
         // Backstage runs shutdown hooks as an unordered batch, so teardown
         // steps that depend on each other must live in a single hook:

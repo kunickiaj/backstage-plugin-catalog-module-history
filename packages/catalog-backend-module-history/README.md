@@ -2,7 +2,7 @@
 
 Backstage backend module that records catalog entity changes into a versioned history store.
 
-The default backend feature loader installs both the catalog backend module and the default Postgres `historyStoreServiceRef` factory from `@kunickiaj/backstage-plugin-catalog-history-storage-node`.
+The default backend feature loader installs the catalog backend module and the default Postgres `historyStoreServiceRef` factory from `@kunickiaj/backstage-plugin-catalog-history-storage-node`.
 
 ```ts
 backend.add(
@@ -18,6 +18,21 @@ backend.add(myHistoryStoreServiceFactory);
 ```
 
 Provider wrappers should be configured in the same catalog module where the provider is created: depend on `historyStoreServiceRef`, then pass the resolved store into `HistoryRecordingEntityProvider`. The legacy `catalog.history.database` setting remains as a deprecated compatibility path honored by the default store factory, so all consumers of the injected store share the same connection.
+
+## Optional HTTP read API (unreleased)
+
+Set `catalog.history.api.enabled` to `true` to serve authenticated entity-history routes from this catalog module. The routes use the same history store as recording; no separate backend plugin or database is needed.
+
+```yaml
+catalog:
+  history:
+    api:
+      enabled: true
+```
+
+The routes are `GET /api/catalog/history/entities/:kind/:namespace/:name/history`, `GET /api/catalog/history/entities/:kind/:namespace/:name/versions`, and `GET /api/catalog/history/entities/:kind/:namespace/:name/versions/:id`. The detail route returns the exact recorded event for the canonical entity reference and row ID; use the timeline item's `id`, not an etag. They require the `catalog-history.read` permission (`catalogHistoryReadPermission` from `@kunickiaj/backstage-plugin-catalog-history-common`). With the permission framework enabled, only an explicit `ALLOW` permits access; without it, authenticated users use Backstage's normal permission behavior.
+
+Custom `historyStoreServiceRef` factories must provide the optional query capability, including `getEntityVersion`, when this setting is enabled. Otherwise backend startup fails. Keep the API disabled when a custom store only supports recording.
 
 ## Optional full-to-delta conversion
 

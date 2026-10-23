@@ -13,6 +13,8 @@ import type {
   HistoryEntityTimelineResponse,
   HistoryEntityVersionsRequest,
   HistoryEntityVersionsResponse,
+  HistoryEntityVersionRequest,
+  HistoryEntityVersionResponse,
   HistoryFacetsResponse,
   HistoryFacetsRequest,
   HistoryStatsRequest,
@@ -36,6 +38,10 @@ export interface HistoryQueryService {
   getEntityVersions(
     request: HistoryEntityVersionsRequest,
   ): Promise<HistoryEntityVersionsResponse>;
+
+  getEntityVersion(
+    request: HistoryEntityVersionRequest,
+  ): Promise<HistoryEntityVersionResponse>;
 
   getEntityAsOf(
     request: HistoryEntityAsOfRequest,

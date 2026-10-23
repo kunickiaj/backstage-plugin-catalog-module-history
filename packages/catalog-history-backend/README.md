@@ -8,7 +8,7 @@ This package owns:
 
 - the Postgres history schema migrations and `ensureSchema` bootstrap;
 - `PostgresHistoryStore`, the Postgres implementation of the `HistoryStore` contract from `@kunickiaj/backstage-plugin-catalog-history-node`;
-- `historyStoreServiceFactory`, the default factory for `historyStoreServiceRef`, which resolves the consuming plugin's database and provides a schema-aware store.
+- `historyStoreServiceFactory`, the default factory for `historyStoreServiceRef`, which resolves the consuming plugin's database and provides a schema-aware store with the query capability, including `getEntityVersion`, used by the catalog module's opt-in HTTP API.
 
 Add this factory when you want the default Postgres implementation directly:
 
@@ -18,7 +18,7 @@ import { historyStoreServiceFactory } from '@kunickiaj/backstage-plugin-catalog-
 backend.add(historyStoreServiceFactory);
 ```
 
-The `@kunickiaj/backstage-plugin-catalog-backend-module-history` default export already includes this factory. If you need custom storage, register your own `createServiceFactory({ service: historyStoreServiceRef, ... })` and use the named `catalogModuleHistory` export instead of the module package's default loader.
+The `@kunickiaj/backstage-plugin-catalog-backend-module-history` default export already includes this factory. If you need custom storage, register your own `createServiceFactory({ service: historyStoreServiceRef, ... })` and use the named `catalogModuleHistory` export instead of the module package's default loader. The catalog module's unreleased HTTP API reads from this same store and database; a custom factory must implement its optional query capability, including `getEntityVersion`, before `catalog.history.api.enabled` can be set to `true`.
 
 For compatibility, the default factory still honors the deprecated `catalog.history.database` override. Prefer a custom service factory for new dedicated-storage setups.
 
@@ -44,6 +44,6 @@ The current source uses the backend API's Knex `^3.0.0` dependency range, allowi
 
 Runtime coverage for these fixes includes Knex `3.1.0` and `3.2.10`. The supported range follows the backend API; other allowed versions are not individually tested here.
 
-The productization roadmap discusses future query service and HTTP API work; this package currently remains a storage Node library.
+The HTTP API is an unreleased opt-in feature of the catalog backend module, not a separate backend plugin. This package remains a storage Node library.
 
 For architecture and roadmap details, see the [workspace README](../../README.md).

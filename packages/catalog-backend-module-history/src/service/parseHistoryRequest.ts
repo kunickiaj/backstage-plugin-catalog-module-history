@@ -1,0 +1,134 @@
+import { makeValidator, stringifyEntityRef } from '@backstage/catalog-model';
+import { InputError } from '@backstage/errors';
+import type { Request } from 'express';
+import {
+  DEFAULT_HISTORY_PAGE_LIMIT,
+  MAX_HISTORY_PAGE_LIMIT,
+  isHistoryOperation,
+  isHistorySource,
+  type HistoryEntityTimelineRequest,
+  type HistoryEntityVersionRequest,
+} from '@kunickiaj/backstage-plugin-catalog-history-common';
+
+const validators = makeValidator();
+const COMMON_QUERY_KEYS = [
+  'source',
+  'provider',
+  'changedAfter',
+  'changedBefore',
+  'limit',
+  'cursor',
+];
+
+function timestamp(value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const match =
+    /^(\d{4}-\d{2}-\d{2})T([01]\d|2[0-3]):([0-5]\d):([0-5]\d)(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.exec(
+      value,
+    );
+  const date = match && new Date(`${match[1]}T00:00:00Z`);
+  if (
+    !date ||
+    !Number.isFinite(date.getTime()) ||
+    date.toISOString().slice(0, 10) !== match?.[1] ||
+    !Number.isFinite(Date.parse(value))
+  ) {
+    throw new InputError('Invalid history timestamp');
+  }
+  return value;
+}
+
+function pageLimit(value: string | undefined): number {
+  if (value === undefined) {
+    return DEFAULT_HISTORY_PAGE_LIMIT;
+  }
+  if (!/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(Number(value))) {
+    throw new InputError('History limit must be a positive integer');
+  }
+  return Math.min(Number(value), MAX_HISTORY_PAGE_LIMIT);
+}
+
+function queryValues(
+  req: Request,
+  endpoint: 'history' | 'versions' | 'version',
+) {
+  const allowed = new Set(endpoint === 'version' ? [] : COMMON_QUERY_KEYS);
+  if (endpoint === 'history') {
+    allowed.add('op');
+  }
+  const values: Record<string, string> = {};
+  // Parse the raw query so repeated keys are rejected independently of the
+  // host application's Express query parser configuration.
+  const queryStart = req.originalUrl.indexOf('?');
+  const query = new URLSearchParams(
+    queryStart === -1 ? '' : req.originalUrl.slice(queryStart + 1),
+  );
+  for (const [key, value] of query) {
+    if (!allowed.has(key) || Object.hasOwn(values, key) || !value) {
+      throw new InputError(
+        'Unknown, repeated, or empty history query parameter',
+      );
+    }
+    values[key] = value;
+  }
+  return values;
+}
+
+function entityRef(req: Request): string {
+  const { kind, namespace, name } = req.params;
+  if (
+    !validators.isValidKind(kind) ||
+    !validators.isValidNamespace(namespace.toLowerCase()) ||
+    !validators.isValidEntityName(name)
+  ) {
+    throw new InputError('Invalid history entity reference');
+  }
+  return stringifyEntityRef({ kind, namespace, name });
+}
+
+export function parseHistoryVersionRequest(
+  req: Request,
+): HistoryEntityVersionRequest {
+  queryValues(req, 'version');
+  const { id } = req.params;
+  if (!/^[1-9]\d{0,18}$/.test(id) || BigInt(id) > 9_223_372_036_854_775_807n) {
+    throw new InputError('Invalid history row id');
+  }
+  return { entityRef: entityRef(req), id };
+}
+
+export function parseHistoryRequest(
+  req: Request,
+  endpoint: 'history' | 'versions',
+): HistoryEntityTimelineRequest {
+  const ref = entityRef(req);
+  const values = queryValues(req, endpoint);
+  const { source, op } = values;
+  if (source !== undefined && !isHistorySource(source)) {
+    throw new InputError('Invalid history source');
+  }
+  if (op !== undefined && !isHistoryOperation(op)) {
+    throw new InputError('Invalid history operation');
+  }
+  const changedAfter = timestamp(values.changedAfter);
+  const changedBefore = timestamp(values.changedBefore);
+  if (
+    changedAfter &&
+    changedBefore &&
+    Date.parse(changedAfter) > Date.parse(changedBefore)
+  ) {
+    throw new InputError('changedAfter must not be later than changedBefore');
+  }
+  return {
+    entityRef: ref,
+    source,
+    provider: values.provider,
+    op,
+    changedAfter,
+    changedBefore,
+    limit: pageLimit(values.limit),
+    cursor: values.cursor,
+  };
+}
