@@ -84,6 +84,7 @@ async function startApi(
   const permissions = mockServices.permissions.mock();
   permissions.authorize.mockResolvedValue([{ result: AuthorizeResult.ALLOW }]);
   const registry = mockServices.permissionsRegistry.mock();
+  const logger = mockServices.logger.mock();
   backend = await startTestBackend({
     extensionPoints: [
       [catalogProcessingExtensionPoint, { addProcessor: jest.fn() }],
@@ -96,6 +97,7 @@ async function startApi(
         ? mockServices.permissions.factory()
         : permissions.factory,
       registry.factory,
+      logger.factory,
       mockServices.httpAuth.factory({
         defaultCredentials: mockCredentials.none(),
       }),
@@ -120,7 +122,7 @@ async function startApi(
       }),
     ],
   });
-  return { server: backend.server, query, permissions, registry };
+  return { server: backend.server, query, permissions, registry, logger };
 }
 
 afterEach(async () => {
@@ -259,7 +261,9 @@ describe.each(endpoints)('catalog entity %s endpoint', endpoint => {
 
   it('returns empty history for an allowed user without consulting current catalog visibility', async () => {
     // Arrange
-    const { server, query, permissions } = await startApi({ enabled: true });
+    const { server, query, permissions, logger } = await startApi({
+      enabled: true,
+    });
 
     // Act
     const response = await request(server)
@@ -269,6 +273,7 @@ describe.each(endpoints)('catalog entity %s endpoint', endpoint => {
     // Assert
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ items: [] });
+    expect(logger.error).not.toHaveBeenCalled();
     expect(queryMethod(query, endpoint)).toHaveBeenCalledWith({
       entityRef: canonicalRef,
       limit: 25,
@@ -506,7 +511,7 @@ describe.each(endpoints)('catalog entity %s endpoint', endpoint => {
 
   it('maps invalid query-service cursors to a client error', async () => {
     // Arrange
-    const { server, query } = await startApi({ enabled: true });
+    const { server, query, logger } = await startApi({ enabled: true });
     queryMethod(query, endpoint).mockRejectedValue(
       new InputError('Invalid history cursor'),
     );
@@ -518,27 +523,50 @@ describe.each(endpoints)('catalog entity %s endpoint', endpoint => {
 
     // Assert
     expect(response.status).toBe(400);
+    expect(logger.error).not.toHaveBeenCalled();
   });
 
-  it('does not expose backend failure details', async () => {
-    // Arrange
-    const { server, query } = await startApi({ enabled: true });
-    const sensitive =
-      'postgres://private-user:secret-password@db/private SELECT * FROM private_table';
-    queryMethod(query, endpoint).mockRejectedValue(new Error(sensitive));
+  it.each(['42P01', 'ECONNREFUSED'])(
+    'logs original failure metadata for %s without exposing backend details',
+    async code => {
+      // Arrange
+      const { server, query, logger } = await startApi({ enabled: true });
+      const sensitive =
+        'postgres://private-user:secret-password@db/private SELECT * FROM private_table';
+      const error = Object.assign(new Error(sensitive), { code });
+      const stack = '    at originalQuery (/synthetic/query.ts:12:3)';
+      error.stack = `${Error.prototype.toString.call(error)}\n${stack}`;
+      queryMethod(query, endpoint).mockRejectedValue(error);
 
-    // Act
-    const response = await request(server)
-      .get(`${entityPath}/${endpoint}`)
-      .set('Authorization', mockCredentials.user.header());
+      // Act
+      const response = await request(server)
+        .get(`${entityPath}/${endpoint}`)
+        .set('Authorization', mockCredentials.user.header());
 
-    // Assert
-    expect(response.status).toBe(500);
-    expect(response.text).not.toContain(sensitive);
-    expect(response.text).not.toContain('secret-password');
-    expect(response.text).not.toContain('private_table');
-    expect(response.body.error?.stack).toBeUndefined();
-  });
+      // Assert
+      expect(response.status).toBe(500);
+      expect(response.body.error?.message).toBe(
+        'Unable to retrieve catalog history',
+      );
+      expect(response.text).not.toContain('originalQuery');
+      expect(response.text).not.toContain(sensitive);
+      expect(response.text).not.toContain('secret-password');
+      expect(response.text).not.toContain('private_table');
+      expect(response.body.error?.stack).toBeUndefined();
+      expect(logger.error).toHaveBeenCalledTimes(1);
+      expect(logger.error).toHaveBeenCalledWith(
+        'Catalog history query failed',
+        {
+          errorType: 'Error',
+          errorCode: code,
+          stack,
+        },
+      );
+      expect(JSON.stringify(logger.error.mock.calls)).not.toMatch(
+        /secret-password|private_table|SELECT/,
+      );
+    },
+  );
 
   it('fails closed and hides permission-service failure details', async () => {
     // Arrange
@@ -563,7 +591,9 @@ describe.each(endpoints)('catalog entity %s endpoint', endpoint => {
 describe('exact entity version endpoint', () => {
   it('returns the exact event DTO and canonical entity identity for an allowed user', async () => {
     // Arrange
-    const { server, query, permissions } = await startApi({ enabled: true });
+    const { server, query, permissions, logger } = await startApi({
+      enabled: true,
+    });
     const version = {
       id: '42',
       cycleId: 'cycle-42',
@@ -593,6 +623,7 @@ describe('exact entity version endpoint', () => {
     // Assert
     expect(response.status).toBe(200);
     expect(response.body).toEqual(version);
+    expect(logger.error).not.toHaveBeenCalled();
     expect(query.getEntityVersion).toHaveBeenCalledWith({
       entityRef: canonicalRef,
       id: '42',
@@ -706,7 +737,7 @@ describe('exact entity version endpoint', () => {
     'returns a sanitized 404 for %s',
     async reason => {
       // Arrange
-      const { server, query } = await startApi({ enabled: true });
+      const { server, query, logger } = await startApi({ enabled: true });
       query.getEntityVersion.mockRejectedValue(
         new NotFoundError(`${reason}: private-table secret-token`),
       );
@@ -721,27 +752,51 @@ describe('exact entity version endpoint', () => {
       expect(response.text).not.toContain('private-table');
       expect(response.text).not.toContain('secret-token');
       expect(response.body.error?.stack).toBeUndefined();
+      expect(logger.error).not.toHaveBeenCalled();
     },
   );
 
-  it('sanitizes unexpected exact-read failures', async () => {
-    // Arrange
-    const { server, query } = await startApi({ enabled: true });
-    query.getEntityVersion.mockRejectedValue(
-      new Error('SELECT * FROM private_table secret-token'),
-    );
+  it.each(['42P01', 'ECONNREFUSED'])(
+    'logs original exact-read failure metadata for %s without exposing it',
+    async code => {
+      // Arrange
+      const { server, query, logger } = await startApi({ enabled: true });
+      const error = Object.assign(
+        new Error('SELECT * FROM private_table secret-token'),
+        { code },
+      );
+      const stack = '    at originalExactQuery (/synthetic/query.ts:24:5)';
+      error.stack = `${Error.prototype.toString.call(error)}\n${stack}`;
+      query.getEntityVersion.mockRejectedValue(error);
 
-    // Act
-    const response = await request(server)
-      .get(`${entityPath}/versions/42`)
-      .set('Authorization', mockCredentials.user.header());
+      // Act
+      const response = await request(server)
+        .get(`${entityPath}/versions/42`)
+        .set('Authorization', mockCredentials.user.header());
 
-    // Assert
-    expect(response.status).toBe(500);
-    expect(response.text).not.toContain('private_table');
-    expect(response.text).not.toContain('secret-token');
-    expect(response.body.error?.stack).toBeUndefined();
-  });
+      // Assert
+      expect(response.status).toBe(500);
+      expect(response.body.error?.message).toBe(
+        'Unable to retrieve catalog history',
+      );
+      expect(response.text).not.toContain('originalExactQuery');
+      expect(response.text).not.toContain('private_table');
+      expect(response.text).not.toContain('secret-token');
+      expect(response.body.error?.stack).toBeUndefined();
+      expect(logger.error).toHaveBeenCalledTimes(1);
+      expect(logger.error).toHaveBeenCalledWith(
+        'Catalog history query failed',
+        {
+          errorType: 'Error',
+          errorCode: code,
+          stack,
+        },
+      );
+      expect(JSON.stringify(logger.error.mock.calls)).not.toMatch(
+        /private_table|secret-token|SELECT/,
+      );
+    },
+  );
 });
 
 describe('endpoint-specific DTOs and filters', () => {

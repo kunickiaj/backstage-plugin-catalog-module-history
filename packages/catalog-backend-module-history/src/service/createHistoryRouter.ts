@@ -20,6 +20,7 @@ import {
   parseHistoryRequest,
   parseHistoryVersionRequest,
 } from './parseHistoryRequest';
+import { queryErrorMetadata } from './queryErrorMetadata';
 
 /** Options for the opt-in catalog history read router. @public */
 export interface HistoryRouterOptions {
@@ -61,7 +62,10 @@ async function retrieve<T>(
     if (error instanceof NotFoundError) {
       throw new NotFoundError('History version not found');
     }
-    options.logger.error('Catalog history query failed');
+    options.logger.error(
+      'Catalog history query failed',
+      queryErrorMetadata(error),
+    );
     throw new Error('Unable to retrieve catalog history');
   }
 }
