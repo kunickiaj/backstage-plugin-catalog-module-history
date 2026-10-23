@@ -67,8 +67,14 @@ async function migrationTable(db: Knex): Promise<string> {
 }
 
 export async function ensureSchema(db: Knex): Promise<void> {
-  await db.migrate.latest({
-    directory: migrationsDir,
-    tableName: await migrationTable(db),
+  await db.transaction(async trx => {
+    // Knex creates migration metadata before it can acquire its own lock.
+    await trx.raw('SELECT pg_advisory_xact_lock(hashtext(?))', [
+      'catalog-history:ensure-schema',
+    ]);
+    await trx.migrate.latest({
+      directory: migrationsDir,
+      tableName: await migrationTable(trx),
+    });
   });
 }

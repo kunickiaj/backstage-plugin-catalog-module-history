@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
 import { TestDatabases } from '@backstage/backend-test-utils';
-import { Knex } from 'knex';
+import knex, { Knex } from 'knex';
 import { resolvePackagePath } from '@backstage/backend-plugin-api';
 import { ensureSchema } from '../ensureSchema';
 
@@ -242,6 +242,155 @@ describe('ensureSchema', () => {
     expect(await db.schema.hasTable(historyLedger)).toBe(false);
   });
 
+  it('initializes history concurrently across independent pools without changing catalog data or metadata', async () => {
+    // Arrange: each replica shares the database, not a Knex migrator instance.
+    await db.migrate.latest({
+      directory: catalogMigrationsDir,
+      tableName: legacyLedger,
+    });
+    await db('locations').insert({
+      id: randomUUID(),
+      type: 'url',
+      target: 'https://example.test/catalog.yaml',
+      location_entity_ref: 'location:default/example',
+    });
+    const before = await snapshotTables(db);
+    const clients = Array.from({ length: 8 }, () =>
+      knex({ ...db.client.config, pool: { min: 0, max: 1 } }),
+    );
+
+    try {
+      // Act: no history ledger or lock table exists before these calls start.
+      const results = await Promise.allSettled(
+        clients.map(client => ensureSchema(client)),
+      );
+
+      // Assert: every replica succeeds and only history-owned tables change.
+      expect(
+        results
+          .filter(result => result.status === 'rejected')
+          .map(result => ({
+            code: result.reason.code,
+            message: result.reason.message,
+          })),
+      ).toEqual([]);
+      expect(results).toEqual(
+        clients.map(() => ({ status: 'fulfilled', value: undefined })),
+      );
+      expect(await db(historyLedger).orderBy('id').pluck('name')).toEqual(
+        historyMigrationNames,
+      );
+      expect(await db(`${historyLedger}_lock`).select('*')).toEqual([
+        { index: 1, is_locked: 0 },
+      ]);
+      expect(await db.schema.hasTable('catalog_history_cycles')).toBe(true);
+      expect(await db.schema.hasTable('catalog_history_entities')).toBe(true);
+      expect(
+        (await snapshotTables(db)).filter(
+          table => !table.table.startsWith('catalog_history_'),
+        ),
+      ).toEqual(before);
+    } finally {
+      await Promise.all(clients.map(client => client.destroy()));
+    }
+  });
+
+  it('finishes a partial legacy upgrade concurrently without replaying migrations or losing history', async () => {
+    // Arrange: preserve the initial record and data while replicas apply the rest.
+    await db.migrate.up({
+      directory: migrationsDir,
+      tableName: legacyLedger,
+      name: initialMigration,
+    });
+    await seedHistory(db);
+    const initialRecord = await db(legacyLedger).first();
+    const cycle = await db('catalog_history_cycles').first();
+    const entity = await db('catalog_history_entities').first();
+    const clients = Array.from({ length: 8 }, () =>
+      knex({ ...db.client.config, pool: { min: 0, max: 1 } }),
+    );
+
+    try {
+      // Act: independent migrators contend for the same unfinished upgrade.
+      const results = await Promise.allSettled(
+        clients.map(client => ensureSchema(client)),
+      );
+
+      // Assert: both migrations appear once, and existing records survive.
+      expect(results).toEqual(
+        clients.map(() => ({ status: 'fulfilled', value: undefined })),
+      );
+      expect(await db(legacyLedger).orderBy('id').pluck('name')).toEqual(
+        historyMigrationNames,
+      );
+      expect(
+        await db(legacyLedger).where({ id: initialRecord.id }).first(),
+      ).toEqual(initialRecord);
+      expect(await db('catalog_history_cycles').first()).toMatchObject(cycle);
+      expect(await db('catalog_history_entities').first()).toMatchObject(
+        entity,
+      );
+      expect(await db('catalog_history_cycles').columnInfo()).toHaveProperty(
+        'source',
+      );
+      expect(await db('catalog_history_entities').columnInfo()).toHaveProperty(
+        'relations',
+      );
+      expect(await db(`${legacyLedger}_lock`).select('*')).toEqual([
+        { index: 1, is_locked: 0 },
+      ]);
+      expect(await db.schema.hasTable(historyLedger)).toBe(false);
+      expect(await db.schema.hasTable(`${historyLedger}_lock`)).toBe(false);
+    } finally {
+      await Promise.all(clients.map(client => client.destroy()));
+    }
+  });
+
+  it('allows another independent client to reject an unsafe state after initialization fails', async () => {
+    // Arrange: failures must leave both data and initialization access intact.
+    await db.migrate.latest({
+      directory: migrationsDir,
+      tableName: legacyLedger,
+    });
+    await seedHistory(db);
+    await db(legacyLedger).insert({
+      name: '20200101000000_unrelated.js',
+      batch: 2,
+      migration_time: new Date('2026-05-12T10:00:00Z'),
+    });
+    const before = await snapshotTables(db);
+    const clients = Array.from({ length: 2 }, () =>
+      knex({ ...db.client.config, pool: { min: 0, max: 1 } }),
+    );
+
+    try {
+      // Act: a second pool retries while the first pool stays open.
+      const errors = [];
+      for (const client of clients) {
+        errors.push(
+          await ensureSchema(client).then(
+            () => undefined,
+            error => error,
+          ),
+        );
+      }
+
+      // Assert: each attempt rejects the unsafe state without changing it.
+      expect(errors).toEqual(
+        clients.map(() =>
+          expect.objectContaining({
+            message: expect.stringMatching(/mixed with unrelated migrations/),
+          }),
+        ),
+      );
+      expect(await snapshotTables(db)).toEqual(before);
+      expect(await db.schema.hasTable(historyLedger)).toBe(false);
+      expect(await db.schema.hasTable(`${historyLedger}_lock`)).toBe(false);
+    } finally {
+      await Promise.all(clients.map(client => client.destroy()));
+    }
+  });
+
   it('finishes a partially applied legacy history ledger without replaying the initial migration', async () => {
     await db.migrate.up({
       directory: migrationsDir,
@@ -430,43 +579,35 @@ describe('ensureSchema', () => {
     expect(await db.schema.hasTable(legacyLedger)).toBe(false);
   });
 
-  it('accepts another initializer completing between the metadata read and orphan-table check', async () => {
-    await db.migrate.list({
-      directory: migrationsDir,
-      tableName: historyLedger,
-    });
-    expect(await db(historyLedger).select('*')).toEqual([]);
-    let initialized = false;
-    let completedState: Awaited<ReturnType<typeof snapshotTables>> | undefined;
-    const interleavedDb = new Proxy(db, {
-      get(target, property) {
-        if (property !== 'schema') return Reflect.get(target, property);
-        return new Proxy(target.schema, {
-          get(schema, schemaProperty) {
-            if (schemaProperty !== 'hasTable') {
-              return Reflect.get(schema, schemaProperty);
-            }
-            return async (tableName: string) => {
-              if (tableName === 'catalog_history_cycles' && !initialized) {
-                initialized = true;
-                await ensureSchema(db);
-                await seedHistory(db);
-                completedState = await snapshotTables(db);
-              }
-              return schema.hasTable(tableName);
-            };
-          },
-        });
-      },
+  it('initializes and repeats initialization using a pool with one connection', async () => {
+    // Arrange: migration work must reuse the transaction's only connection.
+    const client = knex({
+      ...db.client.config,
+      pool: { min: 0, max: 1 },
+      acquireConnectionTimeout: 2000,
     });
 
-    await ensureSchema(interleavedDb);
+    try {
+      // Act: both fresh setup and a no-op retry must release the connection.
+      await ensureSchema(client);
+      const before = await snapshotTables(client);
+      await ensureSchema(client);
 
-    expect(initialized).toBe(true);
-    expect(await snapshotTables(db)).toEqual(completedState);
-    expect(await db(historyLedger).orderBy('id').pluck('name')).toEqual(
-      historyMigrationNames,
-    );
-    expect(await db.schema.hasTable(legacyLedger)).toBe(false);
+      // Assert: queries still acquire the connection and metadata is unchanged.
+      expect(await snapshotTables(client)).toEqual(before);
+      expect(await client(historyLedger).orderBy('id').pluck('name')).toEqual(
+        historyMigrationNames,
+      );
+      expect(await client(`${historyLedger}_lock`).select('*')).toEqual([
+        { index: 1, is_locked: 0 },
+      ]);
+      expect(await client.schema.hasTable('catalog_history_cycles')).toBe(true);
+      expect(await client.schema.hasTable('catalog_history_entities')).toBe(
+        true,
+      );
+      expect(await client.schema.hasTable(legacyLedger)).toBe(false);
+    } finally {
+      await client.destroy();
+    }
   });
 });

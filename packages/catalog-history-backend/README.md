@@ -26,6 +26,8 @@ For compatibility, the default factory still honors the deprecated `catalog.hist
 
 Backstage modules may own tables in their target plugin's logical database. The current source uses `catalog_history_knex_migrations` and its lock table for new history installations, separate from the target plugin's migration log. See the [Backstage module guidance](https://backstage.io/docs/backend-system/building-plugins-and-modules/).
 
+Concurrent initializers use a PostgreSQL transaction-scoped advisory lock while selecting and bootstrapping the history migration log. This covers metadata creation before Knex's own migration lock exists; PostgreSQL releases the advisory lock on commit or rollback. The database must support PostgreSQL advisory locks.
+
 Published `0.1.0` still uses Knex's default migration log and cannot initialize alongside an already-migrated catalog database. Do not enable that shared-database setup until this fix is released and validated in your environment.
 
 Existing history-only `0.1.0` installations keep their legacy log when every recorded migration belongs to this package. This also supports a partially migrated history schema and a legacy table/schema configured through the Knex client's `migrations` settings. The migration schema setting affects the log, not the location of history data tables.
