@@ -42,3 +42,7 @@ export { reconcile, type ReconcileOptions } from './reconciler/reconcile';
 export type { EntityFetcher } from './reconciler/EntityFetcher';
 export { CatalogServiceEntityFetcher } from './reconciler/CatalogServiceEntityFetcher';
 export { catalogModuleHistory } from './module/catalogModuleHistory';
+export {
+  createHistoryRouter,
+  type HistoryRouterOptions,
+} from './service/createHistoryRouter';

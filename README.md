@@ -4,7 +4,7 @@ A Backstage backend module that records catalog entity changes into a versioned 
 
 Ships with a Postgres backend in v1; designed around a pluggable `HistoryStore` interface so additional backends (Dolt, ClickHouse, etc.) can be added without changes to the wrapper.
 
-**Status: pre-alpha.** All four packages are published at `0.1.0`. The current source includes an unreleased migration-log isolation fix; read the [storage notes](packages/catalog-history-backend/README.md#migration-bookkeeping-unreleased-fix) before using a shared catalog database.
+**Status: pre-alpha.** All four packages are published at `0.1.0`. The HTTP read API and the migration-log isolation fix are unreleased; read the [storage notes](packages/catalog-history-backend/README.md#migration-bookkeeping-unreleased-fix) before using a shared catalog database.
 
 Maintainers: see [Publishing packages](docs/publishing.md) for validation-only runs, the first-release bootstrap, and npm trusted publishing.
 
@@ -14,6 +14,7 @@ Maintainers: see [Publishing packages](docs/publishing.md) for validation-only r
 2. **Captures provider-origin truth** with `HistoryRecordingEntityProvider` (`source='provider'`). It mirrors every `full` or `delta` `applyMutation` after forwarding to the catalog. Cheap: one cycle per provider refresh/mutation. Best fit: identity-shaped entities like Users and Groups.
 3. **Optionally observes processing output** with `catalog.history.processing.enabled` (`source='processing'`). It sees processor mutations and processor-emitted entities, but cannot observe deletes and cannot guarantee registration order across independent modules. It hash-skips unchanged entities and micro-batches changes (default: 500 rows or 10s). Note: the first processing cycle after enabling records the entire catalog as inserts under `source='processing'` — expected one-time cost, since each source keeps its own baseline.
 4. **Optionally reconciles served catalog truth** (`source='reconciler'`). The in-process scheduler reads the public Catalog API, including stitched `relations`, `status.items`, and orphan state. Defaults when enabled: hourly, 10m timeout, 30s initial delay, task id `catalog-history-reconcile`. The external CLI remains available for isolated CronJobs or ad-hoc runs.
+5. **Optionally serves entity history** from the same store (`catalog.history.api.enabled`). The catalog module exposes authenticated, permission-controlled routes under `/api/catalog/history`; it does not require a separate backend plugin or database.
 
 ## Install
 
@@ -40,7 +41,7 @@ backend.add(
 backend.start();
 ```
 
-The module package default export installs both the catalog backend module and the default Postgres `historyStoreServiceRef` factory from `@kunickiaj/backstage-plugin-catalog-history-storage-node`. That gives you schema bootstrap, optional processor capture, and optional scheduled reconciliation.
+The module package default export installs the catalog backend module and the default Postgres `historyStoreServiceRef` factory from `@kunickiaj/backstage-plugin-catalog-history-storage-node`. That gives you schema bootstrap, optional processor capture, optional scheduled reconciliation, and the opt-in HTTP read API.
 
 Provider capture still needs provider wiring: in the catalog module where you create the provider, depend on `historyStoreServiceRef` and pass the injected store into `HistoryRecordingEntityProvider`:
 
@@ -104,6 +105,10 @@ catalog:
     processing:
       enabled: false
 
+    # Serve authenticated entity-history reads from the catalog backend.
+    api:
+      enabled: false
+
     # Scheduled in-process reconciliation through the public Catalog API.
     reconciler:
       enabled: false
@@ -123,6 +128,8 @@ catalog:
 | `catalog.history.provider.enabled`                 | `true`                     | Gates provider-layer recording when passed to `HistoryRecordingEntityProvider`.                                                             |
 | `catalog.history.processing`                       | unset                      | Processor-layer capture settings.                                                                                                           |
 | `catalog.history.processing.enabled`               | `false`                    | Enables processor-layer capture via `HistoryRecordingCatalogProcessor`.                                                                     |
+| `catalog.history.api`                              | unset                      | HTTP history API settings.                                                                                                                  |
+| `catalog.history.api.enabled`                      | `false`                    | Enables entity history and version routes under `/api/catalog/history`.                                                                     |
 | `catalog.history.reconciler`                       | unset                      | Scheduled in-process reconciler settings.                                                                                                   |
 | `catalog.history.reconciler.enabled`               | `false`                    | Enables scheduled in-process reconciliation.                                                                                                |
 | `catalog.history.reconciler.schedule`              | unset                      | Optional Backstage scheduler config; omitted uses the defaults below.                                                                       |
@@ -131,6 +138,38 @@ catalog:
 | `catalog.history.reconciler.schedule.initialDelay` | `{ seconds: 30 }`          | Delay before the first scheduled reconcile run.                                                                                             |
 
 Processing capture and the scheduled reconciler are config-only after `backend.add(import('@kunickiaj/backstage-plugin-catalog-backend-module-history'))`; no extra code wiring is needed.
+
+## Read history over HTTP (unreleased)
+
+Enable the API in the existing catalog module. It uses the same history store and database as recording; do not install a separate history backend plugin. Its route prefix is `/api/catalog/history`, not the previously planned `/api/catalog-history`.
+
+```yaml
+catalog:
+  history:
+    api:
+      enabled: true
+```
+
+The routes require user authentication and the `catalog-history.read` permission, exported as `catalogHistoryReadPermission` from `@kunickiaj/backstage-plugin-catalog-history-common`. When Backstage's permission framework is enabled, the policy must return an explicit `ALLOW`; `DENY` and conditional decisions are rejected. Without that framework, authenticated users follow Backstage's normal permission behavior.
+
+```sh
+curl -H 'Authorization: Bearer <TOKEN>' \
+  'https://backstage.example.com/api/catalog/history/entities/User/default/alice/history?source=provider&limit=25'
+
+curl -H 'Authorization: Bearer <TOKEN>' \
+  'https://backstage.example.com/api/catalog/history/entities/User/default/alice/versions?changedAfter=2026-01-01T00:00:00Z'
+
+curl -H 'Authorization: Bearer <TOKEN>' \
+  'https://backstage.example.com/api/catalog/history/entities/User/default/alice/versions/42'
+```
+
+`GET /api/catalog/history/entities/:kind/:namespace/:name/history` returns all recorded changes, including `insert`, `update`, and `delete`. `GET /api/catalog/history/entities/:kind/:namespace/:name/versions` omits deletes and returns the latest representative for each `source`/`provider`/etag combination. It excludes null etags. Both list responses use the shared `{ items, nextCursor }` shape.
+
+`GET /api/catalog/history/entities/:kind/:namespace/:name/versions/:id` returns the exact history row for the canonical entity reference and row ID, including provenance and snapshot. A delete row returns tombstone metadata with no snapshot; it does not return the preceding entity. Use a timeline item's `id` to inspect that event. Do not look it up by etag or use the versions list: an `A → B → A` sequence retains all three event occurrences.
+
+The list routes accept `source` (`provider`, `processing`, or `reconciler`), `provider`, `changedAfter`, `changedBefore`, `limit`, and `cursor`; the history route also accepts `op` (`insert`, `update`, or `delete`). Timestamps must be ISO 8601 instants. `limit` is a positive integer, defaults to `25`, and is capped at `100`. Cursors are opaque and paginate live data, not a frozen result set. Pass `nextCursor` as `cursor` unchanged, and reset pagination after changing filters or refreshing results. Unknown or repeated query parameters, invalid values, and the unsupported `owner` filter return `400`.
+
+The detail route accepts no query parameters. Invalid, nonpositive, or out-of-range PostgreSQL bigint IDs return `400`; an absent row or an ID for another entity returns `404`. The API returns retained history for deleted entities and does not filter rows by current catalog visibility. An empty list is `200` with `items: []`. Errors are `401` for missing authentication, `403` for a rejected permission decision, and `500` for a sanitized backend failure. Global history, cycle, as-of, diff, and timeline-summary routes are not available yet; the current timeline summary is `{}` and has no semantic badges.
 
 ### Custom history storage
 
@@ -155,7 +194,7 @@ backend.add(catalogModuleHistory);
 backend.add(myHistoryStoreServiceFactory);
 ```
 
-## Query the history
+## Query the history directly
 
 The module owns two tables in Postgres:
 

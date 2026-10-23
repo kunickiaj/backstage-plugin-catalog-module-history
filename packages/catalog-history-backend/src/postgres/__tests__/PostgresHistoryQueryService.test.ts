@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
 import { TestDatabases } from '@backstage/backend-test-utils';
+import { InputError, NotFoundError } from '@backstage/errors';
 import { Knex } from 'knex';
 import { ensureSchema } from '../ensureSchema';
 import { PostgresHistoryQueryService } from '../PostgresHistoryQueryService';
@@ -39,25 +40,28 @@ async function insertEntity(
     changedAt: string;
     owner?: string;
   },
-): Promise<void> {
+): Promise<string> {
   const entityRef = opts.entityRef ?? 'user:default/alice';
   const [kind, rest] = entityRef.split(':', 2);
   const [namespace, name] = rest.split('/', 2);
-  await db('catalog_history_entities').insert({
-    cycle_id: opts.cycleId,
-    entity_ref: entityRef,
-    kind,
-    namespace,
-    name,
-    provider: opts.provider,
-    source: opts.source,
-    op: opts.op,
-    etag: opts.etag,
-    owner: opts.owner ?? null,
-    metadata: { name },
-    spec: { profile: { displayName: name } },
-    changed_at: opts.changedAt,
-  });
+  const [row] = await db('catalog_history_entities')
+    .insert({
+      cycle_id: opts.cycleId,
+      entity_ref: entityRef,
+      kind,
+      namespace,
+      name,
+      provider: opts.provider,
+      source: opts.source,
+      op: opts.op,
+      etag: opts.etag,
+      owner: opts.owner ?? null,
+      metadata: { name },
+      spec: { profile: { displayName: name } },
+      changed_at: opts.changedAt,
+    })
+    .returning('id');
+  return String(row.id);
 }
 
 describe('PostgresHistoryQueryService', () => {
@@ -339,6 +343,185 @@ describe('PostgresHistoryQueryService', () => {
     });
     expect(secondPage.items.map(item => item.etag)).toEqual(['alice-etag-0']);
     expect(secondPage.nextCursor).toBeUndefined();
+  });
+
+  it('reads the original A event after A to B to A without substituting the newest representative', async () => {
+    // Arrange: repeated etags deliberately carry distinct recorded payloads.
+    const ids: string[] = [];
+    for (const [index, etag] of ['a', 'b', 'a'].entries()) {
+      const at = `2026-07-07T0${index}:00:00Z`;
+      const cycleId = await insertCycle(db, {
+        provider: 'okta',
+        source: 'provider',
+        at,
+      });
+      ids.push(
+        await insertEntity(db, {
+          cycleId,
+          provider: 'okta',
+          source: 'provider',
+          op: index === 0 ? 'insert' : 'update',
+          etag,
+          changedAt: at,
+          owner: `group:default/owner-${index}`,
+        }),
+      );
+    }
+
+    // Act
+    const original = await service.getEntityVersion({
+      entityRef: 'user:default/alice',
+      id: ids[0],
+    });
+    const versions = await service.getEntityVersions({
+      entityRef: 'user:default/alice',
+    });
+
+    // Assert
+    expect(original).toMatchObject({
+      id: ids[0],
+      op: 'insert',
+      etag: 'a',
+      changedAt: '2026-07-07T00:00:00.000Z',
+      snapshot: { owner: 'group:default/owner-0' },
+    });
+    expect(versions.items.map(item => item.id)).toEqual([ids[2], ids[1]]);
+  });
+
+  it('deduplicates etags within source and provider, preserving the newest representative and pagination', async () => {
+    // Arrange: vary source independently of provider and provider independently of source.
+    const provenance = [
+      { source: 'provider' as const, provider: 'shared' },
+      { source: 'processing' as const, provider: 'shared' },
+      { source: 'provider' as const, provider: 'other' },
+      { source: 'provider' as const, provider: 'shared' },
+    ];
+    const ids: string[] = [];
+    for (const [index, scope] of provenance.entries()) {
+      const at = `2026-07-07T0${index}:00:00Z`;
+      const cycleId = await insertCycle(db, { ...scope, at });
+      ids.push(
+        await insertEntity(db, {
+          cycleId,
+          ...scope,
+          op: 'update',
+          etag: 'shared-etag',
+          changedAt: at,
+          owner: `group:default/owner-${index}`,
+        }),
+      );
+    }
+
+    // Act
+    const first = await service.getEntityVersions({
+      entityRef: 'user:default/alice',
+      limit: 2,
+    });
+    const second = await service.getEntityVersions({
+      entityRef: 'user:default/alice',
+      limit: 2,
+      cursor: first.nextCursor,
+    });
+
+    // Assert
+    expect(first.items.map(item => item.id)).toEqual([ids[3], ids[2]]);
+    expect(first.nextCursor).toEqual(expect.any(String));
+    expect(second.items.map(item => item.id)).toEqual([ids[1]]);
+    expect(second.nextCursor).toBeUndefined();
+    expect(first.items[0].snapshot?.owner).toBe('group:default/owner-3');
+  });
+
+  it('returns tombstone event metadata without a snapshot for an exact delete row', async () => {
+    // Arrange
+    const at = '2026-07-07T00:00:00Z';
+    const cycleId = await insertCycle(db, {
+      provider: 'okta',
+      source: 'provider',
+      at,
+    });
+    const id = await insertEntity(db, {
+      cycleId,
+      provider: 'okta',
+      source: 'provider',
+      op: 'delete',
+      etag: null,
+      changedAt: at,
+    });
+
+    // Act
+    const version = await service.getEntityVersion({
+      entityRef: 'user:default/alice',
+      id,
+    });
+
+    // Assert
+    expect(version).toMatchObject({
+      id,
+      cycleId,
+      entityRef: 'user:default/alice',
+      source: 'provider',
+      provider: 'okta',
+      op: 'delete',
+      changedAt: '2026-07-07T00:00:00.000Z',
+    });
+    expect(version.snapshot).toBeUndefined();
+    expect(version.etag).toBeUndefined();
+  });
+
+  it.each(['0', '-1', '1.5', 'abc', '9223372036854775808'])(
+    'rejects invalid exact row ID %s',
+    async id => {
+      // Arrange
+      const request = { entityRef: 'user:default/alice', id };
+
+      // Act
+      const result = service.getEntityVersion(request);
+
+      // Assert
+      await expect(result).rejects.toBeInstanceOf(InputError);
+    },
+  );
+
+  it.each(['1', '9223372036854775807'])(
+    'returns not found for an absent valid bigint row ID %s',
+    async id => {
+      // Arrange
+      const request = { entityRef: 'user:default/alice', id };
+
+      // Act
+      const result = service.getEntityVersion(request);
+
+      // Assert
+      await expect(result).rejects.toBeInstanceOf(NotFoundError);
+    },
+  );
+
+  it('does not return another entity payload even when the row ID exists', async () => {
+    // Arrange
+    const at = '2026-07-07T00:00:00Z';
+    const cycleId = await insertCycle(db, {
+      provider: 'okta',
+      source: 'provider',
+      at,
+    });
+    const id = await insertEntity(db, {
+      cycleId,
+      entityRef: 'user:default/bob',
+      provider: 'okta',
+      source: 'provider',
+      op: 'insert',
+      etag: 'bob-etag',
+      changedAt: at,
+    });
+
+    // Act
+    const result = service.getEntityVersion({
+      entityRef: 'user:default/alice',
+      id,
+    });
+
+    // Assert
+    await expect(result).rejects.toBeInstanceOf(NotFoundError);
   });
 
   it('rejects invalid cursors and invalid page limits', async () => {

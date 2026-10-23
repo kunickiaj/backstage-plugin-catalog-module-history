@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer';
-import { InputError } from '@backstage/errors';
+import { InputError, NotFoundError } from '@backstage/errors';
 import { Knex } from 'knex';
 import {
   DEFAULT_HISTORY_PAGE_LIMIT,
@@ -11,6 +11,8 @@ import type {
   HistoryEntityTimelineResponse,
   HistoryTimelineItem,
   HistoryEntityVersion,
+  HistoryEntityVersionRequest,
+  HistoryEntityVersionResponse,
   HistoryEntityVersionsRequest,
   HistoryEntityVersionsResponse,
   HistoryJsonObject,
@@ -96,7 +98,7 @@ function decodeCursor(cursor: string | undefined): CursorPayload | undefined {
 }
 
 function isPositivePostgresBigint(value: string): boolean {
-  if (!/^[1-9]\d*$/.test(value)) {
+  if (!/^[1-9]\d{0,18}$/.test(value)) {
     return false;
   }
   return BigInt(value) <= MAX_POSTGRES_BIGINT;
@@ -162,7 +164,7 @@ function rowToTimelineItem(row: HistoryEntityRow): HistoryTimelineItem {
 function rowToVersion(row: HistoryEntityRow): HistoryEntityVersion {
   return {
     ...rowToTimelineItem(row),
-    snapshot: rowToSnapshot(row),
+    snapshot: row.op === 'delete' ? undefined : rowToSnapshot(row),
   };
 }
 
@@ -221,7 +223,9 @@ export class PostgresHistoryQueryService {
     )
       .whereNot('op', 'delete')
       .whereNotNull('etag')
-      .distinctOn('etag')
+      .distinctOn('source', 'provider', 'etag')
+      .orderBy('source')
+      .orderBy('provider')
       .orderBy('etag')
       .orderBy('changed_at', 'desc')
       .orderBy('id', 'desc')
@@ -240,6 +244,22 @@ export class PostgresHistoryQueryService {
       nextCursor:
         rows.length > limit ? encodeCursor(rows[limit - 1]) : undefined,
     };
+  }
+
+  async getEntityVersion(
+    request: HistoryEntityVersionRequest,
+  ): Promise<HistoryEntityVersionResponse> {
+    if (!isPositivePostgresBigint(request.id)) {
+      throw new InputError('Invalid history row id');
+    }
+    await this.ensureReady();
+    const row = await this.db<HistoryEntityRow>('catalog_history_entities')
+      .where({ id: request.id, entity_ref: request.entityRef })
+      .first();
+    if (!row) {
+      throw new NotFoundError('History version not found');
+    }
+    return rowToVersion(row);
   }
 
   private applyEntityFilters<TRecord extends {}>(

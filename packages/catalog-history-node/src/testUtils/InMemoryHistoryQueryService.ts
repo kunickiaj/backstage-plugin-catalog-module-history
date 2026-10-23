@@ -13,6 +13,8 @@ import type {
   HistoryEntityTimelineResponse,
   HistoryEntityVersionsRequest,
   HistoryEntityVersionsResponse,
+  HistoryEntityVersionRequest,
+  HistoryEntityVersionResponse,
   HistoryFacetsResponse,
   HistoryFacetsRequest,
   HistoryStatsRequest,
@@ -31,6 +33,7 @@ export class InMemoryHistoryQueryService implements HistoryQueryService {
   readonly requests = {
     entityTimeline: [] as HistoryEntityTimelineRequest[],
     entityVersions: [] as HistoryEntityVersionsRequest[],
+    entityVersion: [] as HistoryEntityVersionRequest[],
     entityAsOf: [] as HistoryEntityAsOfRequest[],
     entityDiff: [] as HistoryEntityDiffRequest[],
     cycleList: [] as HistoryCycleListRequest[],
@@ -42,6 +45,16 @@ export class InMemoryHistoryQueryService implements HistoryQueryService {
 
   entityTimeline: HistoryEntityTimelineResponse = { items: [] };
   entityVersions: HistoryEntityVersionsResponse = { items: [] };
+  entityVersion: HistoryEntityVersionResponse = {
+    id: '',
+    cycleId: '',
+    entityRef: '',
+    source: 'provider',
+    provider: '',
+    op: 'delete',
+    changedAt: '',
+    summary: {},
+  };
   entityAsOf: HistoryEntityAsOfResponse = {
     entityRef: '',
     asOf: '',
@@ -95,6 +108,13 @@ export class InMemoryHistoryQueryService implements HistoryQueryService {
   ): Promise<HistoryEntityAsOfResponse> {
     this.requests.entityAsOf.push(request);
     return this.entityAsOf;
+  }
+
+  async getEntityVersion(
+    request: HistoryEntityVersionRequest,
+  ): Promise<HistoryEntityVersionResponse> {
+    this.requests.entityVersion.push(request);
+    return this.entityVersion;
   }
 
   async getEntityDiff(

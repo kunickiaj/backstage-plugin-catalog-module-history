@@ -7,6 +7,7 @@ import {
   HistoryStore,
 } from '@kunickiaj/backstage-plugin-catalog-history-node';
 import { ensureSchema } from './ensureSchema';
+import { PostgresHistoryQueryService } from './PostgresHistoryQueryService';
 
 // catalog_history_entities has ~20 inserted columns, so the PostgreSQL
 // bind-parameter limit (65,535) caps a single INSERT at ~3,276 rows. Chunking
@@ -116,6 +117,7 @@ function buildDeleteRow(
 }
 
 export class PostgresHistoryStore implements HistoryStore {
+  readonly query: PostgresHistoryQueryService;
   private schemaReady: Promise<void> | undefined;
   private shutdownPromise: Promise<void> | undefined;
   private readonly shutdownHooks: Array<() => Promise<void>> = [];
@@ -123,7 +125,9 @@ export class PostgresHistoryStore implements HistoryStore {
   constructor(
     private readonly db: Knex,
     private readonly options: PostgresHistoryStoreOptions = {},
-  ) {}
+  ) {
+    this.query = new PostgresHistoryQueryService(db);
+  }
 
   async ensureReady(): Promise<void> {
     this.schemaReady ??= ensureSchema(this.db).catch(error => {

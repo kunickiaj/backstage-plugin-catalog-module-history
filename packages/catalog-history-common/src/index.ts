@@ -20,6 +20,7 @@ export type {
 } from './types';
 
 export { DEFAULT_HISTORY_PAGE_LIMIT, MAX_HISTORY_PAGE_LIMIT } from './api';
+export { catalogHistoryReadPermission } from './permissions';
 export type {
   HistoryPageCursor,
   HistoryPage,
@@ -44,6 +45,8 @@ export type {
   HistoryChangeFeedRequest,
   HistoryChangeFeedResponse,
   HistoryEntityVersion,
+  HistoryEntityVersionRequest,
+  HistoryEntityVersionResponse,
   HistoryEntityVersionsRequest,
   HistoryEntityVersionsResponse,
   HistoryEntityAsOfRequest,

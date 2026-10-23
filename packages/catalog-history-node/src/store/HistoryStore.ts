@@ -1,4 +1,5 @@
 import { CaptureSource, CycleInput } from './types';
+import type { HistoryQueryService } from '../query/HistoryQueryService';
 
 /**
  * The provider name under which the reconciler records its drift cycles.
@@ -24,6 +25,12 @@ export type CurrentEtag = {
  * @public
  */
 export interface HistoryStore {
+  /** Optional reads backed by the same storage as this recorder. */
+  readonly query?: Pick<
+    HistoryQueryService,
+    'getEntityTimeline' | 'getEntityVersions' | 'getEntityVersion'
+  >;
+
   /**
    * Prepares the backing store for reads and writes.
    *
