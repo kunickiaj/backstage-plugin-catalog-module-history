@@ -1,10 +1,10 @@
 # @kunickiaj/backstage-plugin-catalog-history
 
-An unreleased Backstage New Frontend System (NFS) plugin that adds a **History** tab to catalog entity pages and a **Catalog history** page at `/catalog-history`. It reads recorded entity events from the catalog backend; it does not record history itself.
+Backstage New Frontend System (NFS) plugin that adds a **History** tab to catalog entity pages and a **Catalog history** page at `/catalog-history`. It reads recorded entity events from the catalog backend; it does not record history itself.
 
-## Status
+## Features introduced in `0.2.0`
 
-The package source is versioned as `0.1.0`, but is not published to npm and is not included in this repository's release or trusted-publishing setup. Use it from this workspace until a frontend package release is announced.
+The History tab, catalog-history page, and NFS default-plugin registration are introduced in `0.2.0`. The setup below works from this workspace before publication and from the package after installation.
 
 ## Run the local preview
 
@@ -110,7 +110,7 @@ This NFS- and BUI-only package exports:
 
 It also exports the plugin's API and entity-content blueprints for NFS composition. The default plugin automatically registers the standalone page. There is no cycle, stats, facets, as-of, or arbitrary version-comparison view.
 
-For API configuration, permissions, routes, and retention behavior, read the [workspace README](../../README.md#read-history-over-http-unreleased).
+For API configuration, permissions, routes, and retention behavior, read the [workspace README](../../README.md#read-history-over-http-in-020).
 
 ## License
 

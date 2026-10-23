@@ -1,6 +1,6 @@
 {
   "name": "@kunickiaj/backstage-plugin-catalog-history-node",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Backend-only contracts and service refs for the Backstage catalog history plugin family.",
   "main": "src/index.ts",
   "types": "src/index.ts",
@@ -67,7 +67,7 @@
   "dependencies": {
     "@backstage/backend-plugin-api": "^1.10.1",
     "@backstage/types": "^1.2.2",
-    "@kunickiaj/backstage-plugin-catalog-history-common": "^0.1.0"
+    "@kunickiaj/backstage-plugin-catalog-history-common": "workspace:^"
   },
   "devDependencies": {
     "@backstage/cli": "^0.36.6",

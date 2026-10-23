@@ -4,11 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Shared stable version in all four package manifests
+        description: Shared stable version in all five package manifests
         required: true
         type: string
       publish:
         description: Publish validated archives (main only; requires npm trust)
+        type: boolean
+        default: false
+      bootstrap_frontend:
+        description: First frontend release only; publish four trusted packages and defer frontend
         type: boolean
         default: false
 
@@ -41,6 +45,7 @@ jobs:
     env:
       RELEASE_VERSION: ${{ inputs.version }}
       PUBLISH_REQUESTED: ${{ inputs.publish }}
+      BOOTSTRAP_FRONTEND: ${{ inputs.bootstrap_frontend }}
       PG_HOST: localhost
       PG_PORT: 5432
       PG_USER: postgres
@@ -65,7 +70,7 @@ jobs:
       - run: yarn tsc
       - run: yarn build
       - run: yarn test --watch=false --runInBand
-      - name: Pack and inspect all four packages
+      - name: Pack and inspect all five packages
         run: node scripts/npm-release.mjs pack "$RELEASE_VERSION"
       - uses: actions/upload-artifact@v7
         with:
@@ -86,6 +91,7 @@ jobs:
       id-token: write
     env:
       RELEASE_VERSION: ${{ inputs.version }}
+      BOOTSTRAP_FRONTEND: ${{ inputs.bootstrap_frontend }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -103,3 +109,9 @@ jobs:
           path: .tmp/npm-release
       - name: Preflight versions and publish in dependency order
         run: node scripts/npm-release.mjs publish "$RELEASE_VERSION"
+      - name: Report pending manual frontend publication
+        if: inputs.bootstrap_frontend
+        run: |
+          echo '::warning::Manual frontend publication pending. Only four trusted packages were released; use the validated frontend archive from this run after separate approval.'
+          echo '### Manual frontend publication pending' >> "$GITHUB_STEP_SUMMARY"
+          echo 'The four trusted packages completed. The frontend was not published. Use the exact validated archive from this run after separate approval; see docs/publishing.md.' >> "$GITHUB_STEP_SUMMARY"

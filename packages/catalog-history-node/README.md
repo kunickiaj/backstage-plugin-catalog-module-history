@@ -16,9 +16,8 @@ Custom store implementations can optionally implement `HistoryStore.ensureReady(
 vocabulary.
 
 The default service factories ship with `@kunickiaj/backstage-plugin-catalog-history-storage-node`.
-The query router/service wiring is intentionally deferred until the backend
-query implementation lands, so it can be bound to the same history storage used
-by the catalog writer rather than a separate plugin-scoped database.
+The `0.2.0` query router and service wiring use the same history storage as the
+catalog writer rather than a separate plugin-scoped database.
 Frontend packages must not depend on this package.
 
 For architecture and roadmap details, see the [workspace README](../../README.md).

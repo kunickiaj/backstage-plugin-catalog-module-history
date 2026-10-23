@@ -18,11 +18,11 @@ import { historyStoreServiceFactory } from '@kunickiaj/backstage-plugin-catalog-
 backend.add(historyStoreServiceFactory);
 ```
 
-The `@kunickiaj/backstage-plugin-catalog-backend-module-history` default export already includes this factory. If you need custom storage, register your own `createServiceFactory({ service: historyStoreServiceRef, ... })` and use the named `catalogModuleHistory` export instead of the module package's default loader. The catalog module's unreleased HTTP API reads from this same store and database; a custom factory must implement its optional query capability, including `getEntityVersion`, before `catalog.history.api.enabled` can be set to `true`.
+The `@kunickiaj/backstage-plugin-catalog-backend-module-history` default export already includes this factory. If you need custom storage, register your own `createServiceFactory({ service: historyStoreServiceRef, ... })` and use the named `catalogModuleHistory` export instead of the module package's default loader. The catalog module's `0.2.0` HTTP API reads from this same store and database; a custom factory must implement its optional query capability, including `getEntityVersion`, before `catalog.history.api.enabled` can be set to `true`.
 
 For compatibility, the default factory still honors the deprecated `catalog.history.database` override. Prefer a custom service factory for new dedicated-storage setups.
 
-## Migration bookkeeping (unreleased fix)
+## Migration bookkeeping in `0.2.0`
 
 Backstage modules may own tables in their target plugin's logical database. The current source uses `catalog_history_knex_migrations` and its lock table for new history installations, separate from the target plugin's migration log. See the [Backstage module guidance](https://backstage.io/docs/backend-system/building-plugins-and-modules/).
 
@@ -38,7 +38,7 @@ Without an active dedicated log, mixed history/unrelated legacy records or histo
 
 Downgrading an installation that uses the new dedicated log to `0.1.0` is unsupported. Keep a backup and use a compatible version instead of replaying the old migrations.
 
-## Global history feed index (unreleased)
+## Global history feed index in `0.2.0`
 
 Migration `20261023000000_global_feed_ordering_index.js` adds the B-tree index `catalog_history_entities_changed_at_id_idx` on `(changed_at DESC, id DESC)`. It supports the global feed's newest-first ordering and cursor pages without sorting the entire retained history.
 
@@ -48,12 +48,12 @@ The index builds during normal history schema bootstrap, including installations
 
 Rollback removes only the new index, not recorded entities or cycles. No automatic online-index-build workflow is provided.
 
-## Knex client compatibility (unreleased fix)
+## Knex client compatibility in `0.2.0`
 
 The current source uses the backend API's Knex `^3.0.0` dependency range, allowing applications to reuse their existing supported client. Published `0.1.0` requests `^3.2.10`, which can install a newer nested Knex with incompatible client types; do not hide that mismatch with a type cast.
 
 Runtime coverage for these fixes includes Knex `3.1.0` and `3.2.10`. The supported range follows the backend API; other allowed versions are not individually tested here.
 
-The HTTP API is an unreleased opt-in feature of the catalog backend module, not a separate backend plugin. This package remains a storage Node library.
+The HTTP API is an opt-in `0.2.0` feature of the catalog backend module, not a separate backend plugin. This package remains a storage Node library.
 
 For architecture and roadmap details, see the [workspace README](../../README.md).

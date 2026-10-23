@@ -4,11 +4,11 @@ A Backstage backend module that records catalog entity changes into a versioned 
 
 Ships with a Postgres backend in v1; designed around a pluggable `HistoryStore` interface so additional backends (Dolt, ClickHouse, etc.) can be added without changes to the wrapper.
 
-**Status: pre-alpha.** All four packages are published at `0.1.0`. The HTTP read API, the migration-log isolation fix, and the additional frontend source package are unreleased; read the [storage notes](packages/catalog-history-backend/README.md#migration-bookkeeping-unreleased-fix) before using a shared catalog database.
+**Status: pre-alpha.** The first four packages are published at `0.1.0`. All five package sources are prepared as the `0.2.0` release candidate, including the frontend package, but `0.2.0` has not been published and the frontend package is not yet on npm. The HTTP read API and migration-log isolation fix are pending `0.2.0`; read the [storage notes](packages/catalog-history-backend/README.md#migration-bookkeeping-in-020) before using a shared catalog database.
 
 Maintainers: see [Publishing packages](docs/publishing.md) for validation-only runs, the first-release bootstrap, and npm trusted publishing.
 
-The unreleased global-feed index builds during history startup and blocks history entity writes while it builds. Plan a maintenance window for large retained histories; see the [index upgrade notes](packages/catalog-history-backend/README.md#global-history-feed-index-unreleased).
+The `0.2.0` global-feed index builds during history startup and blocks history entity writes while it builds. Before deploying it to a database with a large retained history, plan a maintenance window; see the [index upgrade notes](packages/catalog-history-backend/README.md#global-history-feed-index-in-020).
 
 ## What it does
 
@@ -141,7 +141,7 @@ catalog:
 
 Processing capture and the scheduled reconciler are config-only after `backend.add(import('@kunickiaj/backstage-plugin-catalog-backend-module-history'))`; no extra code wiring is needed.
 
-## Read history over HTTP (unreleased)
+## Read history over HTTP in `0.2.0`
 
 Enable the API in the existing catalog module. It uses the same history store and database as recording; do not install a separate history backend plugin. Its route prefix is `/api/catalog/history`, not the previously planned `/api/catalog-history`.
 
@@ -177,9 +177,9 @@ The entity list routes accept `source` (`provider`, `processing`, or `reconciler
 
 The detail route accepts no query parameters. Invalid, nonpositive, or out-of-range PostgreSQL bigint IDs return `400`; an absent row or an ID for another entity returns `404`. The API returns retained history for deleted entities and does not filter rows by current catalog visibility. An approved `catalog-history.read` permission grants access to all retained history, not only entities visible in the current catalog. An empty list is `200` with `items: []`. Errors are `401` for missing authentication, `403` for a rejected permission decision, and `500` for a sanitized backend failure. Cycle, stats, facets, as-of, arbitrary diff, and timeline-summary routes are not available yet; the current timeline summary is `{}` and has no semantic badges.
 
-## Add the frontend History tab and page (unreleased)
+## Add the frontend History tab and page in `0.2.0`
 
-`packages/catalog-history` contains the unreleased `@kunickiaj/backstage-plugin-catalog-history` NFS frontend package. It is versioned as `0.1.0` in this workspace, but is not on npm and is not part of the four-package release or trusted-publishing setup. The four published packages named above remain unchanged.
+`packages/catalog-history` contains the `@kunickiaj/backstage-plugin-catalog-history` NFS frontend package. Its source is a `0.2.0` release candidate, but it is not yet on npm. It is included in the five-package release candidate; publication remains gated on confirming its first-publication path. The four existing packages remain published at `0.1.0` until `0.2.0` is released.
 
 After adding the workspace package to your app, enable the catalog read API and add the default NFS plugin to `createApp`:
 
@@ -314,6 +314,7 @@ env \
 - [Implementation plan](docs/plans/2026-05-11-catalog-history-backstage-module.md)
 - [Productization roadmap](docs/plans/2026-07-05-catalog-history-productization-roadmap.md)
 - [Architecture](docs/ARCHITECTURE.md)
+- [`0.2.0` release candidate](docs/releases/0.2.0.md)
 
 ## License
 
