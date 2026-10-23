@@ -11,7 +11,7 @@ All four public packages stay in this repository's existing Yarn workspaces, wit
 | `@kunickiaj/backstage-plugin-catalog-history-storage-node`   | `packages/catalog-history-backend`        |
 | `@kunickiaj/backstage-plugin-catalog-backend-module-history` | `packages/catalog-backend-module-history` |
 
-The storage package is a `node-library`, not a backend plugin. These names apply before the first `0.1.0` release; no compatibility aliases are provided for earlier unpublished names.
+The storage package is a `node-library`, not a backend plugin. All four names are published at `0.1.0`. The superseded names were unpublished after the rename; they are not compatibility aliases.
 
 ## Validate a release
 
@@ -31,6 +31,8 @@ The archives contain compiled JavaScript and declarations, not workspace source 
 Archive filenames still follow the existing workspace directories, not the npm package names. Previously generated archives containing the old package names are invalid for this release: regenerate all four through CI from the renamed manifests and imports. Do not rename or reuse old archives.
 
 ## First release: manual bootstrap
+
+The bootstrap below was completed for `0.1.0` and is retained as a reference. Do not rerun it for that version; subsequent releases need a new coordinated version and approved artifacts.
 
 npm trusted publishers are configured in each existing package's settings. They cannot bootstrap these package names before their first publication. The first release therefore requires a separately approved manual publish from your personal npm account; no npm token needs to be stored in GitHub.
 

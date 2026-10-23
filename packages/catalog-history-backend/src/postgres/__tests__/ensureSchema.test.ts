@@ -1,4 +1,7 @@
-import knex, { Knex } from 'knex';
+import { randomUUID } from 'node:crypto';
+import { readdir } from 'node:fs/promises';
+import { TestDatabases } from '@backstage/backend-test-utils';
+import { Knex } from 'knex';
 import { resolvePackagePath } from '@backstage/backend-plugin-api';
 import { ensureSchema } from '../ensureSchema';
 
@@ -7,33 +10,66 @@ const migrationsDir = resolvePackagePath(
   'migrations',
 );
 
-const TEST_CONFIG = {
-  host: process.env.PG_HOST ?? 'localhost',
-  port: Number(process.env.PG_PORT ?? 5432),
-  user: process.env.PG_USER ?? 'postgres',
-  password: process.env.PG_PASSWORD ?? 'postgres',
-  database: process.env.PG_DATABASE ?? 'backstage_plugin_history_test',
-};
+const historyLedger = 'catalog_history_knex_migrations';
+const legacyLedger = 'knex_migrations';
+const initialMigration = '20260512000000_initial.js';
+const latestMigration = '20260705000000_source_and_stitched_fields.js';
+const historyMigrationNames = [initialMigration, latestMigration];
+const catalogMigrationsDir = resolvePackagePath(
+  '@backstage/plugin-catalog-backend',
+  'migrations',
+);
+
+jest.setTimeout(30000);
+
+async function snapshotTables(db: Knex) {
+  const tables = await db('information_schema.tables')
+    .whereIn('table_schema', ['public', 'history_metadata'])
+    .where('table_type', 'BASE TABLE')
+    .orderBy(['table_schema', 'table_name'])
+    .select('table_schema', 'table_name');
+  return Promise.all(
+    tables.map(async ({ table_schema: schema, table_name: table }) => ({
+      schema,
+      table,
+      columns: await db(table).withSchema(schema).columnInfo(),
+      rows: (await db(table).withSchema(schema).select('*')).sort((a, b) =>
+        JSON.stringify(a).localeCompare(JSON.stringify(b)),
+      ),
+    })),
+  );
+}
+
+async function seedHistory(db: Knex) {
+  const cycleId = randomUUID();
+  await db('catalog_history_cycles').insert({
+    cycle_id: cycleId,
+    provider: 'example-provider',
+    mutation_type: 'full',
+    started_at: '2026-05-12T10:00:00Z',
+    finished_at: '2026-05-12T10:00:01Z',
+    n_added: 1,
+  });
+  await db('catalog_history_entities').insert({
+    cycle_id: cycleId,
+    entity_ref: 'component:default/example',
+    kind: 'Component',
+    namespace: 'default',
+    name: 'example',
+    provider: 'example-provider',
+    op: 'insert',
+    etag: 'example-v1',
+    metadata: { name: 'example' },
+    spec: { type: 'service' },
+  });
+}
 
 describe('ensureSchema', () => {
+  const databases = TestDatabases.create({ ids: ['POSTGRES_16'] });
   let db: Knex;
 
-  beforeAll(() => {
-    db = knex({
-      client: 'pg',
-      connection: TEST_CONFIG,
-    });
-  });
-
-  afterAll(async () => {
-    await db.destroy();
-  });
-
   beforeEach(async () => {
-    await db.raw('DROP TABLE IF EXISTS catalog_history_entities CASCADE');
-    await db.raw('DROP TABLE IF EXISTS catalog_history_cycles CASCADE');
-    await db.raw('DROP TABLE IF EXISTS knex_migrations CASCADE');
-    await db.raw('DROP TABLE IF EXISTS knex_migrations_lock CASCADE');
+    db = await databases.init('POSTGRES_16');
   });
 
   it('creates both history tables', async () => {
@@ -89,7 +125,10 @@ describe('ensureSchema', () => {
 
   it('drops the source and stitched fields when the latest migration is rolled back', async () => {
     await ensureSchema(db);
-    await db.migrate.down({ directory: migrationsDir });
+    await db.migrate.down({
+      directory: migrationsDir,
+      tableName: historyLedger,
+    });
 
     const cycleCols = await db('information_schema.columns')
       .where({ table_name: 'catalog_history_cycles' })
@@ -106,7 +145,10 @@ describe('ensureSchema', () => {
 
   it('is idempotent: a second call is a no-op', async () => {
     await ensureSchema(db);
+    const before = await snapshotTables(db);
     await ensureSchema(db);
+
+    expect(await snapshotTables(db)).toEqual(before);
 
     const tables = await db('information_schema.tables')
       .whereIn('table_name', [
@@ -142,5 +184,289 @@ describe('ensureSchema', () => {
         expect.stringMatching(/catalog_history_entities_member_of/),
       ]),
     );
+  });
+
+  it('creates a dedicated history ledger without creating a legacy ledger', async () => {
+    await ensureSchema(db);
+
+    expect(await db(historyLedger).orderBy('id').pluck('name')).toEqual(
+      historyMigrationNames,
+    );
+    expect(await db.schema.hasTable(legacyLedger)).toBe(false);
+    expect(await db.schema.hasTable(`${legacyLedger}_lock`)).toBe(false);
+  });
+
+  it('coexists with the actual catalog migrations without changing catalog data or metadata', async () => {
+    const catalogNames = (await readdir(catalogMigrationsDir))
+      .filter(name => name.endsWith('.js'))
+      .sort();
+    expect(catalogNames).toHaveLength(43);
+    await db.migrate.latest({
+      directory: catalogMigrationsDir,
+      tableName: legacyLedger,
+    });
+    expect(await db(legacyLedger).orderBy('id').pluck('name')).toEqual(
+      catalogNames,
+    );
+    await db('locations').insert({
+      id: randomUUID(),
+      type: 'url',
+      target: 'https://example.test/catalog.yaml',
+      location_entity_ref: 'location:default/example',
+    });
+    const before = await snapshotTables(db);
+
+    await ensureSchema(db);
+    await ensureSchema(db);
+
+    const after = await snapshotTables(db);
+    expect(
+      after.filter(table => !table.table.startsWith('catalog_history_')),
+    ).toEqual(before);
+    expect(await db(historyLedger).orderBy('id').pluck('name')).toEqual(
+      historyMigrationNames,
+    );
+  });
+
+  it('retains a complete legacy history ledger and existing cycle and entity data', async () => {
+    await db.migrate.latest({
+      directory: migrationsDir,
+      tableName: legacyLedger,
+    });
+    await seedHistory(db);
+    const before = await snapshotTables(db);
+
+    await ensureSchema(db);
+
+    expect(await snapshotTables(db)).toEqual(before);
+    expect(await db.schema.hasTable(historyLedger)).toBe(false);
+  });
+
+  it('finishes a partially applied legacy history ledger without replaying the initial migration', async () => {
+    await db.migrate.up({
+      directory: migrationsDir,
+      tableName: legacyLedger,
+      name: initialMigration,
+    });
+    await seedHistory(db);
+    const initialRecord = await db(legacyLedger).first();
+    const cycle = await db('catalog_history_cycles').first();
+    const entity = await db('catalog_history_entities').first();
+    expect(await db('catalog_history_cycles').columnInfo()).not.toHaveProperty(
+      'source',
+    );
+
+    await ensureSchema(db);
+
+    expect(await db(legacyLedger).orderBy('id').pluck('name')).toEqual(
+      historyMigrationNames,
+    );
+    expect(
+      await db(legacyLedger).where({ id: initialRecord.id }).first(),
+    ).toEqual(initialRecord);
+    expect(await db('catalog_history_cycles').first()).toMatchObject(cycle);
+    expect(await db('catalog_history_entities').first()).toMatchObject(entity);
+    expect(await db('catalog_history_cycles').columnInfo()).toHaveProperty(
+      'source',
+    );
+    expect(await db('catalog_history_entities').columnInfo()).toHaveProperty(
+      'relations',
+    );
+    expect(await db.schema.hasTable(historyLedger)).toBe(false);
+  });
+
+  it('rejects mixed history and unrelated legacy records before changing any tables', async () => {
+    await db.migrate.latest({
+      directory: migrationsDir,
+      tableName: legacyLedger,
+    });
+    await seedHistory(db);
+    await db(legacyLedger).insert({
+      name: '20200101000000_unrelated.js',
+      batch: 2,
+      migration_time: new Date('2026-05-12T10:00:00Z'),
+    });
+    const before = await snapshotTables(db);
+
+    await expect(ensureSchema(db)).rejects.toThrow(
+      /mixed with unrelated migrations/,
+    );
+
+    expect(await snapshotTables(db)).toEqual(before);
+    expect(await db.schema.hasTable(historyLedger)).toBe(false);
+  });
+
+  it.each(['catalog_history_cycles', 'catalog_history_entities'])(
+    'rejects an orphan %s table without creating a ledger',
+    async tableName => {
+      await db.schema.createTable(tableName, table => {
+        table.text('marker');
+      });
+      await db(tableName).insert({ marker: 'keep-existing-data' });
+      const before = await snapshotTables(db);
+
+      await expect(ensureSchema(db)).rejects.toThrow(
+        /without recognized history migration records/,
+      );
+
+      expect(await snapshotTables(db)).toEqual(before);
+      expect(await db.schema.hasTable(historyLedger)).toBe(false);
+      expect(await db.schema.hasTable(`${historyLedger}_lock`)).toBe(false);
+    },
+  );
+
+  it('retains a configured custom legacy history ledger', async () => {
+    db.client.config.migrations = { tableName: 'custom_history_migrations' };
+    await db.migrate.latest({ directory: migrationsDir });
+    await seedHistory(db);
+    const before = await snapshotTables(db);
+
+    await ensureSchema(db);
+
+    expect(await snapshotTables(db)).toEqual(before);
+    expect(await db.schema.hasTable(historyLedger)).toBe(false);
+    expect(await db.schema.hasTable(legacyLedger)).toBe(false);
+  });
+
+  it('uses valid legacy history records when the dedicated ledger exists but is empty', async () => {
+    await db.migrate.latest({
+      directory: migrationsDir,
+      tableName: legacyLedger,
+    });
+    await seedHistory(db);
+    await db.migrate.list({
+      directory: migrationsDir,
+      tableName: historyLedger,
+    });
+    expect(await db(historyLedger).select('*')).toEqual([]);
+    const before = await snapshotTables(db);
+
+    await ensureSchema(db);
+
+    expect(await snapshotTables(db)).toEqual(before);
+  });
+
+  it('prioritizes an existing dedicated ledger over unrelated legacy records', async () => {
+    await ensureSchema(db);
+    await seedHistory(db);
+    await db.migrate.list({
+      directory: migrationsDir,
+      tableName: legacyLedger,
+    });
+    await db(legacyLedger).insert({
+      name: '20200101000000_unrelated.js',
+      batch: 1,
+      migration_time: new Date('2026-05-12T10:00:00Z'),
+    });
+    const before = await snapshotTables(db);
+
+    await ensureSchema(db);
+
+    expect(await snapshotTables(db)).toEqual(before);
+  });
+
+  it('reuses legacy metadata in a configured schema while keeping history data in public', async () => {
+    await db.schema.createSchema('history_metadata');
+    db.client.config.migrations = { schemaName: 'history_metadata' };
+    await db.migrate.latest({
+      directory: migrationsDir,
+      tableName: legacyLedger,
+    });
+    await seedHistory(db);
+    expect(
+      await db.schema.withSchema('public').hasTable('catalog_history_cycles'),
+    ).toBe(true);
+    expect(
+      await db.schema.withSchema('history_metadata').hasTable(legacyLedger),
+    ).toBe(true);
+    const before = await snapshotTables(db);
+
+    await ensureSchema(db);
+
+    expect(await snapshotTables(db)).toEqual(before);
+    expect(
+      await db.schema.withSchema('history_metadata').hasTable(historyLedger),
+    ).toBe(false);
+  });
+
+  it('rejects orphan public history data even when migration metadata uses another schema', async () => {
+    await db.schema.createSchema('history_metadata');
+    db.client.config.migrations = { schemaName: 'history_metadata' };
+    await db.schema.createTable('catalog_history_cycles', table => {
+      table.text('marker');
+    });
+    await db('catalog_history_cycles').insert({ marker: 'keep-existing-data' });
+    const before = await snapshotTables(db);
+
+    await expect(ensureSchema(db)).rejects.toThrow(
+      /without recognized history migration records/,
+    );
+
+    expect(await snapshotTables(db)).toEqual(before);
+    expect(
+      await db.schema.withSchema('history_metadata').hasTable(historyLedger),
+    ).toBe(false);
+    expect(
+      await db.schema
+        .withSchema('history_metadata')
+        .hasTable(`${historyLedger}_lock`),
+    ).toBe(false);
+  });
+
+  it('initializes an empty dedicated ledger left by an interrupted first run', async () => {
+    await db.migrate.list({
+      directory: migrationsDir,
+      tableName: historyLedger,
+    });
+    expect(await db(historyLedger).select('*')).toEqual([]);
+
+    await ensureSchema(db);
+
+    expect(await db(historyLedger).orderBy('id').pluck('name')).toEqual(
+      historyMigrationNames,
+    );
+    expect(await db.schema.hasTable('catalog_history_cycles')).toBe(true);
+    expect(await db.schema.hasTable('catalog_history_entities')).toBe(true);
+    expect(await db.schema.hasTable(legacyLedger)).toBe(false);
+  });
+
+  it('accepts another initializer completing between the metadata read and orphan-table check', async () => {
+    await db.migrate.list({
+      directory: migrationsDir,
+      tableName: historyLedger,
+    });
+    expect(await db(historyLedger).select('*')).toEqual([]);
+    let initialized = false;
+    let completedState: Awaited<ReturnType<typeof snapshotTables>> | undefined;
+    const interleavedDb = new Proxy(db, {
+      get(target, property) {
+        if (property !== 'schema') return Reflect.get(target, property);
+        return new Proxy(target.schema, {
+          get(schema, schemaProperty) {
+            if (schemaProperty !== 'hasTable') {
+              return Reflect.get(schema, schemaProperty);
+            }
+            return async (tableName: string) => {
+              if (tableName === 'catalog_history_cycles' && !initialized) {
+                initialized = true;
+                await ensureSchema(db);
+                await seedHistory(db);
+                completedState = await snapshotTables(db);
+              }
+              return schema.hasTable(tableName);
+            };
+          },
+        });
+      },
+    });
+
+    await ensureSchema(interleavedDb);
+
+    expect(initialized).toBe(true);
+    expect(await snapshotTables(db)).toEqual(completedState);
+    expect(await db(historyLedger).orderBy('id').pluck('name')).toEqual(
+      historyMigrationNames,
+    );
+    expect(await db.schema.hasTable(legacyLedger)).toBe(false);
   });
 });

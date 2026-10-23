@@ -4273,7 +4273,7 @@ __metadata:
     "@types/pg": "npm:^8.23.1"
     jest: "npm:^30.5.2"
     json-stable-stringify: "npm:^1.3.0"
-    knex: "npm:^3.2.10"
+    knex: "npm:^3.0.0"
     pg: "npm:^8.23.0"
   bin:
     reconcile-catalog-history: ./bin/reconcile-catalog-history.js
@@ -4311,13 +4311,14 @@ __metadata:
     "@backstage/backend-test-utils": "npm:^1.11.7"
     "@backstage/cli": "npm:^0.36.6"
     "@backstage/errors": "npm:^1.3.1"
+    "@backstage/plugin-catalog-backend": "npm:3.9.1"
     "@kunickiaj/backstage-plugin-catalog-history-common": "npm:^0.1.0"
     "@kunickiaj/backstage-plugin-catalog-history-node": "npm:^0.1.0"
     "@types/jest": "npm:^30.0.0"
     "@types/node": "npm:^24.13.6"
     "@types/pg": "npm:^8.23.1"
     jest: "npm:^30.5.2"
-    knex: "npm:^3.2.10"
+    knex: "npm:^3.0.0"
     pg: "npm:^8.23.0"
   languageName: unknown
   linkType: soft
@@ -15194,7 +15195,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"knex@npm:^3.0.0, knex@npm:^3.2.10":
+"knex@npm:^3.0.0":
   version: 3.2.10
   resolution: "knex@npm:3.2.10"
   dependencies:
