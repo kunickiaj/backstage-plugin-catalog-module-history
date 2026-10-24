@@ -37,6 +37,7 @@
     "lint": "backstage-cli package lint",
     "lint:fix": "backstage-cli package lint --fix",
     "test": "backstage-cli package test --passWithNoTests",
+    "bench:baseline": "backstage-cli package test --runInBand --watch=false --runTestsByPath src/benchmarks/catalogHistory.baseline.benchmark.ts --testMatch '**/*.benchmark.ts'",
     "test:watch": "backstage-cli package test --watch",
     "start": "backstage-cli package start",
     "tsc": "tsc",
