@@ -4,7 +4,7 @@ Backstage New Frontend System (NFS) plugin that adds a **History** tab to catalo
 
 ## Features introduced in `0.2.0`
 
-The History tab, catalog-history page, and NFS default-plugin registration are introduced in `0.2.0`. The setup below works from this workspace before publication and from the package after installation.
+The History tab, catalog-history page, and NFS default-plugin registration are introduced in `0.2.0`. The setup below works from the workspace preview and from an installed package.
 
 ## Run the local preview
 
@@ -32,6 +32,14 @@ They are demonstration data, not an alternative backend implementation.
 
 ## Add the plugin to an NFS app
 
+From the host repository root, install the package in the app workspace:
+
+```sh
+yarn --cwd packages/app add '@kunickiaj/backstage-plugin-catalog-history@^0.2.0'
+```
+
+Replace `packages/app` when the app workspace is elsewhere. Use the published package version in a host app; do not use `workspace:^` for this dependency.
+
 Enable the backend read API first:
 
 ```yaml
@@ -41,7 +49,7 @@ catalog:
       enabled: true
 ```
 
-Then add the workspace package to the app and register its default export alongside the app's existing features:
+Then register the default export alongside the app's existing features:
 
 ```ts
 import { createApp } from '@backstage/frontend-defaults';
@@ -55,13 +63,28 @@ export default createApp({
 });
 ```
 
-The plugin contributes the entity-content extension at `history` with the title **History**, so the catalog entity page renders it as an entity tab. It also registers the `/catalog-history` page with navigation metadata and the title **Catalog history**. Plugin registration is unchanged: add the default export to `features`. It uses Backstage UI (BUI) components. If the app does not already load BUI styles, import the stylesheet once in its entry point:
+The plugin contributes the entity-content extension at `history` with the title **History**, so the catalog entity page renders it as an entity tab. It also registers the `/catalog-history` page with navigation metadata and the title **Catalog history**.
+
+The default plugin registers `catalogHistoryApiRef` with Backstage discovery and fetch APIs, so no separate API factory wiring is required.
+
+This plugin uses Backstage UI (BUI), with a dependency on `@backstage/ui@^0.19.0`. If the host app does not already declare BUI, add a version compatible with both the host and that range rather than upgrading arbitrarily.
+
+If BUI styles are not already loaded, import the stylesheet once in the app entry point:
 
 ```ts
 import '@backstage/ui/css/styles.css';
 ```
 
 Do not use legacy `EntityLayout.Route` or Material UI setup for this package.
+
+## Synthetic preview screenshots
+
+These fixture-based previews show the UI only. They do not prove a live host-app installation, authentication flow, or end-to-end backend integration.
+
+![Catalog history page browsing events for multiple entities, including a deleted team](https://raw.githubusercontent.com/kunickiaj/backstage-plugin-catalog-module-history/v0.2.0/docs/catalog-history-browse.png)
+
+- [Entity History tab preview](https://raw.githubusercontent.com/kunickiaj/backstage-plugin-catalog-module-history/v0.2.0/docs/catalog-history-preview.png)
+- [Deletion inspector preview](https://raw.githubusercontent.com/kunickiaj/backstage-plugin-catalog-module-history/v0.2.0/docs/catalog-history-deletion.png)
 
 ## Browse entity and catalog history
 
