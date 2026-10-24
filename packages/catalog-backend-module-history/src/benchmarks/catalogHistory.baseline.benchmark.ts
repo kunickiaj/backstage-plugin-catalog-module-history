@@ -1046,9 +1046,9 @@ it('diagnoses the public catalog backend with provider recording off and on', as
           .version,
       },
       comparison:
-        'Runtime 0.2 baseline at this SHA, not the report catalog 4.0.2, not scale proof or original timeout cause attribution',
+        'Workspace source at the recorded SHA; inspect installed versions and dirty state. Not scale proof or original timeout cause attribution',
       readDeadlineFeature:
-        'Prior PR93 read deadline guard absent; requested queryTimeoutMs=0 not claimed enforced',
+        'Plugin read deadline configured off (queryTimeoutMs=0); separate fixture-session SQL safety cap remains active',
       authentication:
         'Mock user headers on all requests; default NONE and permission ALLOW; not production policy proof',
       metrics: 'SDK default noop',

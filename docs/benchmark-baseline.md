@@ -1,8 +1,8 @@
 # Catalog history baseline diagnostic
 
 This opt-in diagnostic runs synthetic catalog snapshots against the public
-`@backstage/plugin-catalog-backend` 3.9.1 and the history module. It uses
-`@backstage/backend-test-utils` 1.11.7 to start the real backend and an owned
+`@backstage/plugin-catalog-backend` 4.0.2 and the history module. It uses
+`@backstage/backend-test-utils` 1.11.8 to start the real backend and an owned
 PostgreSQL 16 Docker database; it is not a production benchmark or a database
 durability sign-off.
 
@@ -102,5 +102,10 @@ or authorization policy.
 This diagnostic does not explain external catalog 4.0.2 timeouts or attribute a
 prior timeout to a SQL cause. It measures neither cold operating-system cache
 behavior, retention, soak duration, concurrent load, production-scale behavior,
-nor durability. It is a runtime 0.2 baseline and does not include a
-read-deadline guard or claim that `queryTimeoutMs: 0` is enforced.
+nor durability. It runs the checked-out workspace code, not an installed copy of
+published `0.2.0`. The harness sets `queryTimeoutMs: 0` to disable the plugin's
+read limit; its separate fixture-session SQL safety cap remains active.
+
+Earlier artifacts recorded catalog 3.9.1 before the dependency upgrade. Interpret
+each artifact using its recorded versions, source commit, and dirty-state flag;
+those earlier results are not measurements of catalog 4.0.2.
