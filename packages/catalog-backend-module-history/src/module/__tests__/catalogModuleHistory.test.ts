@@ -18,9 +18,14 @@ import {
 } from '@kunickiaj/backstage-plugin-catalog-history-node';
 import { InMemoryHistoryStore } from '@kunickiaj/backstage-plugin-catalog-history-node/testUtils';
 import type { Knex } from 'knex';
+import { metricsServiceMock } from '@backstage/backend-test-utils/alpha';
 import { HistoryRecordingCatalogProcessor } from '../../processor/HistoryRecordingCatalogProcessor';
 import catalogHistoryFeatureLoader from '../..';
 import { catalogModuleHistory } from '../catalogModuleHistory';
+import {
+  metricsJournal,
+  outcomes,
+} from '../../telemetry/__tests__/metricsJournal';
 
 jest.setTimeout(30000);
 
@@ -373,6 +378,9 @@ describe('catalogModuleHistory', () => {
   });
 
   it('passes the injected history store to processor capture', async () => {
+    // Arrange - use the real SDK service reference through the backend container.
+    const journal = metricsJournal();
+    const metrics = metricsServiceMock.mock(journal.metrics);
     const store = new InMemoryHistoryStore();
     const addProcessor = jest.fn();
 
@@ -382,6 +390,7 @@ describe('catalogModuleHistory', () => {
         catalogModuleHistory,
         catalogServiceFactory,
         customStoreFactory(store),
+        metrics.factory,
         mockServices.rootConfig.factory({
           data: { catalog: { history: { processing: { enabled: true } } } },
         }),
@@ -390,6 +399,7 @@ describe('catalogModuleHistory', () => {
 
     const processor = addProcessor.mock
       .calls[0][0] as HistoryRecordingCatalogProcessor;
+    // Act
     await processor.postProcessEntity(
       user('di-processor'),
       { type: 'url', target: 'https://example.com' },
@@ -398,13 +408,27 @@ describe('catalogModuleHistory', () => {
     );
     await processor.stop();
 
+    // Assert
     expect(store.cycles).toHaveLength(1);
     expect(store.cycles[0].inserts.map(row => row.entityRef)).toEqual([
       'user:default/di-processor',
     ]);
+    expect(
+      outcomes(journal.measurements, 'processing', {
+        operation: 'processing_entity',
+      }),
+    ).toEqual(['success']);
+    expect(
+      outcomes(journal.measurements, 'processing', {
+        operation: 'processing_flush',
+      }),
+    ).toEqual(['success']);
   });
 
   it('passes the injected history store to scheduled reconciler capture', async () => {
+    // Arrange
+    const journal = metricsJournal();
+    const metrics = metricsServiceMock.mock(journal.metrics);
     const store = new InMemoryHistoryStore();
     const scheduler = mockServices.scheduler.mock();
     fakeCatalogService.queryEntities.mockResolvedValue({
@@ -420,6 +444,7 @@ describe('catalogModuleHistory', () => {
         catalogModuleHistory,
         catalogServiceFactory,
         customStoreFactory(store),
+        metrics.factory,
         scheduler.factory,
         mockServices.rootConfig.factory({
           data: { catalog: { history: { reconciler: { enabled: true } } } },
@@ -427,10 +452,12 @@ describe('catalogModuleHistory', () => {
       ],
     });
 
+    // Act
     await scheduler.scheduleTask.mock.calls[0][0].fn(
       new AbortController().signal,
     );
 
+    // Assert
     expect(store.cycles).toHaveLength(1);
     expect(store.cycles[0]).toMatchObject({
       provider: 'reconciler',
@@ -440,5 +467,34 @@ describe('catalogModuleHistory', () => {
     expect(store.cycles[0].inserts.map(row => row.entityRef)).toEqual([
       'user:default/di-reconciler',
     ]);
+    expect(
+      outcomes(journal.measurements, 'reconciler', { operation: 'reconcile' }),
+    ).toEqual(['success']);
+  });
+
+  it('does not create capture instruments or schedule work for default-disabled layers', async () => {
+    // Arrange
+    const metrics = metricsServiceMock.mock();
+    const scheduler = mockServices.scheduler.mock();
+    const addProcessor = jest.fn();
+
+    // Act
+    backend = await startTestBackend({
+      extensionPoints: [[catalogProcessingExtensionPoint, { addProcessor }]],
+      features: [
+        catalogModuleHistory,
+        catalogServiceFactory,
+        customStoreFactory(new InMemoryHistoryStore()),
+        metrics.factory,
+        scheduler.factory,
+        mockServices.rootConfig.factory({ data: {} }),
+      ],
+    });
+
+    // Assert
+    expect(addProcessor).not.toHaveBeenCalled();
+    expect(scheduler.scheduleTask).not.toHaveBeenCalled();
+    expect(metrics.createCounter).not.toHaveBeenCalled();
+    expect(metrics.createHistogram).not.toHaveBeenCalled();
   });
 });

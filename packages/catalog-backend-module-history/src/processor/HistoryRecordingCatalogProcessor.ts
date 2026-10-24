@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { LoggerService } from '@backstage/backend-plugin-api';
+import type { MetricsService } from '@backstage/backend-plugin-api/alpha';
 import type { Entity } from '@backstage/catalog-model';
 import {
   type CatalogProcessor,
@@ -8,6 +9,7 @@ import {
   type LocationSpec,
 } from '@backstage/plugin-catalog-node';
 import { entityToRow } from '../mapping/entityToRow';
+import { createCaptureMetrics } from '../telemetry/captureMetrics';
 import type {
   EntityRow,
   HistoryStore,
@@ -20,6 +22,7 @@ const DEFAULT_FLUSH_INTERVAL_MS = 10_000;
 export type HistoryRecordingCatalogProcessorOptions = {
   store: HistoryStore;
   logger: LoggerService;
+  metrics?: MetricsService;
   maxBatchSize?: number;
   flushIntervalMs?: number;
 };
@@ -54,11 +57,13 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
   private batchStartedAt: Date | undefined;
   private flushTimer: NodeJS.Timeout | undefined;
   private flushPromise: Promise<void> | undefined;
+  private readonly captureMetrics;
 
   constructor(
     private readonly options: HistoryRecordingCatalogProcessorOptions,
   ) {
     this.maxBatchSize = options.maxBatchSize ?? DEFAULT_MAX_BATCH_SIZE;
+    this.captureMetrics = createCaptureMetrics('processing', options.metrics);
     this.flushIntervalMs = options.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
   }
 
@@ -72,46 +77,79 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
     _emit: CatalogProcessorEmit,
     _cache: CatalogProcessorCache,
   ): Promise<Entity> {
+    const stopOperation =
+      this.captureMetrics.startOperation('processing_entity');
+    let operationOutcome: 'success' | 'error' = 'success';
     try {
-      const row = entityToRow(entity);
-      const etags = await this.getCurrentEtags();
-      // INVARIANT: no awaits between reading the map below and writing it
-      // back (etags.set). The catalog engine calls postProcessEntity
-      // concurrently; because this read-classify-queue stretch is fully
-      // synchronous, concurrent calls for the same entityRef serialize on
-      // the microtask queue and cannot double-classify. Adding an await in
-      // between would reintroduce a TOCTOU race and duplicate rows.
-      const previousEtag = etags.get(row.entityRef);
-      const previousEtagVersion =
-        this.currentEtagVersions.get(row.entityRef) ?? 0;
-
-      if (previousEtag === row.etag) {
-        this.unchangedCount += 1;
-        return entity;
+      const stopMapping = this.captureMetrics.startPhase('prepare');
+      let mapped = false;
+      let row: EntityRow;
+      try {
+        row = entityToRow(entity);
+        mapped = true;
+      } finally {
+        stopMapping(mapped ? 'success' : 'error');
       }
-
-      if (!this.batchOriginalEtags.has(row.entityRef)) {
-        this.batchOriginalEtags.set(row.entityRef, previousEtag);
-        this.batchOriginalEtagVersions.set(row.entityRef, previousEtagVersion);
+      const stopBaseline = this.captureMetrics.startPhase('baseline');
+      let loaded = false;
+      let etags: Map<string, string>;
+      try {
+        etags = await this.getCurrentEtags();
+        loaded = true;
+      } finally {
+        stopBaseline(loaded ? 'success' : 'error');
       }
-      const etagVersion = previousEtagVersion + 1;
-      if (previousEtag === undefined) {
-        this.inserts.push({ row, etagVersion });
-      } else {
-        this.updates.push({ row, etagVersion });
-      }
-      etags.set(row.entityRef, row.etag);
-      this.currentEtagVersions.set(row.entityRef, etagVersion);
-      this.ensureBatchStarted();
+      const stopPrepare = this.captureMetrics.startPhase('prepare');
+      let prepared = false;
+      try {
+        // INVARIANT: no awaits between reading the map below and writing it
+        // back (etags.set). The catalog engine calls postProcessEntity
+        // concurrently; because this read-classify-queue stretch is fully
+        // synchronous, concurrent calls for the same entityRef serialize on
+        // the microtask queue and cannot double-classify. Adding an await in
+        // between would reintroduce a TOCTOU race and duplicate rows.
+        const previousEtag = etags.get(row.entityRef);
+        const previousEtagVersion =
+          this.currentEtagVersions.get(row.entityRef) ?? 0;
 
+        if (previousEtag === row.etag) {
+          this.unchangedCount += 1;
+          prepared = true;
+          return entity;
+        }
+
+        if (!this.batchOriginalEtags.has(row.entityRef)) {
+          this.batchOriginalEtags.set(row.entityRef, previousEtag);
+          this.batchOriginalEtagVersions.set(
+            row.entityRef,
+            previousEtagVersion,
+          );
+        }
+        const etagVersion = previousEtagVersion + 1;
+        if (previousEtag === undefined) {
+          this.inserts.push({ row, etagVersion });
+        } else {
+          this.updates.push({ row, etagVersion });
+        }
+        etags.set(row.entityRef, row.etag);
+        this.currentEtagVersions.set(row.entityRef, etagVersion);
+        this.ensureBatchStarted();
+        prepared = true;
+      } finally {
+        // Record only after the synchronous cache/queue transition is complete.
+        stopPrepare(prepared ? 'success' : 'error');
+      }
       if (this.bufferLength() >= this.maxBatchSize) {
         await this.flush();
       }
     } catch (error) {
+      operationOutcome = 'error';
       this.options.logger.warn(
         'Failed to record processor-layer catalog history',
         error as Error,
       );
+    } finally {
+      stopOperation(operationOutcome);
     }
 
     return entity;
@@ -182,78 +220,102 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
       return;
     }
 
-    const inserts = this.inserts;
-    const updates = this.updates;
-    const batchOriginalEtags = this.batchOriginalEtags;
-    const batchOriginalEtagVersions = this.batchOriginalEtagVersions;
-    const unchangedCount = this.unchangedCount;
-    const startedAt = this.batchStartedAt ?? new Date();
-
-    this.inserts = [];
-    this.updates = [];
-    this.batchOriginalEtags = new Map();
-    this.batchOriginalEtagVersions = new Map();
-    this.unchangedCount = 0;
-    this.batchStartedAt = undefined;
-    this.clearFlushTimer();
-
+    const stopOperation =
+      this.captureMetrics.startOperation('processing_flush');
+    let operationOutcome: 'success' | 'error' = 'error';
     try {
-      await this.options.store.recordCycle({
-        cycleId: randomUUID(),
-        provider: PROCESSING_PROVIDER,
-        source: 'processing',
-        mutationType: 'delta',
-        startedAt,
-        finishedAt: new Date(),
-        inserts: inserts.map(queued => queued.row),
-        updates: updates.map(queued => queued.row),
-        deletes: [],
-        unchangedCount,
-      });
-    } catch (error) {
-      // History for this window is intentionally forfeited on store error:
-      // requeueing would grow the buffer unboundedly during an outage, and
-      // processor-layer capture is best-effort by design — the reconciler
-      // layer is the backstop for anything missed here. Logged at error so
-      // sustained store outages are alertable.
-      //
-      // The etag cache must not claim these rows were persisted, though —
-      // otherwise the next observation of the same content would hit the
-      // unchanged fast path and the entity would stay missing from history
-      // until it changes again. Restore each entry to its pre-batch state so
-      // retries classify with the correct op even when the same ref changed
-      // multiple times in this failed batch. Rollback is guarded by a local
-      // per-ref version, not etag equality alone, because a newer queued batch
-      // can legitimately end at the same etag.
-      const etags = this.currentEtags;
-      if (etags) {
-        const failedBatchVersions = new Map<string, number>();
-        for (const { row, etagVersion } of [...inserts, ...updates]) {
-          failedBatchVersions.set(row.entityRef, etagVersion);
-        }
+      const inserts = this.inserts;
+      const updates = this.updates;
+      const batchOriginalEtags = this.batchOriginalEtags;
+      const batchOriginalEtagVersions = this.batchOriginalEtagVersions;
+      const unchangedCount = this.unchangedCount;
+      const startedAt = this.batchStartedAt ?? new Date();
 
-        for (const [entityRef, failedEtagVersion] of failedBatchVersions) {
-          if (this.currentEtagVersions.get(entityRef) === failedEtagVersion) {
-            const originalEtag = batchOriginalEtags.get(entityRef);
-            const originalEtagVersion =
-              batchOriginalEtagVersions.get(entityRef) ?? 0;
-            if (originalEtag === undefined) {
-              etags.delete(entityRef);
-            } else {
-              etags.set(entityRef, originalEtag);
-            }
-            if (originalEtagVersion === 0) {
-              this.currentEtagVersions.delete(entityRef);
-            } else {
-              this.currentEtagVersions.set(entityRef, originalEtagVersion);
+      this.inserts = [];
+      this.updates = [];
+      this.batchOriginalEtags = new Map();
+      this.batchOriginalEtagVersions = new Map();
+      this.unchangedCount = 0;
+      this.batchStartedAt = undefined;
+      this.clearFlushTimer();
+
+      try {
+        const stopPrepare = this.captureMetrics.startPhase('prepare');
+        let prepared = false;
+        let cycle: Parameters<HistoryStore['recordCycle']>[0];
+        try {
+          cycle = {
+            cycleId: randomUUID(),
+            provider: PROCESSING_PROVIDER,
+            source: 'processing',
+            mutationType: 'delta',
+            startedAt,
+            finishedAt: new Date(),
+            inserts: inserts.map(queued => queued.row),
+            updates: updates.map(queued => queued.row),
+            deletes: [],
+            unchangedCount,
+          };
+          prepared = true;
+        } finally {
+          stopPrepare(prepared ? 'success' : 'error');
+        }
+        const stopRecord = this.captureMetrics.startPhase('record');
+        let recorded = false;
+        try {
+          await this.options.store.recordCycle(cycle);
+          recorded = true;
+        } finally {
+          stopRecord(recorded ? 'success' : 'error');
+        }
+        operationOutcome = 'success';
+      } catch (error) {
+        // History for this window is intentionally forfeited on store error:
+        // requeueing would grow the buffer unboundedly during an outage, and
+        // processor-layer capture is best-effort by design — the reconciler
+        // layer is the backstop for anything missed here. Logged at error so
+        // sustained store outages are alertable.
+        //
+        // The etag cache must not claim these rows were persisted, though —
+        // otherwise the next observation of the same content would hit the
+        // unchanged fast path and the entity would stay missing from history
+        // until it changes again. Restore each entry to its pre-batch state so
+        // retries classify with the correct op even when the same ref changed
+        // multiple times in this failed batch. Rollback is guarded by a local
+        // per-ref version, not etag equality alone, because a newer queued batch
+        // can legitimately end at the same etag.
+        const etags = this.currentEtags;
+        if (etags) {
+          const failedBatchVersions = new Map<string, number>();
+          for (const { row, etagVersion } of [...inserts, ...updates]) {
+            failedBatchVersions.set(row.entityRef, etagVersion);
+          }
+
+          for (const [entityRef, failedEtagVersion] of failedBatchVersions) {
+            if (this.currentEtagVersions.get(entityRef) === failedEtagVersion) {
+              const originalEtag = batchOriginalEtags.get(entityRef);
+              const originalEtagVersion =
+                batchOriginalEtagVersions.get(entityRef) ?? 0;
+              if (originalEtag === undefined) {
+                etags.delete(entityRef);
+              } else {
+                etags.set(entityRef, originalEtag);
+              }
+              if (originalEtagVersion === 0) {
+                this.currentEtagVersions.delete(entityRef);
+              } else {
+                this.currentEtagVersions.set(entityRef, originalEtagVersion);
+              }
             }
           }
         }
+        this.options.logger.error(
+          'Failed to flush processor-layer catalog history; dropping this batch',
+          error as Error,
+        );
       }
-      this.options.logger.error(
-        'Failed to flush processor-layer catalog history; dropping this batch',
-        error as Error,
-      );
+    } finally {
+      stopOperation(operationOutcome);
     }
   }
 

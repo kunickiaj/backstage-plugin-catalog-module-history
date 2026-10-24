@@ -3,6 +3,7 @@ import {
   createBackendModule,
   readSchedulerServiceTaskScheduleDefinitionFromConfig,
 } from '@backstage/backend-plugin-api';
+import { metricsServiceRef } from '@backstage/backend-plugin-api/alpha';
 import {
   catalogProcessingExtensionPoint,
   catalogServiceRef,
@@ -58,6 +59,7 @@ export const catalogModuleHistory = createBackendModule({
     reg.registerInit({
       deps: {
         logger: coreServices.logger,
+        metrics: metricsServiceRef,
         config: coreServices.rootConfig,
         historyStore: historyStoreServiceRef,
         catalog: catalogProcessingExtensionPoint,
@@ -72,6 +74,7 @@ export const catalogModuleHistory = createBackendModule({
       },
       async init({
         logger,
+        metrics,
         config,
         historyStore,
         catalog,
@@ -152,6 +155,7 @@ export const catalogModuleHistory = createBackendModule({
           const processor = new HistoryRecordingCatalogProcessor({
             store,
             logger,
+            metrics,
           });
           catalog.addProcessor(processor);
           const stopProcessor = async () => {
@@ -190,7 +194,7 @@ export const catalogModuleHistory = createBackendModule({
             ...schedule,
             fn: async () => {
               try {
-                await reconcile({ fetcher, store, logger });
+                await reconcile({ fetcher, store, logger, metrics });
               } catch (err) {
                 logger.error(
                   'catalog-history scheduled reconcile failed',
