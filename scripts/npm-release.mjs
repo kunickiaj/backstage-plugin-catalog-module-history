@@ -10,18 +10,135 @@ export const PACKAGES = [
   [
     '@kunickiaj/backstage-plugin-catalog-history-common',
     'catalog-history-common',
+    { role: 'common-library' },
   ],
-  ['@kunickiaj/backstage-plugin-catalog-history-node', 'catalog-history-node'],
+  [
+    '@kunickiaj/backstage-plugin-catalog-history-node',
+    'catalog-history-node',
+    { role: 'node-library' },
+  ],
   [
     '@kunickiaj/backstage-plugin-catalog-history-storage-node',
     'catalog-history-backend',
+    { role: 'node-library' },
   ],
   [
     '@kunickiaj/backstage-plugin-catalog-backend-module-history',
     'catalog-backend-module-history',
+    {
+      role: 'backend-plugin-module',
+      pluginId: 'catalog',
+      pluginPackage: '@backstage/plugin-catalog-backend',
+    },
   ],
-  ['@kunickiaj/backstage-plugin-catalog-history', 'catalog-history'],
+  [
+    '@kunickiaj/backstage-plugin-catalog-history',
+    'catalog-history',
+    { role: 'frontend-plugin', pluginId: 'catalog-history' },
+  ],
 ];
+
+function validatePackageMetadata(manifest) {
+  const expected = PACKAGES.find(([name]) => name === manifest.name)?.[2];
+  if (!expected) throw new Error(`Unsupported package ${manifest.name}`);
+  for (const [field, value] of Object.entries(expected)) {
+    if (manifest.backstage?.[field] !== value) {
+      throw new Error(`${manifest.name}: backstage.${field} must be ${value}`);
+    }
+  }
+  if (expected.role !== 'frontend-plugin') return;
+  const pluginPackages = manifest.backstage.pluginPackages;
+  if (
+    !Array.isArray(pluginPackages) ||
+    !pluginPackages.every(isNonemptyString) ||
+    !pluginPackages.includes(manifest.name)
+  ) {
+    throw new Error(
+      `${manifest.name}: backstage.pluginPackages must contain its own package name and only nonempty strings`,
+    );
+  }
+}
+
+function isNonemptyString(value) {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function binTargets(manifest) {
+  if (manifest.bin === undefined) return [];
+  if (isNonemptyString(manifest.bin)) return [manifest.bin];
+  if (
+    !manifest.bin ||
+    typeof manifest.bin !== 'object' ||
+    Array.isArray(manifest.bin) ||
+    Object.keys(manifest.bin).length === 0 ||
+    !Object.entries(manifest.bin).every(
+      ([name, target]) => isNonemptyString(name) && isNonemptyString(target),
+    )
+  ) {
+    throw new Error(`${manifest.name}: invalid bin declaration`);
+  }
+  return Object.values(manifest.bin);
+}
+
+function validatePackageDeclarations(manifest) {
+  if (manifest.backstage.role === 'backend-plugin-module') {
+    if (!isNonemptyString(manifest.configSchema)) {
+      throw new Error(`${manifest.name}: must declare configSchema`);
+    }
+    if (
+      !manifest.bin ||
+      typeof manifest.bin !== 'object' ||
+      Array.isArray(manifest.bin) ||
+      !isNonemptyString(manifest.bin['reconcile-catalog-history'])
+    ) {
+      throw new Error(
+        `${manifest.name}: must declare reconcile-catalog-history bin`,
+      );
+    }
+  }
+  if (
+    manifest.configSchema !== undefined &&
+    (!isNonemptyString(manifest.configSchema) ||
+      !/\.(?:d\.ts|json)$/.test(manifest.configSchema))
+  ) {
+    throw new Error(`${manifest.name}: invalid configSchema declaration`);
+  }
+  binTargets(manifest);
+}
+
+function packedAssetPath(name, target) {
+  if (!isNonemptyString(target)) {
+    throw new Error(`${name}: invalid packed asset path ${target}`);
+  }
+  const path = target.replace(/^\.\//, '');
+  if (
+    path.includes('\\') ||
+    /^[A-Za-z]:/.test(path) ||
+    path.split('/').some(segment => ['', '.', '..'].includes(segment))
+  ) {
+    throw new Error(`${name}: unsafe packed asset path ${target}`);
+  }
+  return `package/${path}`;
+}
+
+function validatePackedAssets(manifest, files) {
+  if (
+    manifest.configSchema !== undefined &&
+    !manifest.configSchema.endsWith('.json')
+  ) {
+    throw new Error(
+      `${manifest.name}: packed configSchema must be compiled JSON`,
+    );
+  }
+  const targets = binTargets(manifest);
+  if (manifest.configSchema !== undefined) targets.push(manifest.configSchema);
+  for (const target of targets) {
+    const path = packedAssetPath(manifest.name, target);
+    if (!files.has(path)) {
+      throw new Error(`${manifest.name}: missing packed asset ${target}`);
+    }
+  }
+}
 
 function validateInternalDependencies(
   manifest,
@@ -96,6 +213,8 @@ export function validateRelease(version, root = process.cwd()) {
     if (manifest.private || manifest.publishConfig?.access !== 'public') {
       throw new Error(`${name} must explicitly permit public publication`);
     }
+    validatePackageMetadata(manifest);
+    validatePackageDeclarations(manifest);
     validateInternalDependencies(manifest, version, { allowWorkspace: true });
     return {
       name,
@@ -128,10 +247,13 @@ export function inspectArchive(pkg, run = execFileSync) {
       `Archive identity does not match ${pkg.name}@${pkg.version}`,
     );
   }
+  validatePackageMetadata(manifest);
+  validatePackageDeclarations(manifest);
   validateInternalDependencies(manifest, pkg.version);
   const files = new Set(
     run('tar', ['-tzf', pkg.archive], { encoding: 'utf8' }).trim().split('\n'),
   );
+  validatePackedAssets(manifest, files);
   const frontend = pkg.name === '@kunickiaj/backstage-plugin-catalog-history';
   if (
     frontend &&
@@ -157,6 +279,8 @@ export function inspectArchive(pkg, run = execFileSync) {
   }
   if (!files.has('package/LICENSE'))
     throw new Error(`${pkg.name}: missing LICENSE`);
+  if (!files.has('package/README.md'))
+    throw new Error(`${pkg.name}: missing README.md`);
   for (const file of files) {
     if (
       /^package\/(?:[^/]+\/)*(?:src|dev|fixture|fixtures|__fixtures__)\//.test(
