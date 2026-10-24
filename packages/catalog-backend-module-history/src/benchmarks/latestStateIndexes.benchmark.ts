@@ -37,8 +37,23 @@ type VariantName =
   | 'combined'
   | 'ordered'
   | 'late-join-existing'
-  | 'late-join-ordered';
-type QueryMode = 'public' | 'late-join-candidate';
+  | 'late-join-ordered'
+  | 'lateral-existing'
+  | 'lateral-materialized-existing';
+type QueryMode =
+  | 'public'
+  | 'late-join-candidate'
+  | 'lateral-candidate'
+  | 'lateral-materialized-candidate';
+type CandidateMode = Exclude<QueryMode, 'public'>;
+type ValidationOptions = { stage?: string; candidateModes?: CandidateMode[] };
+const QUERY_MODES: QueryMode[] = [
+  'public',
+  'late-join-candidate',
+  'lateral-candidate',
+  'lateral-materialized-candidate',
+];
+type FixturePolicy = { candidateIndexChecks: boolean };
 type Options = { refs: number; revisions: number; variants: VariantName[] };
 type Source = 'provider' | 'processing';
 type Scope = { name: string; provider?: string; source?: Source };
@@ -86,6 +101,12 @@ const VARIANTS: {
     name: 'late-join-ordered',
     indexes: ['bench_latest_ordered'],
     queryMode: 'late-join-candidate',
+  },
+  { name: 'lateral-existing', indexes: [], queryMode: 'lateral-candidate' },
+  {
+    name: 'lateral-materialized-existing',
+    indexes: [],
+    queryMode: 'lateral-materialized-candidate',
   },
 ];
 // Preserve the original index-only command's default matrix and ordering.
@@ -138,6 +159,17 @@ function optionsFromEnvironment(env: NodeJS.ProcessEnv): Options {
   );
   return { refs, revisions, variants: variants as VariantName[] };
 }
+function fixturePolicy(options: Options): FixturePolicy {
+  const existingOnly =
+    options.variants.some(
+      name =>
+        name === 'lateral-existing' || name === 'lateral-materialized-existing',
+    ) &&
+    VARIANTS.filter(v => options.variants.includes(v.name)).every(
+      v => v.indexes.length === 0,
+    );
+  return { candidateIndexChecks: !existingOnly };
+}
 function summary(values: number[]) {
   check(
     values.length > 0 && values.every(v => Number.isFinite(v) && v >= 0),
@@ -159,6 +191,15 @@ function hash(value: unknown) {
 }
 function errorType(error: unknown) {
   return error instanceof Error ? error.constructor.name : typeof error;
+}
+function sqlState(error: unknown) {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? error.code
+      : undefined;
+  return typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code)
+    ? code
+    : undefined;
 }
 type Event = {
   ref: string;
@@ -260,6 +301,12 @@ function sanitizePlan(raw: Record<string, unknown>): Record<string, unknown> {
       result[key] = raw[key];
   }
   if (
+    ['Forward', 'Backward', 'NoMovement'].includes(
+      String(raw['Scan Direction']),
+    )
+  )
+    result['Scan Direction'] = raw['Scan Direction'];
+  if (
     typeof raw['Index Name'] === 'string' &&
     [...EXISTING, ...Object.keys(CANDIDATES)].includes(raw['Index Name'])
   )
@@ -287,6 +334,7 @@ async function measure(
         durationMs: performance.now() - start,
         status: 'nonpass',
         errorType: errorType(error),
+        errorCode: sqlState(error),
       });
     } catch {
       /* preserve original */
@@ -480,6 +528,79 @@ function lateJoinSql(db: Knex, scope: Scope) {
     .where('e.op', '!=', 'delete')
     .select(...columns);
 }
+/** Candidate only: enumerate scoped refs and select each winner in one snapshot. */
+function lateralSql(db: Knex, scope: Scope) {
+  const refs = db({ r: TABLE }).distinct('r.entity_ref');
+  const columns = ['e.entity_ref', 'e.op', 'e.etag'];
+  if (!scope.provider) columns.push('e.provider');
+  const latest = db({ e: TABLE })
+    .select(...columns)
+    .whereRaw('?? = ??', ['e.entity_ref', 'refs.entity_ref']);
+  if (scope.provider) {
+    refs.where('r.provider', scope.provider);
+    latest.where('e.provider', scope.provider);
+  }
+  if (scope.source) {
+    refs.where('r.source', scope.source);
+    latest.where('e.source', scope.source);
+  }
+  latest.orderBy('e.changed_at', 'desc').orderBy('e.id', 'desc').limit(1);
+  const compiled = latest.toSQL();
+  const output = ['recent.entity_ref', 'recent.etag'];
+  if (!scope.provider) output.push('recent.provider');
+  return db
+    .from(refs.as('refs'))
+    .joinRaw(`CROSS JOIN LATERAL (${compiled.sql}) AS ??`, [
+      ...compiled.bindings,
+      'recent',
+    ])
+    .where('recent.op', '!=', 'delete')
+    .select(...output);
+}
+/** Materialize only one ref's history; provenance stays before winner selection. */
+function lateralMaterializedSql(db: Knex, scope: Scope) {
+  const refs = db({ r: TABLE }).distinct('r.entity_ref');
+  if (scope.provider) refs.where('r.provider', scope.provider);
+  if (scope.source) refs.where('r.source', scope.source);
+  const history = db({ e: TABLE })
+    .select(
+      'e.entity_ref',
+      'e.changed_at',
+      'e.id',
+      'e.provider',
+      'e.source',
+      'e.op',
+      'e.etag',
+    )
+    .whereRaw('?? = ??', ['e.entity_ref', 'refs.entity_ref']);
+  const columns = ['entity_ref', 'op', 'etag'];
+  if (!scope.provider) columns.push('provider');
+  const latest = db
+    .withMaterialized('ref_history', history)
+    .from('ref_history')
+    .select(...columns);
+  if (scope.provider) latest.where('provider', scope.provider);
+  if (scope.source) latest.where('source', scope.source);
+  latest.orderBy('changed_at', 'desc').orderBy('id', 'desc').limit(1);
+  const compiled = latest.toSQL();
+  const output = ['recent.entity_ref', 'recent.etag'];
+  if (!scope.provider) output.push('recent.provider');
+  return db
+    .from(refs.as('refs'))
+    .joinRaw(`CROSS JOIN LATERAL (${compiled.sql}) AS ??`, [
+      ...compiled.bindings,
+      'recent',
+    ])
+    .where('recent.op', '!=', 'delete')
+    .select(...output);
+}
+function querySql(db: Knex, scope: Scope, queryMode: QueryMode) {
+  if (queryMode === 'public') return latestSql(db, scope);
+  if (queryMode === 'lateral-candidate') return lateralSql(db, scope);
+  if (queryMode === 'lateral-materialized-candidate')
+    return lateralMaterializedSql(db, scope);
+  return lateJoinSql(db, scope);
+}
 type LatestRow = { entity_ref: string; etag: string | null; provider?: string };
 function latestRowsToMap(
   rows: LatestRow[],
@@ -507,7 +628,7 @@ async function callQuery(
   queryMode: QueryMode,
 ) {
   if (queryMode === 'public') return callLatest(store, scope);
-  const rows: LatestRow[] = await lateJoinSql(db, scope);
+  const rows: LatestRow[] = await querySql(db, scope, queryMode);
   return latestRowsToMap(rows, scope);
 }
 async function explain(
@@ -532,8 +653,7 @@ async function explain(
   } finally {
     db.removeListener('query', listener);
   }
-  const builder =
-    queryMode === 'public' ? latestSql(db, scope) : lateJoinSql(db, scope);
+  const builder = querySql(db, scope, queryMode);
   const native = builder.toSQL().toNative();
   const normalize = (sql: string) => sql.replace(/\s+/g, ' ').trim();
   check(
@@ -560,33 +680,42 @@ async function explain(
     plan: sanitizePlan(result.rows[0]['QUERY PLAN'][0]),
   });
 }
+function validationModes(options: ValidationOptions): QueryMode[] {
+  return [
+    'public',
+    ...(options.candidateModes ??
+      QUERY_MODES.filter(mode => mode !== 'public')),
+  ];
+}
 async function validateMaps(
   store: PostgresHistoryStore,
   oracle: Oracle,
   emit: Emit,
   candidateDb?: Knex,
+  options: ValidationOptions = {},
 ) {
+  const stage = options.stage ?? 'correctness-validation';
   for (const scope of SCOPES) {
     const expected = expectedMap(oracle, scope);
-    assertMap(await callLatest(store, scope), expected);
-    await emit({
-      type: 'map-validated',
-      scope: scope.name,
-      count: expected.size,
-      sha256: hash([...expected].sort()),
-      queryMode: 'public',
-    });
-    if (candidateDb) {
-      assertMap(
-        await callQuery(candidateDb, store, scope, 'late-join-candidate'),
-        expected,
+    const modes: QueryMode[] = candidateDb
+      ? validationModes(options)
+      : ['public'];
+    for (const queryMode of modes) {
+      const scopedEmit: Emit = event =>
+        emit({ ...event, stage, scope: scope.name, queryMode });
+      const timed = await measure(
+        () =>
+          candidateDb
+            ? callQuery(candidateDb, store, scope, queryMode)
+            : callLatest(store, scope),
+        `${stage}/${scope.name}/${queryMode}`,
+        scopedEmit,
       );
-      await emit({
+      assertMap(timed.result as Map<string, unknown>, expected);
+      await scopedEmit({
         type: 'map-validated',
-        scope: scope.name,
         count: expected.size,
         sha256: hash([...expected].sort()),
-        queryMode: 'late-join-candidate',
       });
     }
   }
@@ -638,6 +767,20 @@ async function sizes(db: Knex, phase: string, emit: Emit) {
     relations: result.rows,
   });
 }
+async function existingIndexesOnly(db: Knex, phase: string, emit: Emit) {
+  const indexes = await inventory(db);
+  check(
+    indexes.every(index => EXISTING.includes(index.name)),
+    'Additional index in existing-index-only fixture',
+  );
+  await emit({
+    type: 'existing-indexes-only-validated',
+    phase,
+    indexes,
+    noAdditionalCandidateIndexDdl: true,
+    schemaBootstrap: 'normal production migrations still run',
+  });
+}
 async function statistics(db: Knex, phase: string, emit: Emit) {
   const result = await db('pg_stat_user_tables')
     .select(
@@ -661,6 +804,80 @@ async function statistics(db: Knex, phase: string, emit: Emit) {
     autovacuum:
       'default; not disabled; timestamps/counts are observed, not a visibility guarantee',
   });
+}
+/** Estimated plans only; no query execution or sampled column values. */
+async function planningDiagnostics(db: Knex, phase: string, emit: Emit) {
+  const columns = await db('pg_stats')
+    .select('attname', 'n_distinct', 'null_frac', 'avg_width')
+    .where({ schemaname: 'public', tablename: TABLE })
+    .whereIn('attname', [
+      'entity_ref',
+      'provider',
+      'source',
+      'changed_at',
+      'id',
+    ]);
+  const relation = await db.raw(
+    'SELECT reltuples, relpages FROM pg_class WHERE oid=?::regclass',
+    [TABLE],
+  );
+  await emit({
+    type: 'planning-statistics',
+    phase,
+    columns,
+    relation: relation.rows,
+  });
+  await statistics(db, phase, emit);
+  const scope = SCOPES[0];
+  for (const queryMode of QUERY_MODES) {
+    const builder = querySql(db, scope, queryMode);
+    const query = builder.toSQL();
+    const result = await db.raw(
+      `EXPLAIN (FORMAT JSON) ${query.sql}`,
+      query.bindings,
+    );
+    await emit({
+      type: 'estimated-plan',
+      phase,
+      scope: scope.name,
+      queryMode,
+      estimatedOnly: true,
+      candidateExecutedByExplain: false,
+      sqlIdentity:
+        queryMode === 'public'
+          ? 'public-shape copy; not execution captured'
+          : 'same querySql builder as candidate executor; not execution captured',
+      sqlShapeSha256: hash(
+        builder.toSQL().toNative().sql.replace(/\s+/g, ' ').trim(),
+      ),
+      plan: sanitizePlan(result.rows[0]['QUERY PLAN'][0]),
+    });
+  }
+}
+async function diagnoseFailedValidation(db: Knex, emit: Emit) {
+  try {
+    await emit({
+      type: 'diagnosis-only-maintenance',
+      status: 'nonpass',
+      operation: 'ANALYZE owned history table only',
+      originalFailurePreserved: true,
+      candidateQueryRetry: false,
+      manualVacuum: false,
+    });
+    await db.raw('ANALYZE catalog_history_entities');
+    await planningDiagnostics(db, 'diagnosis-only-after-analyze', emit);
+  } catch (error) {
+    try {
+      await emit({
+        type: 'diagnosis-failure',
+        status: 'nonpass',
+        errorType: errorType(error),
+        errorCode: sqlState(error),
+      });
+    } catch {
+      /* diagnosis must never replace the original validation failure */
+    }
+  }
 }
 async function buildIndexes(db: Knex, indexes: IndexName[], emit: Emit) {
   for (const name of indexes) {
@@ -842,8 +1059,11 @@ async function ownedDatabase(
 async function indexWidthCompatibilityProbe(
   databases: TestDatabases,
   emit: Emit,
+  policy: FixturePolicy,
 ) {
   await ownedDatabase(databases, emit, async (db, store) => {
+    if (!policy.candidateIndexChecks)
+      await existingIndexesOnly(db, 'opaque-etag-start', emit);
     // SHA-256 blocks avoid a repeated, readily compressible oversized fixture.
     const etag = Array.from({ length: 79 }, (_, block) =>
       createHash('sha256')
@@ -875,6 +1095,22 @@ async function indexWidthCompatibilityProbe(
         (await store.loadAllCurrentEtags()).get(row.entityRef)?.etag === etag,
       'Baseline did not preserve the opaque public etag',
     );
+    if (!policy.candidateIndexChecks) {
+      await existingIndexesOnly(db, 'opaque-etag-end', emit);
+      await emit({
+        type: 'existing-index-opaque-etag-probe',
+        status: 'pass',
+        etagAsciiBytes: Buffer.byteLength(etag),
+        baselinePublicWriteAndExactRead: true,
+        queryModesExactRead: QUERY_MODES,
+        noAdditionalCandidateIndexDdl: true,
+        indexBuildAttempts: 0,
+        ...(await counts(db, 1, 1)),
+        scope:
+          'opaque etag preserved using current production indexes; no candidate index compatibility build attempted',
+      });
+      return;
+    }
     await buildIndexes(db, ['bench_latest_ordered'], emit);
     await validateMaps(store, oracle, emit, db);
     check(
@@ -934,8 +1170,11 @@ async function semanticFixture(
   databases: TestDatabases,
   emit: Emit,
   entity: Entity,
+  policy: FixturePolicy,
 ) {
   await ownedDatabase(databases, emit, async (db, store) => {
+    if (!policy.candidateIndexChecks)
+      await existingIndexesOnly(db, 'semantic-start', emit);
     const row = entityToRow(entity);
     const oracle = createOracle();
     let ordinal = 0;
@@ -960,7 +1199,7 @@ async function semanticFixture(
       if (op === 'delete') input.deletes = [row.entityRef];
       await store.recordCycle(input);
       ordinal = applyCycle(oracle, input, ordinal);
-      // Both executors are checked at every transition, not only at final state.
+      // Every executor is checked at each transition, not only at final state.
       await validateMaps(store, oracle, emit, db);
       return input;
     };
@@ -1017,7 +1256,13 @@ async function semanticFixture(
       etag: null,
     });
     await validateMaps(store, oracle, emit, db);
-    for (const variant of VARIANTS) {
+    check(
+      (await store.loadAllCurrentEtags()).size === 0 &&
+        (await store.loadCurrentEtags('bench-alpha')).get(row.entityRef) ===
+          'semantic-5',
+      'NULL/scope semantic mismatch',
+    );
+    for (const variant of policy.candidateIndexChecks ? VARIANTS : []) {
       // Add cumulatively only in this tiny semantic DB; timing databases are fresh.
       const installed = await inventory(db);
       await buildIndexes(
@@ -1033,13 +1278,46 @@ async function semanticFixture(
         'NULL/scope semantic mismatch',
       );
     }
+    // Keep the single-ref assertions above intact before expanding enumeration.
+    const activeRows = ['active-a', 'active-b'].map(name =>
+      entityToRow({
+        ...entity,
+        metadata: { ...entity.metadata, name },
+      }),
+    );
+    const activeCycle = {
+      ...cycle(activeRows, 8),
+      ...PROVENANCES[0],
+      inserts: activeRows,
+      updates: [],
+    };
+    await store.recordCycle(activeCycle);
+    ordinal = applyCycle(oracle, activeCycle, ordinal);
+    await validateMaps(store, oracle, emit, db);
+    check(
+      (await store.loadAllCurrentEtags()).size === 2,
+      'Multiple active refs semantic mismatch',
+    );
+    const missing: Scope = {
+      name: 'nonmatching-provider',
+      provider: 'bench-not-present',
+      source: 'provider',
+    };
+    for (const queryMode of QUERY_MODES) {
+      assertMap(await callQuery(db, store, missing, queryMode), new Map());
+      await emit({
+        type: 'empty-scope-validated',
+        queryMode,
+        scope: missing.name,
+        count: 0,
+      });
+    }
+    if (!policy.candidateIndexChecks)
+      await existingIndexesOnly(db, 'semantic-end', emit);
     await emit({
       type: 'semantic-fixture',
       status: 'pass',
-      queryModesValidatedAfterEveryTransition: [
-        'public',
-        'late-join-candidate',
-      ],
+      queryModesValidatedAfterEveryTransition: QUERY_MODES,
       cases: [
         'competing provenance',
         'scope before selection',
@@ -1048,9 +1326,12 @@ async function semanticFixture(
         'delete after latest',
         'reinsert',
         'non-delete NULL etag after latest',
+        'multiple active refs',
+        'nonmatching provider returns empty',
       ],
-      layoutNote:
-        'all seven variant records traversed cumulatively in this tiny DB, ending with all four candidate indexes; both executors checked; timed selected variants each fresh',
+      layoutNote: policy.candidateIndexChecks
+        ? 'variant records traversed cumulatively in this tiny DB, ending with all four candidate indexes; all executors checked; timed selected variants each fresh'
+        : 'current production indexes only; no additional candidate index DDL; all executors checked',
     });
   });
 }
@@ -1063,7 +1344,13 @@ async function runVariant(
   emit: Emit,
 ) {
   const queryMode = variant.queryMode ?? 'public';
+  const validationOptions: ValidationOptions = {
+    candidateModes: queryMode === 'public' ? [] : [queryMode],
+  };
   await ownedDatabase(databases, emit, async (db, store) => {
+    const policy = fixturePolicy(options);
+    if (!policy.candidateIndexChecks)
+      await existingIndexesOnly(db, 'timing-start', emit);
     const oracle = createOracle();
     let ordinal = 0;
     await emit({ type: 'installed-before-seed', indexes: await inventory(db) });
@@ -1072,7 +1359,25 @@ async function runVariant(
       await measure(() => store.recordCycle(input), `seed/${revision}`, emit);
       ordinal = applyCycle(oracle, input, ordinal);
     }
-    await validateMaps(store, oracle, emit, db);
+    if (!policy.candidateIndexChecks)
+      await planningDiagnostics(db, 'timing-pre-maintenance-validation', emit);
+    try {
+      await validateMaps(store, oracle, emit, db, {
+        ...validationOptions,
+        stage: 'timing-pre-maintenance-validation',
+      });
+    } catch (error) {
+      if (!policy.candidateIndexChecks)
+        await diagnoseFailedValidation(db, emit);
+      throw error;
+    }
+    await emit({
+      type: 'validation-stage-complete',
+      stage: 'timing-pre-maintenance-validation',
+      status: 'pass',
+      queryModes: validationModes(validationOptions),
+      manualMaintenanceBeforeValidation: false,
+    });
     const invalid = await db.raw(
       `SELECT count(*)::int AS count FROM (SELECT entity_ref FROM catalog_history_entities GROUP BY entity_ref HAVING count(*) <> ? OR count(DISTINCT etag) <> ?) invalid`,
       [options.revisions, options.revisions],
@@ -1143,7 +1448,10 @@ async function runVariant(
         'recordCycle acknowledgement including normal transaction and commit',
       heldWriterBarrier: false,
     });
-    await validateMaps(store, oracle, emit, db);
+    await validateMaps(store, oracle, emit, db, {
+      ...validationOptions,
+      stage: 'timing-post-write-validation',
+    });
     await readPhase(
       db,
       store,
@@ -1162,7 +1470,12 @@ async function runVariant(
         options.revisions + SAMPLES,
       )),
     });
-    await validateMaps(store, oracle, emit, db);
+    await validateMaps(store, oracle, emit, db, {
+      ...validationOptions,
+      stage: 'timing-final-validation',
+    });
+    if (!policy.candidateIndexChecks)
+      await existingIndexesOnly(db, 'timing-end', emit);
   });
 }
 
@@ -1208,6 +1521,7 @@ async function environment(options: Options, emit: Emit) {
     dirty,
     packages,
     options,
+    fixturePolicy: fixturePolicy(options),
     variants: VARIANTS.map(v => ({ ...v, queryMode: v.queryMode ?? 'public' })),
     defaultIndexMatrix: DEFAULT_VARIANTS,
     selectedMatrix: VARIANTS.filter(v => options.variants.includes(v.name)).map(
@@ -1244,9 +1558,10 @@ async function runBenchmark(databases: TestDatabases) {
     stage = 'generation';
     const entities = await generate(options, directory);
     stage = 'index-width-compatibility-probe';
-    await indexWidthCompatibilityProbe(databases, emit);
+    const policy = fixturePolicy(options);
+    await indexWidthCompatibilityProbe(databases, emit, policy);
     stage = 'semantic-fixture';
-    await semanticFixture(databases, emit, entities[0]);
+    await semanticFixture(databases, emit, entities[0], policy);
     for (const variant of VARIANTS.filter(v =>
       options.variants.includes(v.name),
     )) {
@@ -1353,6 +1668,8 @@ describe('latest-state index harness invariants', () => {
     ',ordered',
     ' ordered',
     'late-join-existing,late-join-existing',
+    'lateral-existing,lateral-existing',
+    'lateral-materialized-existing,lateral-materialized-existing',
   ])('rejects invalid variant list %j', variants => {
     // Arrange
     const env = { HISTORY_INDEX_VARIANTS: variants };
@@ -1380,6 +1697,213 @@ describe('latest-state index harness invariants', () => {
         indexes: ['bench_latest_ordered'],
         queryMode: 'late-join-candidate',
       },
+    ]);
+  });
+  it.each(SCOPES)(
+    'materializes ref-only history before provenance scope and winner selection for $name',
+    scope => {
+      // Arrange: compile the one-statement candidate without opening a connection.
+      const db = knex({ client: 'pg' });
+      // Act
+      const native = lateralMaterializedSql(db, scope).toSQL().toNative();
+      const [enumeration, lateral] = native.sql.split('CROSS JOIN LATERAL (');
+      const [history, selection] = lateral.split(') select ');
+      const [winner, outerFilter] = selection.split(') AS "recent"');
+      // Assert
+      expect(enumeration).toContain('select distinct "r"."entity_ref"');
+      expect(enumeration).toContain(
+        'select "recent"."entity_ref", "recent"."etag"',
+      );
+      expect(enumeration.includes('"r"."provider" =')).toBe(
+        Boolean(scope.provider),
+      );
+      expect(enumeration.includes('"r"."source" =')).toBe(
+        Boolean(scope.source),
+      );
+      expect(history).toContain('with "ref_history" as materialized (select ');
+      expect(history).toContain('where "e"."entity_ref" = "refs"."entity_ref"');
+      expect(history).not.toMatch(
+        /"e"\."(?:provider|source|op|etag)" (?:=|!=)|metadata|spec|order by|limit/,
+      );
+      expect(winner.includes('"provider" =')).toBe(Boolean(scope.provider));
+      expect(winner.includes('"source" =')).toBe(Boolean(scope.source));
+      expect(winner).toContain('from "ref_history"');
+      expect(winner).toContain('order by "changed_at" desc, "id" desc limit ');
+      expect(winner).not.toContain('"op" !=');
+      expect(outerFilter).toContain('where "recent"."op" !=');
+      expect(native.sql).not.toContain('is not null');
+      expect(native.bindings).toEqual(
+        [
+          scope.provider,
+          scope.source,
+          scope.provider,
+          scope.source,
+          1,
+          'delete',
+        ].filter(value => value !== undefined),
+      );
+    },
+  );
+  it.each([
+    {
+      options: {},
+      expected: [
+        'public',
+        'late-join-candidate',
+        'lateral-candidate',
+        'lateral-materialized-candidate',
+      ],
+    },
+    { options: { candidateModes: [] }, expected: ['public'] },
+    {
+      options: { candidateModes: ['lateral-candidate'] },
+      expected: ['public', 'lateral-candidate'],
+    },
+    {
+      options: { candidateModes: ['lateral-materialized-candidate'] },
+      expected: ['public', 'lateral-materialized-candidate'],
+    },
+  ])(
+    'validates only explicitly selected large-fixture candidates, or all modes for mini fixtures: %j',
+    ({ options, expected }) => {
+      // Arrange / Act
+      const modes = validationModes(options as ValidationOptions);
+      // Assert
+      expect(modes).toEqual(expected);
+    },
+  );
+  it('presets the materialized experiment while retaining raw lateral selection and legacy defaults', async () => {
+    // Arrange
+    const manifest = JSON.parse(
+      await readFile(
+        resolve(ROOT, 'packages/catalog-backend-module-history/package.json'),
+        'utf8',
+      ),
+    );
+    // Act
+    const options = optionsFromEnvironment({
+      HISTORY_INDEX_VARIANTS: 'baseline,lateral-materialized-existing',
+    });
+    const selected = VARIANTS.filter(variant =>
+      options.variants.includes(variant.name),
+    );
+    // Assert
+    expect(manifest.scripts['bench:latest-lateral']).toBe(
+      "env HISTORY_INDEX_VARIANTS=baseline,lateral-materialized-existing backstage-cli package test --runInBand --watch=false --runTestsByPath src/benchmarks/latestStateIndexes.benchmark.ts --testMatch '**/*.benchmark.ts'",
+    );
+    expect(selected).toEqual([
+      { name: 'baseline', indexes: [] },
+      {
+        name: 'lateral-materialized-existing',
+        indexes: [],
+        queryMode: 'lateral-materialized-candidate',
+      },
+    ]);
+    expect(
+      optionsFromEnvironment({ HISTORY_INDEX_VARIANTS: 'lateral-existing' })
+        .variants,
+    ).toEqual(['lateral-existing']);
+    expect(optionsFromEnvironment({}).variants).toEqual([
+      'baseline',
+      'global',
+      'scoped',
+      'combined',
+      'ordered',
+    ]);
+  });
+  it.each(SCOPES)(
+    'scopes lateral enumeration and lookup before winner selection for $name',
+    scope => {
+      // Arrange: SQL compilation never allocates a database connection.
+      const db = knex({ client: 'pg' });
+      // Act
+      const native = lateralSql(db, scope).toSQL().toNative();
+      const [enumeration, rest] = native.sql.split('CROSS JOIN LATERAL (');
+      const [lookup, outerFilter] = rest.split(') AS "recent"');
+      // Assert
+      expect(enumeration).toContain('select distinct "r"."entity_ref"');
+      expect(enumeration).toContain(
+        'select "recent"."entity_ref", "recent"."etag"',
+      );
+      expect(enumeration.includes('"r"."provider" =')).toBe(
+        Boolean(scope.provider),
+      );
+      expect(enumeration.includes('"r"."source" =')).toBe(
+        Boolean(scope.source),
+      );
+      expect(lookup).toContain('"e"."entity_ref" = "refs"."entity_ref"');
+      expect(lookup.includes('"e"."provider" =')).toBe(Boolean(scope.provider));
+      expect(lookup.includes('"e"."source" =')).toBe(Boolean(scope.source));
+      expect(lookup).toContain(
+        'order by "e"."changed_at" desc, "e"."id" desc limit ',
+      );
+      expect(lookup).not.toContain('"op" !=');
+      expect(outerFilter).toContain('where "recent"."op" !=');
+      expect(native.sql).not.toContain('is not null');
+      expect(native.bindings).toEqual(
+        [
+          scope.provider,
+          scope.source,
+          scope.provider,
+          scope.source,
+          1,
+          'delete',
+        ].filter(value => value !== undefined),
+      );
+    },
+  );
+  it.each([
+    { variants: undefined, expected: true },
+    {
+      variants: 'baseline,late-join-existing,late-join-ordered',
+      expected: true,
+    },
+    { variants: 'baseline,lateral-existing', expected: false },
+    { variants: 'lateral-existing', expected: false },
+    { variants: 'baseline,lateral-materialized-existing', expected: false },
+    { variants: 'lateral-materialized-existing', expected: false },
+    { variants: 'lateral-materialized-existing,ordered', expected: true },
+    { variants: 'lateral-existing,global', expected: true },
+  ])(
+    'preserves candidate-index fixture policy for $variants',
+    ({ variants, expected }) => {
+      // Arrange
+      const options = optionsFromEnvironment({
+        HISTORY_INDEX_VARIANTS: variants,
+      });
+      // Act
+      const policy = fixturePolicy(options);
+      const selected = VARIANTS.filter(variant =>
+        options.variants.includes(variant.name),
+      );
+      // Assert
+      expect(policy.candidateIndexChecks).toBe(expected);
+      expect(
+        policy.candidateIndexChecks ||
+          selected.every(variant => variant.indexes.length === 0),
+      ).toBe(true);
+    },
+  );
+  it('selects the existing-index lateral experiment without changing legacy defaults', () => {
+    // Arrange
+    const options = optionsFromEnvironment({
+      HISTORY_INDEX_VARIANTS: 'baseline,lateral-existing',
+    });
+    // Act
+    const selected = VARIANTS.filter(variant =>
+      options.variants.includes(variant.name),
+    );
+    // Assert
+    expect(selected).toEqual([
+      { name: 'baseline', indexes: [] },
+      { name: 'lateral-existing', indexes: [], queryMode: 'lateral-candidate' },
+    ]);
+    expect(optionsFromEnvironment({}).variants).toEqual([
+      'baseline',
+      'global',
+      'scoped',
+      'combined',
+      'ordered',
     ]);
   });
   it.each(SCOPES)(
@@ -1549,6 +2073,74 @@ describe('latest-state index harness invariants', () => {
       expect(expectedMap(oracle, SCOPES[1]).get('x')).toBe(
         scenario === 'reinsert' ? 'back' : 'first',
       );
+    },
+  );
+  it('retains only known scan direction enums in sanitized estimated plans', () => {
+    // Arrange
+    const safe = {
+      'Node Type': 'Index Scan',
+      'Scan Direction': 'Backward',
+      'Plan Rows': 12,
+      'Total Cost': 20,
+      Filter: 'private data',
+    };
+    // Act
+    const result = sanitizePlan(safe);
+    const rejected = sanitizePlan({
+      'Scan Direction': 'private data',
+      'Plan Rows': 'private data',
+    });
+    // Assert
+    expect(result).toEqual({
+      'Node Type': 'Index Scan',
+      'Scan Direction': 'Backward',
+      'Plan Rows': 12,
+      'Total Cost': 20,
+    });
+    expect(rejected).toEqual({});
+  });
+  it.each([false, true])(
+    'records validation stage and preserves original failure when artifact fails=%s',
+    async artifactFails => {
+      // Arrange: no database/network; the first public validation rejects.
+      const original = Object.assign(new Error('private SQL and data'), {
+        code: '57014',
+      });
+      const store = {
+        loadCurrentEtags: jest.fn().mockRejectedValue(original),
+      } as unknown as PostgresHistoryStore;
+      const emit = jest.fn(async () => {
+        if (artifactFails) throw new Error('artifact');
+      });
+      // Act
+      const result = validateMaps(store, createOracle(), emit, undefined, {
+        stage: 'timing-pre-maintenance-validation',
+      });
+      // Assert
+      await expect(result).rejects.toBe(original);
+      expect(emit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'sample-failure',
+          stage: 'timing-pre-maintenance-validation',
+          scope: 'provider-only',
+          queryMode: 'public',
+          status: 'nonpass',
+          errorCode: '57014',
+          errorType: 'Error',
+        }),
+      );
+      expect(JSON.stringify(emit.mock.calls)).not.toContain(
+        'private SQL and data',
+      );
+    },
+  );
+  it.each([{}, { code: 'private error' }, { code: 57014 }])(
+    'does not expose invalid SQLSTATE metadata %j',
+    error => {
+      // Arrange / Act
+      const result = sqlState(error);
+      // Assert
+      expect(result).toBeUndefined();
     },
   );
   it('retains safe plan metrics but strips raw SQL, predicates and arbitrary nested data', () => {
