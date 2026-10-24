@@ -41,14 +41,27 @@ const packedFiles = [
   'package/dist/index.d.ts',
   'package/dist/index.esm.js',
   'package/LICENSE',
+  'package/README.md',
   'package/migrations/001.js',
 ];
 
 function manifest(name) {
+  const [, , expectedMetadata] = PACKAGES.find(([item]) => item === name);
+  const backstage = structuredClone(expectedMetadata);
+  if (name === PACKAGES[4][0]) backstage.pluginPackages = [name];
   return {
     name,
     version: VERSION,
     publishConfig: { access: 'public' },
+    backstage,
+    ...(name === PACKAGES[3][0]
+      ? {
+          configSchema: 'config.schema.json',
+          bin: {
+            'reconcile-catalog-history': './bin/reconcile-catalog-history.js',
+          },
+        }
+      : {}),
     main: 'dist/index.cjs.js',
     types: 'dist/index.d.ts',
     module: 'dist/index.esm.js',
@@ -59,7 +72,14 @@ function manifest(name) {
         types: './dist/index.d.ts',
       },
     },
-    files: ['dist', 'migrations'],
+    files: [
+      'dist',
+      'migrations',
+      'README.md',
+      ...(name === PACKAGES[3][0]
+        ? ['config.schema.json', 'bin/reconcile-catalog-history.js']
+        : []),
+    ],
     dependencies: { [PACKAGES[0][0]]: `^${VERSION}` },
   };
 }
@@ -93,6 +113,12 @@ function fixture(t) {
       files: [
         ...packedFiles,
         'package/migrations/002.js',
+        ...(name === PACKAGES[3][0]
+          ? [
+              'package/config.schema.json',
+              'package/bin/reconcile-catalog-history.js',
+            ]
+          : []),
         ...(name === '@kunickiaj/backstage-plugin-catalog-history'
           ? ['package/dist/components/History.module.css.esm.js']
           : []),
@@ -112,6 +138,423 @@ function updateManifest(root, index, change) {
 
 function registryError(code, stdout = JSON.stringify({ error: { code } })) {
   return Object.assign(new Error('Simulated registry failure'), { stdout });
+}
+
+// Source and archive metadata are separate trust boundaries.
+for (const stage of ['source', 'archive']) {
+  for (const [index, role] of [
+    [0, 'common-library'],
+    [1, 'node-library'],
+    [2, 'node-library'],
+    [3, 'backend-plugin-module'],
+    [4, 'frontend-plugin'],
+  ]) {
+    test(`${stage} rejects missing or incorrect ${role} role for package ${index}`, t => {
+      for (const value of [undefined, 'wrong-role']) {
+        // Arrange: each mutation starts from independent valid metadata.
+        const { root, packages } = fixture(t);
+        const change = data => {
+          data.backstage.role = value;
+        };
+        if (stage === 'source') updateManifest(root, index, change);
+        else change(packages[index].manifest);
+        const { run, calls } = runner(packages);
+        // Act / Assert
+        assert.throws(
+          () => publishRelease(VERSION, { root, run, env: context }),
+          /backstage|role/i,
+        );
+        assert.ok(!calls.some(call => call.args[0] === 'publish'));
+        if (stage === 'source') assert.deepEqual(calls, []);
+      }
+    });
+  }
+
+  for (const [index, field] of [
+    [3, 'pluginId'],
+    [3, 'pluginPackage'],
+    [4, 'pluginId'],
+  ]) {
+    test(`${stage} rejects missing or incorrect package ${index} ${field}`, t => {
+      for (const value of [undefined, 'wrong-plugin']) {
+        // Arrange
+        const { root, packages } = fixture(t);
+        const change = data => {
+          data.backstage[field] = value;
+        };
+        if (stage === 'source') updateManifest(root, index, change);
+        else change(packages[index].manifest);
+        const { run, calls } = runner(packages);
+        // Act / Assert
+        assert.throws(
+          () => publishRelease(VERSION, { root, run, env: context }),
+          /backstage|plugin/i,
+        );
+        assert.ok(!calls.some(call => call.args[0] === 'publish'));
+      }
+    });
+  }
+
+  test(`${stage} rejects malformed frontend pluginPackages or a missing self reference`, t => {
+    for (const value of [
+      undefined,
+      null,
+      PACKAGES[4][0],
+      [],
+      ['another-package'],
+      [PACKAGES[4][0], ''],
+      [PACKAGES[4][0], 42],
+    ]) {
+      // Arrange
+      const { root, packages } = fixture(t);
+      const change = data => {
+        data.backstage.pluginPackages = value;
+      };
+      if (stage === 'source') updateManifest(root, 4, change);
+      else change(packages[4].manifest);
+      const { run, calls } = runner(packages);
+      // Act / Assert
+      assert.throws(
+        () => publishRelease(VERSION, { root, run, env: context }),
+        /backstage|pluginPackages/i,
+      );
+      assert.ok(!calls.some(call => call.args[0] === 'publish'));
+    }
+  });
+}
+
+test('package metadata contract preserves the five package identities and expected Backstage fields', () => {
+  // Arrange
+  const expected = [
+    [
+      '@kunickiaj/backstage-plugin-catalog-history-common',
+      'catalog-history-common',
+      { role: 'common-library' },
+    ],
+    [
+      '@kunickiaj/backstage-plugin-catalog-history-node',
+      'catalog-history-node',
+      { role: 'node-library' },
+    ],
+    [
+      '@kunickiaj/backstage-plugin-catalog-history-storage-node',
+      'catalog-history-backend',
+      { role: 'node-library' },
+    ],
+    [
+      '@kunickiaj/backstage-plugin-catalog-backend-module-history',
+      'catalog-backend-module-history',
+      {
+        role: 'backend-plugin-module',
+        pluginId: 'catalog',
+        pluginPackage: '@backstage/plugin-catalog-backend',
+      },
+    ],
+    [
+      '@kunickiaj/backstage-plugin-catalog-history',
+      'catalog-history',
+      { role: 'frontend-plugin', pluginId: 'catalog-history' },
+    ],
+  ];
+  // Act
+  const actual = PACKAGES;
+  // Assert
+  assert.deepEqual(actual, expected);
+});
+
+for (const field of ['configSchema', 'bin']) {
+  test(`missing required source module ${field} prevents packing and publishing`, t => {
+    // Arrange: removing the declaration must not hide required release assets.
+    const { root, packages } = fixture(t);
+    updateManifest(root, 3, data => {
+      delete data[field];
+    });
+    const { run, calls } = runner(packages);
+    // Act / Assert
+    assert.throws(
+      () => packRelease(VERSION, { root, run }),
+      /configSchema|bin|reconcile/,
+    );
+    assert.throws(
+      () => publishRelease(VERSION, { root, run, env: context }),
+      /configSchema|bin|reconcile/,
+    );
+    assert.deepEqual(calls, []);
+  });
+
+  test(`missing packed module ${field} fails even when its payload exists`, t => {
+    // Arrange: source metadata and packed payload remain valid.
+    const { root, packages } = fixture(t);
+    delete packages[3].manifest[field];
+    const { run, calls } = runner(packages);
+    // Act / Assert
+    assert.throws(
+      () => publishRelease(VERSION, { root, run, env: context }),
+      /configSchema|bin|reconcile/,
+    );
+    assert.ok(!calls.some(call => call.args[0] === 'publish'));
+  });
+}
+
+test('accepts source TypeScript schema rewritten to packed JSON and complete module CLI metadata', t => {
+  // Arrange: source assets need not exist; only migrations are source file requirements.
+  const { root, packages } = fixture(t);
+  updateManifest(root, 3, data => {
+    data.configSchema = 'config.d.ts';
+  });
+  const { run, calls } = runner(packages);
+  // Act
+  const descriptors = validateRelease(VERSION, root);
+  const plan = publishRelease(VERSION, { root, run, env: context });
+  // Assert
+  assert.equal(plan.length, 5);
+  assert.ok(
+    descriptors.every(pkg =>
+      pkg.requiredFiles.every(file => file.includes('/migrations/')),
+    ),
+  );
+  assert.equal(calls.filter(call => call.command === 'tar').length, 10);
+  assert.equal(calls.filter(call => call.args[0] === 'publish').length, 5);
+});
+
+test('frontend may list itself alongside other nonempty plugin package names', t => {
+  // Arrange
+  const { root, packages } = fixture(t);
+  updateManifest(root, 4, data => {
+    data.backstage.pluginPackages.push('another-plugin');
+  });
+  packages[4].manifest.backstage.pluginPackages.push('another-plugin');
+  const { run } = runner(packages);
+  // Act
+  const result = publishRelease(VERSION, { root, run, env: context });
+  // Assert
+  assert.equal(result.length, 5);
+});
+
+test('unknown archive package names fail closed even when archive identity matches', t => {
+  // Arrange
+  const { packages } = fixture(t);
+  packages[0].name = '@example/not-approved';
+  packages[0].manifest.name = packages[0].name;
+  const { run } = runner(packages);
+  // Act / Assert
+  assert.throws(
+    () => inspectArchive(packages[0], run),
+    /unknown|unsupported|approved|metadata/i,
+  );
+});
+
+test('a missing README in the final frontend blocks every publish', t => {
+  // Arrange
+  const { root, packages } = fixture(t);
+  packages[4].files = packages[4].files.filter(
+    file => file !== 'package/README.md',
+  );
+  const { run, calls } = runner(packages);
+  // Act / Assert
+  assert.throws(
+    () => publishRelease(VERSION, { root, run, env: context }),
+    /README/,
+  );
+  assert.ok(!calls.some(call => call.args[0] === 'publish'));
+});
+
+for (const stage of ['source', 'archive']) {
+  test(`${stage} rejects malformed declared configSchema on nonmodule packages`, t => {
+    for (const value of [null, [], {}, 42, '', 'schema.txt']) {
+      // Arrange
+      const { root, packages } = fixture(t);
+      if (stage === 'source')
+        updateManifest(root, 4, data => {
+          data.configSchema = value;
+        });
+      else packages[4].manifest.configSchema = value;
+      const { run, calls } = runner(packages);
+      // Act / Assert
+      assert.throws(
+        () => publishRelease(VERSION, { root, run, env: context }),
+        /configSchema|schema/i,
+      );
+      assert.ok(!calls.some(call => call.args[0] === 'publish'));
+    }
+  });
+}
+
+test('packed schema must be a safe compiled JSON file, not a directory or source declaration', t => {
+  for (const target of [
+    '../schema.json',
+    '/schema.json',
+    'dir\\schema.json',
+    'dir/../schema.json',
+    'schema.json/',
+    'config.d.ts',
+  ]) {
+    // Arrange: a matching tar listing cannot legitimize an unsafe declaration.
+    const { root, packages } = fixture(t);
+    packages[3].manifest.configSchema = target;
+    packages[3].files.push(`package/${target}`);
+    const { run, calls } = runner(packages);
+    // Act / Assert
+    assert.throws(
+      () => publishRelease(VERSION, { root, run, env: context }),
+      /configSchema|schema/i,
+    );
+    assert.ok(!calls.some(call => call.args[0] === 'publish'));
+  }
+});
+
+for (const index of [3, 4]) {
+  test(`missing declared schema payload in package ${index} blocks every publish`, t => {
+    // Arrange
+    const { root, packages } = fixture(t);
+    packages[index].manifest.configSchema = './config.schema.json';
+    packages[index].files = packages[index].files.filter(
+      file => file !== 'package/config.schema.json',
+    );
+    const { run, calls } = runner(packages);
+    // Act / Assert
+    assert.throws(
+      () => publishRelease(VERSION, { root, run, env: context }),
+      /configSchema|schema/i,
+    );
+    assert.ok(!calls.some(call => call.args[0] === 'publish'));
+  });
+}
+
+test('accepts an optional packed JSON schema using only the archive file listing', t => {
+  // Arrange: no JSON extraction or schema parsing subprocess is allowed.
+  const { packages } = fixture(t);
+  packages[4].manifest.configSchema = './schema/settings.json';
+  packages[4].files.push('package/schema/settings.json');
+  const { run, calls } = runner(packages);
+  // Act
+  const integrity = inspectArchive(packages[4], run);
+  // Assert
+  assert.equal(integrity, packages[4].integrity);
+  assert.deepEqual(
+    calls.map(call => call.args[0]),
+    ['-xOf', '-tzf'],
+  );
+});
+
+test('packed bin rejects malformed maps and unsafe targets before any publish', t => {
+  for (const value of [
+    null,
+    [],
+    {},
+    42,
+    '',
+    { cli: null },
+    { cli: 42 },
+    { cli: '' },
+    { cli: [] },
+    '../cli.js',
+    '/cli.js',
+    'bin\\cli.js',
+    'bin/../cli.js',
+    'bin/',
+    { cli: '../cli.js' },
+    { cli: '/cli.js' },
+    { cli: 'bin\\cli.js' },
+    { cli: 'bin/' },
+  ]) {
+    // Arrange
+    const { root, packages } = fixture(t);
+    packages[4].manifest.bin = value;
+    const target = typeof value === 'string' ? value : value?.cli;
+    if (typeof target === 'string') packages[4].files.push(`package/${target}`);
+    const { run, calls } = runner(packages);
+    // Act / Assert
+    assert.throws(
+      () => publishRelease(VERSION, { root, run, env: context }),
+      /bin|target|path/i,
+      `must reject bin ${JSON.stringify(value)}`,
+    );
+    assert.ok(!calls.some(call => call.args[0] === 'publish'));
+  }
+});
+
+test('source nonmodule bin rejects malformed optional declarations before packing', t => {
+  for (const value of [null, [], 42, '', { cli: null }, { cli: '' }]) {
+    // Arrange
+    const { root, packages } = fixture(t);
+    updateManifest(root, 4, data => {
+      data.bin = value;
+    });
+    const { run, calls } = runner(packages);
+    // Act / Assert
+    assert.throws(() => packRelease(VERSION, { root, run }), /bin/i);
+    assert.deepEqual(calls, []);
+  }
+});
+
+test('packed module cannot replace the required reconciliation command with another name', t => {
+  // Arrange: even a real payload does not replace the required command declaration.
+  const { root, packages } = fixture(t);
+  packages[3].manifest.bin = { other: './bin/reconcile-catalog-history.js' };
+  const { run, calls } = runner(packages);
+  // Act / Assert
+  assert.throws(
+    () => publishRelease(VERSION, { root, run, env: context }),
+    /bin|reconcile/,
+  );
+  assert.ok(!calls.some(call => call.args[0] === 'publish'));
+});
+
+test('source module bin must keep the named reconciliation command', t => {
+  for (const value of [
+    null,
+    [],
+    './bin/cli.js',
+    {},
+    { other: './bin/cli.js' },
+    { 'reconcile-catalog-history': '' },
+  ]) {
+    // Arrange
+    const { root, packages } = fixture(t);
+    updateManifest(root, 3, data => {
+      data.bin = value;
+    });
+    const { run, calls } = runner(packages);
+    // Act / Assert
+    assert.throws(() => packRelease(VERSION, { root, run }), /bin|reconcile/);
+    assert.deepEqual(calls, []);
+  }
+});
+
+test('every bin map target must exist, including commands after a valid first entry', t => {
+  // Arrange
+  const { root, packages } = fixture(t);
+  packages[3].manifest.bin.other = './bin/missing.js';
+  const { run, calls } = runner(packages);
+  // Act / Assert
+  assert.throws(
+    () => publishRelease(VERSION, { root, run, env: context }),
+    /bin|missing/,
+  );
+  assert.ok(!calls.some(call => call.args[0] === 'publish'));
+});
+
+for (const bin of [
+  './bin/cli.js',
+  { first: './bin/cli.js', second: 'bin/other.js' },
+]) {
+  test(`accepts optional nonmodule bin ${JSON.stringify(bin)} without executing it`, t => {
+    // Arrange
+    const { root, packages } = fixture(t);
+    updateManifest(root, 4, data => {
+      data.bin = bin;
+    });
+    packages[4].manifest.bin = bin;
+    packages[4].files.push('package/bin/cli.js', 'package/bin/other.js');
+    const { run, calls } = runner(packages);
+    // Act
+    const result = publishRelease(VERSION, { root, run, env: context });
+    // Assert
+    assert.equal(result.length, 5);
+    assert.equal(calls.filter(call => call.command === 'tar').length, 10);
+    assert.ok(calls.every(call => ['tar', 'npm'].includes(call.command)));
+  });
 }
 
 // Every subprocess is simulated; unexpected commands fail instead of falling back.

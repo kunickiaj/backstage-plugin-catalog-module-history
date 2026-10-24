@@ -24,7 +24,9 @@ The storage package is a `node-library`, not a backend plugin. The root package 
    - `catalog-backend-module-history-VERSION.tgz`
    - `catalog-history-VERSION.tgz`
 
-   The frontend archive is ESM-only; Node and backend archives are CommonJS; the common archive is dual-format. The helper packs with Yarn after `yarn tsc` and `yarn build`, checks declared compiled entrypoints, types, module output, frontend CSS, license, and every migration, and rejects source, development, and fixture files. Also inspect expected `backstage.role` and plugin metadata, declared `configSchema` and `bin` targets, and README inclusion; these are required review items, not a claim that every one is checked automatically.
+   The frontend archive is ESM-only; Node and backend archives are CommonJS; the common archive is dual-format. The helper packs with Yarn after `yarn tsc` and `yarn build`, checks declared compiled entrypoints, types, module output, frontend CSS, README, license, and every migration, and rejects source, development, and fixture files.
+
+   Source and packed manifests must have the expected Backstage role and required plugin identity metadata. The catalog module must declare its configuration schema and reconciliation command; packed schema and CLI targets must stay inside the package and exist in the archive. Schema targets must be compiled JSON, not source declarations; these checks confirm target inclusion, not schema-content correctness or CLI execution.
 
 4. With explicit approval to publish, dispatch the workflow from `main` with **publish** checked and **bootstrap_frontend** unchecked. This dispatch validates and packs again; the publishing job uses that dispatch's artifacts, not an earlier validation-only run. After the required `npm` environment review, it publishes all five archives in dependency order through trusted publishing and provenance.
 5. Verify the registry after it processes the publish. npm pages and registry reads can lag for a few minutes; retry the read only. Do not publish again to make a read appear sooner.
