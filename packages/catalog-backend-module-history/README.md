@@ -19,6 +19,33 @@ backend.add(myHistoryStoreServiceFactory);
 
 Provider wrappers should be configured in the same catalog module where the provider is created: depend on `historyStoreServiceRef`, then pass the resolved store into `HistoryRecordingEntityProvider`. The legacy `catalog.history.database` setting remains as a deprecated compatibility path honored by the default store factory, so all consumers of the injected store share the same connection.
 
+## Deprecated compatibility re-exports
+
+This module still re-exports the following deprecated symbols from its package entry point for source compatibility. New and updated backend code should import them from their canonical Node or storage package instead. These are symbol aliases, not package-name aliases.
+
+The compatibility imports below use this module's current npm name; they do not make superseded npm package names installable.
+
+| Retained symbols                                                                                                 | Import from                                                |
+| ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `CaptureSource`, `CurrentEtag`, `CycleInput`, `EntityRow`, `HistoryStore`, `MutationType`, `RECONCILER_PROVIDER` | `@kunickiaj/backstage-plugin-catalog-history-node`         |
+| `ensureSchema`, `historyStoreServiceFactory`, `PostgresHistoryStore`                                             | `@kunickiaj/backstage-plugin-catalog-history-storage-node` |
+
+For example, replace a type and runtime storage import from this module:
+
+```ts
+import type { HistoryStore } from '@kunickiaj/backstage-plugin-catalog-backend-module-history';
+import { PostgresHistoryStore } from '@kunickiaj/backstage-plugin-catalog-backend-module-history';
+```
+
+with canonical imports:
+
+```ts
+import type { HistoryStore } from '@kunickiaj/backstage-plugin-catalog-history-node';
+import { PostgresHistoryStore } from '@kunickiaj/backstage-plugin-catalog-history-storage-node';
+```
+
+The default backend loader (`backend.add(import('@kunickiaj/backstage-plugin-catalog-backend-module-history'))`) and module capture exports remain imports from this package. No removal version has been announced. A future removal must be documented as a breaking release change before consumers upgrade.
+
 ## Optional HTTP read API in `0.2.0`
 
 Set `catalog.history.api.enabled` to `true` to serve authenticated entity-history routes from this catalog module. The routes use the same history store as recording; no separate backend plugin or database is needed.
