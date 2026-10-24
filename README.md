@@ -4,9 +4,9 @@ A Backstage backend module that records catalog entity changes into a versioned 
 
 Ships with a Postgres backend in v1; designed around a pluggable `HistoryStore` interface so additional backends (Dolt, ClickHouse, etc.) can be added without changes to the wrapper.
 
-**Status: pre-alpha.** The first four packages are published at `0.1.0`. All five package sources are prepared as the `0.2.0` release candidate, including the frontend package, but `0.2.0` has not been published and the frontend package is not yet on npm. The HTTP read API and migration-log isolation fix are pending `0.2.0`; read the [storage notes](packages/catalog-history-backend/README.md#migration-bookkeeping-in-020) before using a shared catalog database.
+**Status: pre-alpha.** All five public packages are published at `0.2.0` with the `latest` dist-tag, including the frontend package. The HTTP read API and migration-log isolation fix ship in `0.2.0`; read the [storage notes](packages/catalog-history-backend/README.md#migration-bookkeeping-in-020) and [migration guide](docs/migration.md) before using a shared catalog database.
 
-Maintainers: see [Publishing packages](docs/publishing.md) for validation-only runs, the first-release bootstrap, and npm trusted publishing.
+Maintainers: see [Publishing packages](docs/publishing.md) for validation, npm trusted publishing, artifact verification, release notes, and recovery.
 
 The `0.2.0` global-feed index builds during history startup and blocks history entity writes while it builds. Before deploying it to a database with a large retained history, plan a maintenance window; see the [index upgrade notes](packages/catalog-history-backend/README.md#global-history-feed-index-in-020).
 
@@ -179,9 +179,9 @@ The detail route accepts no query parameters. Invalid, nonpositive, or out-of-ra
 
 ## Add the frontend History tab and page in `0.2.0`
 
-`packages/catalog-history` contains the `@kunickiaj/backstage-plugin-catalog-history` NFS frontend package. Its source is a `0.2.0` release candidate, but it is not yet on npm. It is included in the five-package release candidate; publication remains gated on confirming its first-publication path. The four existing packages remain published at `0.1.0` until `0.2.0` is released.
+`packages/catalog-history` contains the `@kunickiaj/backstage-plugin-catalog-history` NFS frontend package. It is published at `0.2.0` with the other four public packages; install the exact published version for host E2E work.
 
-After adding the workspace package to your app, enable the catalog read API and add the default NFS plugin to `createApp`:
+After installing the frontend package in your app workspace, enable the catalog read API and add the default NFS plugin to `createApp`:
 
 ```yaml
 catalog:
@@ -315,7 +315,7 @@ env \
 - [Implementation plan](docs/plans/2026-05-11-catalog-history-backstage-module.md)
 - [Productization roadmap](docs/plans/2026-07-05-catalog-history-productization-roadmap.md)
 - [Architecture](docs/ARCHITECTURE.md)
-- [`0.2.0` release candidate](docs/releases/0.2.0.md)
+- [`0.2.0` release and E2E setup](docs/releases/0.2.0.md)
 
 ## License
 
