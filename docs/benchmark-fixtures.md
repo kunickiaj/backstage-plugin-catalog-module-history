@@ -130,6 +130,9 @@ estimate of database storage, retention cost, or runtime performance.
 
 ## Use fixtures safely in a future harness
 
+For the paired backend diagnostic that consumes these fixtures, see
+[Catalog history baseline diagnostic](benchmark-baseline.md).
+
 Keep `seed`, `profile`, and `count` the same for capture-off and capture-on pairs. Run
 the pairs against isolated, authorized test backends only; do not apply these fixtures
 to a live catalog.
