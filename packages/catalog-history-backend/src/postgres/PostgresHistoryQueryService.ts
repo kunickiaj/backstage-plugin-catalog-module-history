@@ -28,6 +28,11 @@ import {
   normalizeQueryTimeoutMs,
   withHistoryQueryTimeout,
 } from './historyQueryTimeout';
+import {
+  createHistoryStorageMetrics,
+  type HistoryStorageMetrics,
+  type QueryOperation,
+} from './historyStorageMetrics';
 
 const ISO_8601_INSTANT =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
@@ -198,19 +203,23 @@ function rowToVersion(row: HistoryEntityRow): HistoryEntityVersion {
 export class PostgresHistoryQueryService {
   private schemaReady: Promise<void> | undefined;
   private readonly queryTimeoutMs: number;
+  private readonly metrics: HistoryStorageMetrics;
 
   constructor(
     private readonly db: Knex,
-    options: { queryTimeoutMs?: number } = {},
+    options: { queryTimeoutMs?: number; metrics?: HistoryStorageMetrics } = {},
   ) {
     this.queryTimeoutMs = normalizeQueryTimeoutMs(options.queryTimeoutMs);
+    this.metrics = options.metrics ?? createHistoryStorageMetrics();
   }
 
   async ensureReady(): Promise<void> {
-    this.schemaReady ??= ensureSchema(this.db).catch(error => {
-      this.schemaReady = undefined;
-      throw error;
-    });
+    this.schemaReady ??= this.metrics
+      .schema('query', () => ensureSchema(this.db))
+      .catch(error => {
+        this.schemaReady = undefined;
+        throw error;
+      });
     await this.schemaReady;
   }
 
@@ -221,7 +230,7 @@ export class PostgresHistoryQueryService {
 
     const limit = normalizeLimit(request.limit);
     this.validateReadRequest(request);
-    const rows = await this.read(db =>
+    const rows = await this.read('timeline', db =>
       this.applyEntityFilters(
         db<HistoryEntityRow>('catalog_history_entities'),
         request,
@@ -251,7 +260,7 @@ export class PostgresHistoryQueryService {
     await this.ensureReady();
     const limit = normalizeLimit(request.limit);
     this.validateReadRequest(request);
-    const rows = await this.read(db => {
+    const rows = await this.read('feed', db => {
       const query = this.applyChangeFilters(
         db<HistoryEntityRow>('catalog_history_entities'),
         request,
@@ -302,7 +311,7 @@ export class PostgresHistoryQueryService {
 
     const limit = normalizeLimit(request.limit);
     this.validateReadRequest(request);
-    const rows = await this.read(db => {
+    const rows = await this.read('versions', db => {
       const distinctVersions = this.applyEntityFilters(
         db<HistoryEntityRow>('catalog_history_entities'),
         request,
@@ -340,7 +349,7 @@ export class PostgresHistoryQueryService {
       throw new InputError('Invalid history row id');
     }
     await this.ensureReady();
-    const { row, previousRow } = await this.read(async db => {
+    const { row, previousRow } = await this.read('detail', async db => {
       const currentRow = await db<HistoryEntityRow>('catalog_history_entities')
         .where({ id: request.id, entity_ref: request.entityRef })
         .first();
@@ -376,8 +385,13 @@ export class PostgresHistoryQueryService {
     };
   }
 
-  private read<T>(read: (executor: Knex) => PromiseLike<T>): Promise<T> {
-    return withHistoryQueryTimeout(this.db, this.queryTimeoutMs, read);
+  private read<T>(
+    operation: QueryOperation,
+    read: (executor: Knex) => PromiseLike<T>,
+  ): Promise<T> {
+    return this.metrics.query(operation, () =>
+      withHistoryQueryTimeout(this.db, this.queryTimeoutMs, read),
+    );
   }
 
   private validateReadRequest(
