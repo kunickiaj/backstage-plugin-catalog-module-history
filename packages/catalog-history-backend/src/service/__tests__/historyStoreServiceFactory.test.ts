@@ -10,6 +10,7 @@ import {
   startTestBackend,
   type TestBackend,
 } from '@backstage/backend-test-utils';
+import { metricsServiceMock } from '@backstage/backend-test-utils/alpha';
 import {
   historyStoreServiceRef,
   type HistoryStore,
@@ -73,6 +74,7 @@ describe('historyStoreServiceFactory', () => {
         consumer,
         historyStoreServiceFactory,
         mockServices.database.factory({ knex: db }),
+        metricsServiceMock.factory(),
       ],
     });
 
@@ -141,13 +143,15 @@ describe('historyStoreServiceFactory query timeout configuration', () => {
     const database = mockServices.database.mock({
       getClient: jest.fn().mockResolvedValue(db),
     });
+    const metrics = metricsServiceMock.mock();
     const tester = ServiceFactoryTester.from(historyStoreServiceFactory, {
       dependencies: [
         database.factory,
+        metrics.factory,
         mockServices.rootConfig.factory({ data: { catalog: { history } } }),
       ],
     });
-    return { db, database, tester };
+    return { db, database, metrics, tester };
   }
 
   it.each([
@@ -162,7 +166,7 @@ describe('historyStoreServiceFactory query timeout configuration', () => {
       // Arrange: ConfigReader treats null as absent and parses numeric strings.
       // Mock resource acquisition, not SQL execution or cancellation.
       const constructor = jest.mocked(storeModule.PostgresHistoryStore);
-      const { db, database, tester } = setup(
+      const { db, database, metrics, tester } = setup(
         configured === undefined ? {} : { api: { queryTimeoutMs: configured } },
       );
       // Act
@@ -171,6 +175,7 @@ describe('historyStoreServiceFactory query timeout configuration', () => {
       expect(constructor).toHaveBeenCalledWith(db, {
         ownsDatabase: false,
         queryTimeoutMs: expected,
+        metrics,
       });
       expect(database.getClient).toHaveBeenCalledTimes(1);
       expect(store.query).toBeDefined();
