@@ -65,6 +65,9 @@ jobs:
       - name: Release helper tests
         run: yarn test:release
 
+      - name: Catalog history fixture tests
+        run: yarn test:fixtures
+
       - name: Prettier check
         run: yarn prettier:check
 

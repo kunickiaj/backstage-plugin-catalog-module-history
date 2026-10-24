@@ -20,6 +20,7 @@
     "test": "backstage-cli repo test --passWithNoTests",
     "test:watch": "backstage-cli repo test --watch",
     "test:release": "node --test scripts/npm-release.test.mjs",
+    "test:fixtures": "node --test scripts/catalog-history-fixtures.test.mjs",
     "start": "backstage-cli repo start",
     "tsc": "tsc",
     "prettier:check": "prettier --ignore-unknown --check .",
