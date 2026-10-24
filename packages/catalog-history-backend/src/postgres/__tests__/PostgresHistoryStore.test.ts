@@ -445,6 +445,120 @@ describe('PostgresHistoryStore', () => {
       expect(Number(entityCount[0].count)).toBe(0);
     });
 
+    it('rolls back earlier entity chunks when a later chunk fails and permits a retry', async () => {
+      // Arrange: preserve history committed before the failing capture.
+      const priorCycleId = await insertCycle(db, {
+        provider: 'okta-org',
+        startedAt: '2026-05-12T09:00:00Z',
+      });
+      await insertEntity(db, {
+        cycleId: priorCycleId,
+        provider: 'okta-org',
+        entityRef: 'user:default/alice',
+        etag: 'alice-v1',
+        op: 'insert',
+        changedAt: '2026-05-12T09:00:00Z',
+      });
+      await store.ensureReady();
+      const priorCycles = await db('catalog_history_cycles').select('*');
+      const priorEntities = await db('catalog_history_entities').select('*');
+      const priorEtags = await store.loadCurrentEtags('okta-org');
+      const inserts = Array.from({ length: 1000 }, (_, i) =>
+        row(`late-chunk-${i}`, `etag-${i}`),
+      );
+      const failingRow = row('injected-late-failure', 'retry-etag');
+      const capture = {
+        cycleId: randomUUID(),
+        provider: 'okta-org',
+        source: 'provider' as const,
+        mutationType: 'full' as const,
+        startedAt: new Date('2026-05-12T10:00:00Z'),
+        finishedAt: new Date('2026-05-12T10:00:01Z'),
+        inserts: [...inserts, failingRow],
+        updates: [],
+        deletes: [],
+        unchangedCount: 1,
+      };
+
+      // Only the final row, in chunk two, violates this fixture-local check.
+      await db.raw(
+        "ALTER TABLE ?? ADD CONSTRAINT ?? CHECK (?? <> 'user:default/injected-late-failure')",
+        ['catalog_history_entities', 'test_late_chunk_failure', 'entity_ref'],
+      );
+      const entityInsertEvents: string[] = [];
+      const successfulRefs: string[] = [];
+      const isEntityInsert = (query: { sql: string }) =>
+        query.sql.startsWith('insert into "catalog_history_entities"');
+      const onResponse = (
+        _response: unknown,
+        query: { sql: string; bindings?: readonly unknown[] },
+      ) => {
+        if (isEntityInsert(query)) {
+          entityInsertEvents.push('success');
+          successfulRefs.push(
+            ...(query.bindings ?? []).filter(
+              (value): value is string =>
+                typeof value === 'string' && value.startsWith('user:default/'),
+            ),
+          );
+        }
+      };
+      const onError = (_error: unknown, query: { sql: string }) => {
+        if (isEntityInsert(query)) {
+          entityInsertEvents.push('error');
+        }
+      };
+      db.on('query-response', onResponse);
+      db.on('query-error', onError);
+
+      // Act: use real SQL; do not fail mapping or the preceding cycle insert.
+      try {
+        await expect(store.recordCycle(capture)).rejects.toMatchObject({
+          code: '23514',
+          constraint: 'test_late_chunk_failure',
+        });
+      } finally {
+        db.removeListener('query-response', onResponse);
+        db.removeListener('query-error', onError);
+        await db.raw('ALTER TABLE ?? DROP CONSTRAINT ??', [
+          'catalog_history_entities',
+          'test_late_chunk_failure',
+        ]);
+      }
+
+      // Assert: chunk one completed inside the transaction, not durably.
+      expect(entityInsertEvents).toEqual(['success', 'error']);
+      expect(successfulRefs).toEqual(inserts.map(entity => entity.entityRef));
+      expect(await db('catalog_history_cycles').select('*')).toEqual(
+        priorCycles,
+      );
+      expect(await db('catalog_history_entities').select('*')).toEqual(
+        priorEntities,
+      );
+      expect(await store.loadCurrentEtags('okta-org')).toEqual(priorEtags);
+
+      // Act: removing the fault allows the same cycle ID and rows to commit.
+      await store.recordCycle(capture);
+
+      // Assert: the store remains usable and no failed-cycle residue conflicts.
+      expect(
+        await db('catalog_history_cycles').where({ cycle_id: capture.cycleId }),
+      ).toHaveLength(1);
+      expect(
+        await db('catalog_history_entities').where({
+          cycle_id: capture.cycleId,
+        }),
+      ).toHaveLength(1001);
+      expect(await store.loadCurrentEtags('okta-org')).toEqual(
+        new Map([
+          ...priorEtags,
+          ...capture.inserts.map(
+            entity => [entity.entityRef, entity.etag] as const,
+          ),
+        ]),
+      );
+    });
+
     it('persists structured columns + JSONB payloads', async () => {
       const cycleId = randomUUID();
       await store.recordCycle({
