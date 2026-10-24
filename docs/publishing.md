@@ -1,10 +1,8 @@
 # Publishing packages
 
-The **Publish npm packages** workflow validates and packs all five packages. It publishes only when a maintainer explicitly requests publication from `main`. Ordinary pushes, merges, tags, and pull requests never publish.
+All five public packages are published at `0.2.0` with the `latest` dist-tag. A normal release publishes the same numeric version for every package from `main`, using the validated archives from one successful CI run. Do not publish from a branch, source directory, rebuilt archive, or arbitrary package subset.
 
-All five public packages stay in this repository's existing Yarn workspaces, with one lockfile and shared CI:
-
-| Public package                                               | Existing directory                        |
+| Public package                                               | Workspace directory                       |
 | ------------------------------------------------------------ | ----------------------------------------- |
 | `@kunickiaj/backstage-plugin-catalog-history-common`         | `packages/catalog-history-common`         |
 | `@kunickiaj/backstage-plugin-catalog-history-node`           | `packages/catalog-history-node`           |
@@ -12,112 +10,98 @@ All five public packages stay in this repository's existing Yarn workspaces, wit
 | `@kunickiaj/backstage-plugin-catalog-backend-module-history` | `packages/catalog-backend-module-history` |
 | `@kunickiaj/backstage-plugin-catalog-history`                | `packages/catalog-history`                |
 
-The storage package is a `node-library`, not a backend plugin. The first four names are published at `0.1.0`; the frontend package is not yet published. Source is prepared as the `0.2.0` release candidate, not evidence that `0.2.0` is already available on npm. The superseded names were unpublished after the rename; they are not compatibility aliases.
+The storage package is a `node-library`, not a backend plugin. The root package remains private; its `0.1.0` version is not a public package release.
 
-## Validate a release
+## Normal five-package release
 
-All five packages use the same stable version. Update their numeric `version` fields together, update the lockfile, and merge the change before publishing. The helper accepts stable versions such as `0.2.0`, not prerelease versions.
+1. Update all five public numeric versions together with a stable version (for example, `0.2.1`), then merge the release change to `main` with explicit merge approval. Confirm the validated commit is on upstream `main`. Internal `workspace:^` dependencies are rewritten by Yarn 4.5 during packing to ranges such as `^0.2.1`.
+2. Dispatch **Publish npm packages** from `main` with the version and **publish** unchecked. `bootstrap_frontend` is unchecked for normal releases. Validation uses PostgreSQL 16 and Node 24 and runs release-helper checks, formatting, lint, typecheck, build, and tests with watches disabled.
+3. Inspect the successful `npm-release-COMMIT_SHA` artifact. It contains these five archives, named after their workspace directories:
 
-Internal dependencies use `workspace:^` in source and do not need a range edit for each release: Yarn rewrites them to ranges such as `^0.2.0` when packing. The archives must contain resolved numeric or caret ranges and no `workspace:` protocols.
+   - `catalog-history-common-VERSION.tgz`
+   - `catalog-history-node-VERSION.tgz`
+   - `catalog-history-backend-VERSION.tgz`
+   - `catalog-backend-module-history-VERSION.tgz`
+   - `catalog-history-VERSION.tgz`
 
-In GitHub Actions, select **Publish npm packages → Run workflow**, choose a ref and enter that version. Leave **publish** unchecked. Validation runs release-helper tests, formatting, lint, typecheck, build, and the repository tests against PostgreSQL 16. It then packs and inspects the archives without contacting npm to publish them.
+   The frontend archive is ESM-only; Node and backend archives are CommonJS; the common archive is dual-format. The helper packs with Yarn after `yarn tsc` and `yarn build`, checks declared compiled entrypoints, types, module output, frontend CSS, license, and every migration, and rejects source, development, and fixture files. Also inspect expected `backstage.role` and plugin metadata, declared `configSchema` and `bin` targets, and README inclusion; these are required review items, not a claim that every one is checked automatically.
 
-Download the `npm-release-COMMIT_SHA` artifact from that run. It contains:
+4. With explicit approval to publish, dispatch the workflow from `main` with **publish** checked and **bootstrap_frontend** unchecked. This dispatch validates and packs again; the publishing job uses that dispatch's artifacts, not an earlier validation-only run. After the required `npm` environment review, it publishes all five archives in dependency order through trusted publishing and provenance.
+5. Verify the registry after it processes the publish. npm pages and registry reads can lag for a few minutes; retry the read only. Do not publish again to make a read appear sooner.
 
-1. `catalog-history-common-VERSION.tgz`
-2. `catalog-history-node-VERSION.tgz`
-3. `catalog-history-backend-VERSION.tgz`
-4. `catalog-backend-module-history-VERSION.tgz`
-5. `catalog-history-VERSION.tgz`
+The workflow validates all five archives and preflights each exact registry version before npm changes. It skips a version only when the existing registry integrity equals the matching archive. A malformed response, unexpected existing version, integrity mismatch, or registry error other than a missing version stops publication.
 
-For this release, Backstage builds the frontend as ESM, the Node/backend packages as CommonJS, and the common package in both formats. The helper packs through Yarn, then checks declared compiled entrypoints, declarations, every migration file, and frontend CSS. It rejects source, development, and fixture files.
+The publishing job uses GitHub-hosted runners, Node 24, pinned npm `11.19.1`, and `id-token: write` for OIDC. The `npm` environment remains main-only with required reviewers. No npm token secret or token fallback is configured.
 
-Local packing requires `yarn tsc` before `yarn build`:
+Before publication, confirm all five trusted publishers match this repository, workflow filename `publish.yml`, and environment `npm`, with **direct `npm publish`** allowed. Staged-publishing-only permission is insufficient for this workflow.
 
-```sh
-yarn tsc
-yarn build
-node scripts/npm-release.mjs pack 0.2.0
-```
+## Verify a published release
 
-Archive filenames follow workspace directories, not npm package names. Previously generated archives containing old package names are invalid for this release: regenerate all five through CI from the current manifests and imports. Do not rename or reuse archives.
-
-## First release: manual bootstrap
-
-The bootstrap below was completed for `0.1.0` and is retained as a reference. Do not rerun it for that version; subsequent releases need a new coordinated version and approved artifacts.
-
-The four existing package names were bootstrapped at `0.1.0`; their trusted publishers have since been configured by the maintainer. The historical manual publication is complete and must not be rerun. It is retained below only as a record of the immutable `0.1.0` release.
-
-After that approval, download the validated archives from a `main` run into `.tmp/npm-release`. Confirm that this reports `kunickiaj`:
+Check each package separately: an exact version identifies the immutable release, while `latest` is a moving tag and must be checked independently. Compare integrity values to confirm the archive bytes.
 
 ```sh
-npm whoami --registry 'https://registry.npmjs.org'
+npm view '<package>@<version>' version dist.integrity dist.attestations --json --registry 'https://registry.npmjs.org'
+npm view '<package>' dist-tags --json --registry 'https://registry.npmjs.org'
+npm view '<package>@<version>' dist.tarball --registry 'https://registry.npmjs.org'
 ```
 
-If it reports another account or requires login, authenticate manually with your personal npm account before continuing. Do not use a work account. Publish the exact downloaded archives in dependency order; for `0.1.0`:
+Record results for all five packages in the release checklist. The exact version must match `VERSION`; `dist-tags.latest` must point to `VERSION`; and `dist.integrity` must equal the SHA-512 value of the exact successful CI archive. `dist.attestations` indicates that npm exposes attestation links; it is not itself full cryptographic verification of provenance.
+
+| Package                          | Exact version | `latest` | Archive SHA-512 | Attestation links |
+| -------------------------------- | ------------- | -------- | --------------- | ----------------- |
+| `catalog-history-common`         | ☐             | ☐        | ☐               | ☐                 |
+| `catalog-history-node`           | ☐             | ☐        | ☐               | ☐                 |
+| `catalog-history-storage-node`   | ☐             | ☐        | ☐               | ☐                 |
+| `catalog-backend-module-history` | ☐             | ☐        | ☐               | ☐                 |
+| `catalog-history`                | ☐             | ☐        | ☐               | ☐                 |
+
+Calculate an archive integrity value without rebuilding or renaming it:
 
 ```sh
-npm publish .tmp/npm-release/catalog-history-common-0.1.0.tgz --access public --ignore-scripts --registry 'https://registry.npmjs.org'
-npm publish .tmp/npm-release/catalog-history-node-0.1.0.tgz --access public --ignore-scripts --registry 'https://registry.npmjs.org'
-npm publish .tmp/npm-release/catalog-history-backend-0.1.0.tgz --access public --ignore-scripts --registry 'https://registry.npmjs.org'
-npm publish .tmp/npm-release/catalog-backend-module-history-0.1.0.tgz --access public --ignore-scripts --registry 'https://registry.npmjs.org'
+node -e "const { createHash } = require('node:crypto'); const { readFileSync } = require('node:fs'); console.log('sha512-' + createHash('sha512').update(readFileSync(process.argv[1])).digest('base64'))" 'path/to/archive.tgz'
 ```
 
-Complete any npm browser or two-factor prompts yourself. Local publication does not generate GitHub Actions provenance; do not add `--provenance` to these bootstrap commands. npm package versions are immutable, so a partial release cannot be rolled back as one transaction.
+For `0.2.0`, all five exact versions and `latest` tags were checked, and their registry integrities matched the CI archives. The first four packages came from the OIDC/provenance job at commit `a9260710c6158a774853be7d11b7f7fc4ab4a115`; the frontend was manually published from its exact CI archive after approval and has the same SHA-512 integrity. The frontend's local publish has no GitHub Actions provenance claim.
 
-## Release gate for `0.2.0`
+## Installed-package smoke check
 
-Preparation of the `0.2.0` bootstrap tooling is approved; publication is not authorized yet. GitHub's `npm` environment retains its required reviewers and `main`-only deployment branch. Trusted publishing is already configured for the four existing package names.
+Run this only in a disposable, authorized consumer development workspace. Install the published **exact** versions, use the host's normal backend loader and service overrides, and do not change a running E2E instance.
 
-The new `@kunickiaj/backstage-plugin-catalog-history` name is absent from npm. npm requires its first public publication before a trusted publisher can be configured for that name. Do not change npm trust settings or publish during validation.
+- Start with a backup when upgrading older history data. `0.1` shared catalog migration logs need the [migration guidance](migration.md); do not blindly downgrade a database.
+- Confirm migrations apply on startup and the default Postgres store works. Keep the existing provider wrapper when provider-origin capture is required; use the reconciler for served-catalog capture. Processing capture does not cover deletes.
+- If enabled by the host's existing policy, test the authenticated read API, explicit `catalog-history.read` permission decision, unauthenticated rejection, and permission rejection. Do not change the host's authentication or permission policy without approval.
+- Confirm the NFS plugin, BUI stylesheet, React `^18.3.1` peers, global page, entity tab, filters, page/detail views, and delete's last-recorded-snapshot label. Confirm provider capture and reconciler behavior; do not treat a preview as a host smoke test.
 
-After the separately approved manual frontend publication, configure its trusted publisher to match the existing packages:
+The read permission grants access to retained history, including deleted entities, independently of live catalog visibility. The global-feed index builds during schema startup even when the HTTP API is disabled and blocks history-entity writes while it builds. Plan a maintenance window for large histories; do not use this smoke check for production data writes or row deletion.
 
-| Setting           | Value                                     |
-| ----------------- | ----------------------------------------- |
-| User/organization | `kunickiaj`                               |
-| Repository        | `backstage-plugin-catalog-module-history` |
-| Workflow filename | `publish.yml`                             |
-| Environment       | `npm`                                     |
+## GitHub release notes are a separate approved action
 
-Permit **direct `npm publish`** for the publisher. The default permission for staged publishing alone is insufficient for this workflow. No dist-tag management permission is needed.
+The workflow does not create changelogs, tags, GitHub releases, or version bumps. Prepare human-reviewed notes that describe released features, setup, and caveats; do not use generated notes alone as a claim that every planned feature shipped.
 
-A newly configured trusted publisher must make its first successful publish within two days or npm expires the configuration. Mark that window for follow-up, but do not create a new frontend version merely to test it: validation-only runs, or runs that skip every archive, do not prove the configuration works.
-
-The workflow uses GitHub-hosted runners, Node 24, and npm pinned to `11.19.1` (trusted publishing requires npm 11.5.1 or later). Update that pin deliberately rather than installing a different CLI on every release. Only the publishing job receives `id-token: write`. There is no npm token secret or token fallback configured, and publication explicitly requests provenance.
-
-See npm's [trusted publishing](https://docs.npmjs.com/trusted-publishers) and [provenance](https://docs.npmjs.com/generating-provenance-statements) documentation for the account-side requirements.
-
-## `0.2.0` publication procedure
-
-The following external actions require the approvals named in each step. A successful bootstrap workflow is not a completed five-package publication: it intentionally leaves the frontend pending.
-
-1. Dispatch **Publish npm packages** from the release branch with version `0.2.0`, **publish** unchecked, and **bootstrap_frontend** unchecked. This validation-only run packs and inspects the archives without publishing.
-2. With explicit merge approval, merge the release PR.
-3. With explicit approval to publish, dispatch the workflow from `main` with **publish** checked and **bootstrap_frontend** checked. The publishing job waits for validation and GitHub's `npm` environment approval, then uses the artifacts from that same successful run. It publishes common → node → storage-node → module with OIDC and provenance, and records the frontend as pending. Its final warning means the five-package release is incomplete.
-4. With separate approval for manual npm publication, download `npm-release-COMMIT_SHA` for that same successful CI run through the GitHub UI. Keep all five archives together. Compare the logged deferred-frontend `sha512-...` integrity value and archive path with the downloaded frontend archive; the helper logs both so an operator can verify the exact bytes. Do not rebuild, repack, rename, or substitute an archive.
-5. Authenticate to npm with the authorized personal `kunickiaj` account and complete any browser or two-factor prompts. A local `npm whoami` 401 does not block the GitHub Actions publication of the first four packages; it does block this separate manual step until authentication is completed. Then publish only the downloaded frontend archive:
-
-   ```sh
-   npm publish 'path/to/catalog-history-0.2.0.tgz' --access public --tag latest --ignore-scripts --registry 'https://registry.npmjs.org'
-   ```
-
-   Do not add `--provenance`: manual publication cannot make GitHub Actions provenance claims.
-
-6. With separate approval, configure the frontend trusted publisher as described above. Future releases use the normal workflow from `main` with **bootstrap_frontend** unchecked after that configuration is in place.
-
-To calculate the npm-style SHA-512 integrity value of the downloaded frontend archive for comparison with the workflow log:
+After npm verification and separate approval, pin the actual validated merge SHA and create the release deliberately. These are placeholders, not a command to run literally:
 
 ```sh
-node -e "const { createHash } = require('node:crypto'); const { readFileSync } = require('node:fs'); console.log('sha512-' + createHash('sha512').update(readFileSync(process.argv[1])).digest('base64'))" 'path/to/catalog-history-0.2.0.tgz'
+gh release create 'vVERSION' --target 'FULL_COMMIT_SHA' --title 'vVERSION' --notes-file 'path/to/notes.md'
 ```
 
-Before a publishing job changes npm, the helper validates all five archives and checks each exact registry version. A version can be skipped only when its registry integrity matches the corresponding archive bytes. Different bytes, malformed metadata, or a registry error other than a missing version stop the run before publication.
+`gh` can create a tag when it is absent. Confirm the tag points to the validated SHA before and after the action. A GitHub tag or release does not publish npm packages.
 
-Normal publication refuses to run while the frontend package name is absent. Bootstrap is allowed only while that name is absent; if the frontend name exists at any version, bootstrap stops rather than publishing a subset. It has no token fallback and does not allow an arbitrary package subset.
+## Partial publication and recovery
 
-If one of the first four packages fails after another has published, rerun the publishing job from the original successful CI run so it reuses the same artifacts. Matching published bytes are skipped and the missing packages continue in dependency order. Do not dispatch a fresh run or retry with newly built archives against existing backend versions. If the frontend becomes public during recovery, stop using bootstrap and resolve the matching-byte and trusted-publisher requirements before normal publication.
+npm versions are immutable. If any package publishes before the batch fails, stop. Do not delete, unpublish, overwrite a version, move dist-tags automatically, dispatch a fresh run, or rebuild archives against an existing version.
 
-Npm package versions are immutable. Do not edit or overwrite an already-published version.
+With approval, retry the original publishing job so it uses the original archives. It skips only packages whose registry integrities match and continues the missing packages in dependency order. Complete the coordinated batch first when possible. If that cannot be done, create a new coordinated patch release under its own approval.
 
-The workflow does not create Git tags, GitHub releases, or changelogs, and it does not bump versions automatically.
+For consumers, an operator may pin previous known-compatible package versions and lockfile after review. Do not downgrade a database using the dedicated history migration log to `0.1.0`.
+
+Prefer a forward fix for database migrations. Take a backup, use an operator-approved restore when needed, and never run automatic down migrations. Any npm authentication, trusted-publisher, tag, deployment, or data action needs explicit approval.
+
+## Historical `0.1.0` bootstrap — completed
+
+The one-time `0.1.0` bootstrap is historical record, not an instruction to rerun. Four packages were manually published by an authorized personal npm account from approved CI archives, with browser or two-factor prompts completed by the operator; local publication did not claim GitHub Actions provenance. `0.1.0` is immutable.
+
+The separate `0.2.0` frontend bootstrap completed the transition: four packages were published by CI through OIDC with provenance, and the frontend was manually published from the matching CI artifact. That workflow option is not a general package selector: it is allowed only while the frontend name is absent and now refuses to run because the name exists.
+
+The maintainer confirmed the frontend trusted publisher is configured, but its first actual OIDC publication remains untested. A new configuration must complete its first successful publish within two days or it expires; recheck or renew it near the next approved release. Do not publish a new version merely to test setup, and do not count an all-skipped retry as validation.
+
+Future normal releases use the five-package flow above with `bootstrap_frontend` unchecked. See npm's [trusted publishing](https://docs.npmjs.com/trusted-publishers) and [provenance](https://docs.npmjs.com/generating-provenance-statements) documentation for account-side requirements.
