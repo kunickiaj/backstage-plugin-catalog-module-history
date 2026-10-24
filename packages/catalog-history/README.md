@@ -100,6 +100,8 @@ Snapshots are stored entity states. The displayed update changes compare the ret
 
 Delete events are tombstones and do not contain a current entity snapshot. When the immediately preceding saved event from the same source and provider has a snapshot, the inspector displays it as **Last recorded snapshot before deletion**, with that record's provenance and a note that it is not the deletion payload.
 
+Direct catalog deletion and location unregistration do not guarantee a recorded delete event, even though earlier retained events can remain visible on the **Catalog history** page. Read the [known deletion-capture limitation](../../README.md#known-deletion-capture-limitation) before treating retained history as a complete deletion audit.
+
 `Recorded at` is when the selected capture source recorded the event. It is not necessarily when the upstream provider changed the entity, so events from different sources may not reflect ingestion order.
 
 Capture sources describe where the record came from:
