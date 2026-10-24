@@ -118,6 +118,12 @@ Missing fields show **Not recorded** or a category-specific missing message. Rec
 
 For a deletion, these sections appear only within **Last recorded snapshot before deletion** when that earlier snapshot exists. They do not describe a deletion payload or a current entity state.
 
+### Timeline badges in unreleased source
+
+Update rows can show **Owner changed**, **Relations changed**, **Status changed**, and **Orphan changed** beneath the operation. Each badge requires an explicit `true` summary flag from the API; missing or false flags render no badge and do not imply that the event has no other changes. Inserts and deletes do not show these comparison badges.
+
+The default Postgres backend supplies summaries for the entity timeline and current event detail. Its global feed and version lists still return empty summaries; older and custom APIs can also omit them. The UI does not fetch each event or compare loaded rows to fill those gaps. Badge comparisons describe known fields in adjacent saved events from the same source and provider, not the original upstream mutation.
+
 ## Access and unavailable history
 
 The backend requires an authenticated user. When the Backstage permission framework is enabled, the policy must explicitly allow `catalog-history.read`; otherwise the tab reports an access error.

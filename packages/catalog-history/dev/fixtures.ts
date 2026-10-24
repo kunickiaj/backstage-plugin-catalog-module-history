@@ -78,22 +78,30 @@ function record(
 }
 
 /** Newest first. Days 3–5 deliberately record A → B → A with distinct IDs. */
+// Static flags compare known saved fields with the preceding same-source/provider row.
 export const previewRecords: readonly HistoryEntityVersion[] = [
   record(10, 'reconciler', 'reconciler', 'update', 'synthetic-c', {
     ownerChanged: true,
+    relationsChanged: true,
     statusChanged: true,
   }),
   record(9, 'processing', 'processing', 'update', 'synthetic-b', {
     ownerChanged: true,
+    relationsChanged: true,
+    statusChanged: false,
   }),
   record(8, 'provider', 'example-discovery', 'insert', 'synthetic-a'),
   record(7, 'provider', 'example-discovery', 'delete'),
   record(6, 'reconciler', 'reconciler', 'update', 'synthetic-b'),
   record(5, 'provider', 'example-discovery', 'update', 'synthetic-a', {
     ownerChanged: true,
+    relationsChanged: true,
+    statusChanged: false,
   }),
   record(4, 'provider', 'example-discovery', 'update', 'synthetic-b', {
     ownerChanged: true,
+    relationsChanged: true,
+    statusChanged: false,
   }),
   record(3, 'provider', 'example-discovery', 'update', 'synthetic-a'),
   record(2, 'processing', 'processing', 'update', 'synthetic-a'),

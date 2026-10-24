@@ -5,6 +5,7 @@ import { TestApiProvider, renderTestApp } from '@backstage/frontend-test-utils';
 import type {
   HistoryEntityVersionResponse,
   HistoryChangeFeedResponse,
+  HistoryTimelineSummary,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import {
   catalogHistoryApiRef,
@@ -61,6 +62,83 @@ function setup() {
 
 describe('CatalogHistoryPage', () => {
   afterEach(() => jest.useRealTimers());
+
+  it('renders explicitly supplied update summaries but keeps legacy and lifecycle feed rows badge-free', async () => {
+    // Arrange: the default global feed need not compute per-entity summaries.
+    const { api, mount } = setup();
+    api.getChangeFeed.mockResolvedValue({
+      items: [
+        {
+          ...event('custom-update'),
+          summary: { ownerChanged: true, statusChanged: true },
+        },
+        event('legacy-empty'),
+        {
+          ...event('legacy-omitted'),
+          summary: undefined as unknown as HistoryTimelineSummary,
+        },
+        {
+          ...event('legacy-null'),
+          summary: null as unknown as HistoryTimelineSummary,
+        },
+        {
+          ...event('insert'),
+          op: 'insert',
+          summary: { relationsChanged: true },
+        },
+        { ...event('deleted', deletedRef), summary: { orphanChanged: true } },
+      ],
+    });
+
+    // Act
+    mount();
+    await screen.findByRole('row', { name: /^Event custom-update,/ });
+
+    // Assert
+    const grid = screen.getByRole('grid');
+    const update = within(grid).getByRole('row', {
+      name: /^Event custom-update,/,
+    });
+    const operation = within(update).getByRole('gridcell', {
+      name: 'update Recorded field changes: Owner changed, Status changed',
+    });
+    expect(within(operation).getByText('update')).toBeVisible();
+    const list = within(operation).getByRole('list', {
+      name: 'Recorded field changes: Owner changed, Status changed',
+    });
+    expect(
+      within(list)
+        .getAllByRole('listitem')
+        .map(item => item.textContent),
+    ).toEqual(['Owner changed', 'Status changed']);
+    for (const [id, op] of [
+      ['legacy-empty', 'update'],
+      ['legacy-omitted', 'update'],
+      ['legacy-null', 'update'],
+      ['insert', 'insert'],
+      ['deleted', 'delete'],
+    ]) {
+      const row = within(grid).getByRole('row', {
+        name: new RegExp(`^Event ${id},`),
+      });
+      expect(within(row).queryByRole('list')).not.toBeInTheDocument();
+      expect(within(row).getByRole('gridcell', { name: op })).toBeVisible();
+    }
+    expect(
+      within(grid)
+        .getAllByRole('columnheader')
+        .map(header => header.textContent),
+    ).toEqual(['Entity', 'Recorded at', 'Source', 'Provider', 'Operation']);
+    expect(within(grid).getAllByRole('list')).toHaveLength(1);
+    expect(within(grid).queryByText(/no changes/i)).not.toBeInTheDocument();
+    expect(api.getChangeFeed).toHaveBeenCalledTimes(1);
+    expect(api.getChangeFeed).toHaveBeenCalledWith({
+      limit: 25,
+      cursor: undefined,
+    });
+    expect(api.getEntityTimeline).not.toHaveBeenCalled();
+    expect(api.getEntityVersion).not.toHaveBeenCalled();
+  });
 
   it('loads an unscoped feed and explains an empty result without entity reads', async () => {
     // Arrange

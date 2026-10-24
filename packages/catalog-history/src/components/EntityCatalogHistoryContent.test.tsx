@@ -13,6 +13,7 @@ import { EntityProvider } from '@backstage/plugin-catalog-react';
 import type {
   HistoryEntityVersionResponse,
   HistoryEntityTimelineResponse,
+  HistoryTimelineSummary,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import {
   catalogHistoryApiRef,
@@ -81,6 +82,186 @@ function setup() {
 }
 
 describe('EntityCatalogHistoryContent', () => {
+  it('uses each server row summary across pages without fetching details or inferring baseline gaps', async () => {
+    // Arrange: page boundaries and adjacent rows are not summary baselines.
+    const { api, mount } = setup();
+    api.getEntityTimeline
+      .mockResolvedValueOnce({
+        items: [
+          event('owner', { summary: { ownerChanged: true } }),
+          event('gap', { summary: {} }),
+        ],
+        nextCursor: 'summary-page-two',
+      })
+      .mockResolvedValueOnce({
+        items: [
+          event('relations', { summary: { relationsChanged: true } }),
+          event('status', { summary: { statusChanged: true } }),
+          event('orphan', { summary: { orphanChanged: true } }),
+          event('legacy', { summary: undefined }),
+          event('custom-null', {
+            summary: null as unknown as HistoryTimelineSummary,
+          }),
+        ],
+      });
+
+    // Act
+    mount();
+    await screen.findByRole('row', { name: /^Event owner,/ });
+    fireEvent.click(screen.getByRole('button', { name: 'Load older' }));
+    await screen.findByRole('row', { name: /^Event orphan,/ });
+
+    // Assert
+    for (const [id, label] of [
+      ['owner', 'Owner changed'],
+      ['relations', 'Relations changed'],
+      ['status', 'Status changed'],
+      ['orphan', 'Orphan changed'],
+    ]) {
+      const row = screen.getByRole('row', {
+        name: new RegExp(`^Event ${id},`),
+      });
+      const operation = within(row).getByRole('gridcell', {
+        name: `update Recorded field changes: ${label}`,
+      });
+      expect(within(operation).getByText('update')).toBeVisible();
+      const list = within(operation).getByRole('list', {
+        name: `Recorded field changes: ${label}`,
+      });
+      expect(within(list).getAllByRole('listitem')).toHaveLength(1);
+      expect(within(list).getByText(label)).toBeVisible();
+    }
+    for (const id of ['gap', 'legacy', 'custom-null']) {
+      const row = screen.getByRole('row', {
+        name: new RegExp(`^Event ${id},`),
+      });
+      expect(within(row).queryByRole('list')).not.toBeInTheDocument();
+      expect(
+        within(row).getByRole('gridcell', { name: 'update' }),
+      ).toBeVisible();
+    }
+    expect(screen.queryByText(/no changes/i)).not.toBeInTheDocument();
+    expect(screen.getAllByRole('columnheader')).toHaveLength(5);
+    expect(
+      api.getEntityTimeline.mock.calls.map(([request]) => request),
+    ).toEqual([
+      { entityRef, limit: 25, cursor: undefined },
+      { entityRef, limit: 25, cursor: 'summary-page-two' },
+    ]);
+    expect(api.getEntityVersion).not.toHaveBeenCalled();
+  });
+
+  it('passes source, provider, operation and time filters through while rendering only returned summary evidence', async () => {
+    // Arrange: incomplete filter results intentionally contain no positive flags.
+    const { api, mount } = setup();
+    const after = '2026-10-22T12:00';
+    const before = '2026-10-24T12:00';
+    api.getEntityTimeline.mockImplementation(async request => ({
+      items: [
+        event('filtered', {
+          summary: request.changedBefore ? { orphanChanged: true } : {},
+          source: 'processing',
+          provider: 'filtered-provider',
+        }),
+      ],
+    }));
+    mount();
+    await screen.findByRole('row', { name: /^Event filtered,/ });
+    expect(
+      within(screen.getByRole('grid')).queryByRole('list'),
+    ).not.toBeInTheDocument();
+
+    // Act: a select flushes the pending text value without waiting for wall time.
+    jest.useFakeTimers();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Provider' }), {
+      target: { value: ' filtered-provider ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Source$/ }));
+    fireEvent.click(screen.getByRole('option', { name: 'processing' }));
+    fireEvent.click(screen.getByRole('button', { name: /Operation$/ }));
+    fireEvent.click(screen.getByRole('option', { name: 'update' }));
+    fireEvent.change(screen.getByLabelText('Recorded after (local time)'), {
+      target: { value: after },
+    });
+    fireEvent.change(screen.getByLabelText('Recorded before (local time)'), {
+      target: { value: before },
+    });
+    jest.useRealTimers();
+
+    // Assert
+    await screen.findByRole('list', {
+      name: 'Recorded field changes: Orphan changed',
+    });
+    expect(api.getEntityTimeline).toHaveBeenLastCalledWith({
+      entityRef,
+      limit: 25,
+      cursor: undefined,
+      source: 'processing',
+      provider: 'filtered-provider',
+      op: 'update',
+      changedAfter: new Date(after).toISOString(),
+      changedBefore: new Date(before).toISOString(),
+    });
+    const row = screen.getByRole('row', {
+      name: `Event filtered, 2026-10-23T12:00:00.000Z, processing, filtered-provider, update, ${entityRef}`,
+    });
+    expect(within(row).getAllByRole('listitem')).toHaveLength(1);
+    expect(within(row).queryByText('Owner changed')).not.toBeInTheDocument();
+    expect(api.getEntityVersion).not.toHaveBeenCalled();
+  });
+
+  it.each(['insert', 'delete'] as const)(
+    'ignores positive and malformed summaries on %s events without changing provenance',
+    async op => {
+      // Arrange: custom APIs must not turn lifecycle events into update claims.
+      const { api, mount } = setup();
+      api.getEntityTimeline.mockResolvedValue({
+        items: [
+          event('positive', {
+            op,
+            summary: {
+              ownerChanged: true,
+              relationsChanged: true,
+              statusChanged: true,
+              orphanChanged: true,
+            },
+          }),
+          event('malformed', {
+            op,
+            summary: {
+              ownerChanged: 'true',
+              unknownChanged: true,
+            } as unknown as HistoryTimelineSummary,
+          }),
+        ],
+      });
+
+      // Act
+      mount();
+      await screen.findByRole('row', { name: /^Event malformed,/ });
+
+      // Assert
+      for (const id of ['positive', 'malformed']) {
+        const row = screen.getByRole('row', {
+          name: `Event ${id}, 2026-10-23T12:00:00.000Z, provider, directory-provider, ${op}, ${entityRef}`,
+        });
+        expect(within(row).getByRole('gridcell', { name: op })).toBeVisible();
+        expect(
+          within(row).getByRole('gridcell', { name: 'provider' }),
+        ).toBeVisible();
+        expect(
+          within(row).getByRole('gridcell', { name: 'directory-provider' }),
+        ).toBeVisible();
+        expect(row.querySelector('time')).toHaveAttribute(
+          'dateTime',
+          '2026-10-23T12:00:00.000Z',
+        );
+        expect(within(row).queryByRole('list')).not.toBeInTheDocument();
+      }
+      expect(api.getEntityVersion).not.toHaveBeenCalled();
+    },
+  );
+
   it('keeps entity history scoped without exposing global entity or kind controls', async () => {
     // Arrange
     const { api, mount } = setup();
@@ -146,10 +327,28 @@ describe('EntityCatalogHistoryContent', () => {
       // Arrange
       const { api, mount } = setup();
       api.getEntityTimeline.mockResolvedValue({
-        items: [event('first'), event('second')],
+        items: [
+          event('first'),
+          event('second', { summary: { relationsChanged: true } }),
+        ],
       });
       api.getEntityVersion.mockImplementation(async request =>
-        event(request.id),
+        event(request.id, {
+          summary: { statusChanged: true },
+          snapshot: savedSnapshot,
+          previousVersion: event('previous', {
+            summary: {},
+            snapshot: { ...savedSnapshot, spec: { owner: 'old-owner' } },
+          }),
+          changes: [
+            {
+              path: ['spec', 'owner'],
+              op: 'replace',
+              before: 'old-owner',
+              after: 'snapshot-owner',
+            },
+          ],
+        }),
       );
       mount();
       const first = await screen.findByRole('row', { name: /^Event first,/ });
@@ -172,6 +371,35 @@ describe('EntityCatalogHistoryContent', () => {
       await screen.findByText('cycle-second');
       expect(screen.getAllByRole('row', { selected: true })).toEqual([second]);
       expect(first).toHaveAttribute('aria-selected', 'false');
+      expect(
+        api.getEntityVersion.mock.calls.map(([request]) => request),
+      ).toEqual([
+        { entityRef, id: 'first' },
+        { entityRef, id: 'second' },
+      ]);
+      expect(
+        within(second).getByRole('list', {
+          name: 'Recorded field changes: Relations changed',
+        }),
+      ).toBeInTheDocument();
+      const detail = screen.getByRole('region', {
+        name: 'Recorded event details',
+      });
+      const summary = within(detail)
+        .getByText('Change summary')
+        .closest('details')!;
+      fireEvent.click(within(summary).getByText('Change summary'));
+      expect(
+        within(summary).getByText(/"statusChanged": true/, { selector: 'pre' }),
+      ).toBeVisible();
+      expect(
+        within(detail).getByRole('region', {
+          name: 'Changes from previous event',
+        }),
+      ).toHaveTextContent('/spec/owner');
+      expect(
+        within(second).queryByText('Status changed'),
+      ).not.toBeInTheDocument();
       expect(
         screen.getByRole('region', { name: 'Recorded event details' }),
       ).toHaveFocus();
@@ -618,7 +846,9 @@ describe('EntityCatalogHistoryContent', () => {
         nextCursor: 'old-cursor',
       })
       .mockReturnValueOnce(obsolete.promise)
-      .mockResolvedValueOnce({ items: [event('filtered')] });
+      .mockResolvedValueOnce({
+        items: [event('filtered', { summary: { statusChanged: true } })],
+      });
     mount();
     fireEvent.click(await screen.findByRole('button', { name: 'Load older' }));
 
@@ -655,6 +885,16 @@ describe('EntityCatalogHistoryContent', () => {
     expect(
       screen.queryByRole('button', { name: 'Load older' }),
     ).not.toBeInTheDocument();
+    const filtered = screen.getByRole('row', { name: /^Event filtered,/ });
+    expect(
+      within(filtered).getByRole('list', {
+        name: 'Recorded field changes: Status changed',
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(filtered).queryByText('Owner changed'),
+    ).not.toBeInTheDocument();
+    expect(api.getEntityVersion).not.toHaveBeenCalled();
   });
 
   it('resets an automatically applied filter from the first page and clears its selected detail', async () => {

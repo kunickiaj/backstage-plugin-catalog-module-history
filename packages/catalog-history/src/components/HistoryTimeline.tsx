@@ -14,6 +14,7 @@ import type { HistoryTimelineItem } from '@kunickiaj/backstage-plugin-catalog-hi
 import type { CatalogHistoryApi } from '../api/CatalogHistoryApi';
 import { HistoryDetail } from './HistoryDetail';
 import { HistoryError } from './HistoryError';
+import { HistorySummaryBadges } from './HistorySummaryBadges';
 import { useTimeline } from './useTimeline';
 import type { HistoryTimelineScope } from './useTimeline';
 import { RecordedTime } from './RecordedTime';
@@ -174,6 +175,9 @@ function TimelineTable(props: {
                 <span className={styles.operation} data-operation={event.op}>
                   {event.op}
                 </span>
+                {event.op === 'update' && (
+                  <HistorySummaryBadges summary={event.summary} />
+                )}
               </Cell>
             </Row>
           )}

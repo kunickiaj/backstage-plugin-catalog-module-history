@@ -229,6 +229,30 @@
   border-color: var(--bui-border-danger);
 }
 
+.summaryList {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  gap: var(--bui-space-1);
+  min-width: 0;
+  max-width: 100%;
+  margin: var(--bui-space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.summaryBadge {
+  min-width: 0;
+  max-width: 100%;
+  padding: var(--bui-space-0_5) var(--bui-space-2);
+  border-radius: var(--bui-radius-2);
+  background: var(--bui-bg-neutral-2);
+  color: var(--bui-fg-primary);
+  font-size: var(--bui-font-size-2);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .emptyInspector {
   padding: var(--bui-space-8) var(--bui-space-4);
   color: var(--bui-fg-secondary);

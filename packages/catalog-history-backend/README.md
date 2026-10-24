@@ -47,6 +47,14 @@ import { PostgresHistoryStore } from '@kunickiaj/backstage-plugin-catalog-histor
 const store = new PostgresHistoryStore(db, { queryTimeoutMs: 5_000 });
 ```
 
+## Saved-field summaries (unreleased source)
+
+The default Postgres store supplies optional owner, relations, status, and orphan change flags on entity timeline rows and current exact-event detail responses. Comparisons use the immediately preceding physical saved event from the same entity, source, and provider, ordered by stored timestamp and ID. Owner, operation, time, and page filters select displayed rows without redefining their predecessors.
+
+A supplied flag is `true` for different known saved values and `false` for equal known values. If either field was not recorded, the flag is omitted. Inserts, deletes, updates without a predecessor, and updates immediately following a deletion return `{}`. Array values are compared whole and order-sensitive; object key order is ignored. These summaries do not describe upstream deltas or graph changes.
+
+The metadata-only global feed, version lists, and nested `previousVersion.summary` keep empty summaries. Custom query implementations may also leave summaries unavailable. Timeline enrichment stays within one paged SQL statement; exact detail keeps its existing two statements. The returned page size limits predecessor payloads, not the amount of database work.
+
 ## Metrics (current source)
 
 The release after `0.2.0` adds optional storage metrics to the default factory through Backstage's `metricsServiceRef`. Applications configure the OpenTelemetry SDK and exporter at the backend root; custom `HistoryStore` implementations are not instrumented automatically. See the workspace [observability guide](../../docs/observability.md) for setup, instrument names, labels, and manual-store use.

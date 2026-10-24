@@ -3,6 +3,7 @@ import type {
   HistoryEntitySnapshot,
   HistoryJsonObject,
   HistoryJsonValue,
+  HistoryTimelineSummary,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 
 const SNAPSHOT_FIELDS = [
@@ -17,6 +18,44 @@ const SNAPSHOT_FIELDS = [
   'spec',
   'statusItems',
 ] as const satisfies readonly (keyof HistoryEntitySnapshot)[];
+
+type SummaryFields = Pick<
+  HistoryEntitySnapshot,
+  'owner' | 'relations' | 'statusItems' | 'orphan'
+>;
+
+const SUMMARY_FIELDS = [
+  ['owner', 'ownerChanged'],
+  ['relations', 'relationsChanged'],
+  ['statusItems', 'statusChanged'],
+  ['orphan', 'orphanChanged'],
+] as const satisfies readonly (readonly [
+  keyof SummaryFields,
+  keyof HistoryTimelineSummary,
+])[];
+
+/** Compare only fields known on both saved snapshots, without computing a diff. */
+export function summarizeSnapshotFields(
+  before?: SummaryFields,
+  after?: SummaryFields,
+): HistoryTimelineSummary {
+  return SUMMARY_FIELDS.reduce<HistoryTimelineSummary>(
+    (summary, [field, flag]) => {
+      const previous = before?.[field];
+      const current = after?.[field];
+      if (
+        previous === undefined ||
+        previous === null ||
+        current === undefined ||
+        current === null
+      ) {
+        return summary;
+      }
+      return { ...summary, [flag]: !equals(previous, current) };
+    },
+    {},
+  );
+}
 
 function isObject(
   value: HistoryJsonValue | undefined,
