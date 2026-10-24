@@ -30,7 +30,15 @@ const WARMUPS = 5;
 const BASE_TIME = Date.parse('2026-01-01T00:00:00Z');
 const PADDING = 'example.com/history-benchmark-padding';
 type Emit = (event: Record<string, unknown>) => Promise<void>;
-type VariantName = 'baseline' | 'global' | 'scoped' | 'combined' | 'ordered';
+type VariantName =
+  | 'baseline'
+  | 'global'
+  | 'scoped'
+  | 'combined'
+  | 'ordered'
+  | 'late-join-existing'
+  | 'late-join-ordered';
+type QueryMode = 'public' | 'late-join-candidate';
 type Options = { refs: number; revisions: number; variants: VariantName[] };
 type Source = 'provider' | 'processing';
 type Scope = { name: string; provider?: string; source?: Source };
@@ -53,7 +61,11 @@ const CANDIDATES = {
   bench_latest_ordered: `CREATE INDEX bench_latest_ordered ON ${TABLE} (entity_ref ASC, changed_at DESC, id DESC)`,
 };
 type IndexName = keyof typeof CANDIDATES;
-const VARIANTS: { name: VariantName; indexes: IndexName[] }[] = [
+const VARIANTS: {
+  name: VariantName;
+  indexes: IndexName[];
+  queryMode?: QueryMode;
+}[] = [
   { name: 'baseline', indexes: [] },
   { name: 'global', indexes: ['bench_latest_global'] },
   {
@@ -69,6 +81,20 @@ const VARIANTS: { name: VariantName; indexes: IndexName[] }[] = [
     ],
   },
   { name: 'ordered', indexes: ['bench_latest_ordered'] },
+  { name: 'late-join-existing', indexes: [], queryMode: 'late-join-candidate' },
+  {
+    name: 'late-join-ordered',
+    indexes: ['bench_latest_ordered'],
+    queryMode: 'late-join-candidate',
+  },
+];
+// Preserve the original index-only command's default matrix and ordering.
+const DEFAULT_VARIANTS: VariantName[] = [
+  'baseline',
+  'global',
+  'scoped',
+  'combined',
+  'ordered',
 ];
 const EXISTING = [
   'catalog_history_entities_pkey',
@@ -104,8 +130,7 @@ function optionsFromEnvironment(env: NodeJS.ProcessEnv): Options {
   const refs = integer('HISTORY_INDEX_REFS', '1000', 1, 20000);
   const revisions = integer('HISTORY_INDEX_REVISIONS', '100', 4, 100);
   check(refs * revisions <= 200000, 'Seed exceeds 200000 rows');
-  const variants =
-    env.HISTORY_INDEX_VARIANTS?.split(',') ?? VARIANTS.map(v => v.name);
+  const variants = env.HISTORY_INDEX_VARIANTS?.split(',') ?? DEFAULT_VARIANTS;
   check(
     variants.every(name => VARIANTS.some(v => v.name === name)) &&
       new Set(variants).size === variants.length,
@@ -220,6 +245,11 @@ const PLAN_NUMBERS = [
   'Temp Written Blocks',
   'Sort Space Used',
   'Heap Fetches',
+  'Hash Batches',
+  'Hash Buckets',
+  'Peak Memory Usage',
+  'Rows Removed by Filter',
+  'Rows Removed by Join Filter',
 ];
 function sanitizePlan(raw: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
@@ -431,6 +461,55 @@ function latestSql(db: Knex, scope: Scope) {
     .where('op', '!=', 'delete')
     .select(...output);
 }
+/** Candidate only: choose the winning ID before fetching unbounded payloads. */
+function lateJoinSql(db: Knex, scope: Scope) {
+  const latest = db(TABLE).select('id').distinctOn('entity_ref');
+  if (scope.provider) latest.where({ provider: scope.provider });
+  if (scope.source) latest.where('source', scope.source);
+  latest
+    .orderBy('entity_ref')
+    .orderBy('changed_at', 'desc')
+    .orderBy('id', 'desc');
+  const columns = scope.provider
+    ? ['e.entity_ref', 'e.etag']
+    : ['e.entity_ref', 'e.etag', 'e.provider'];
+  return db
+    .with('latest', latest)
+    .from('latest')
+    .join({ e: TABLE }, 'e.id', 'latest.id')
+    .where('e.op', '!=', 'delete')
+    .select(...columns);
+}
+type LatestRow = { entity_ref: string; etag: string | null; provider?: string };
+function latestRowsToMap(
+  rows: LatestRow[],
+  scope: Scope,
+): Map<string, unknown> {
+  const result = new Map<string, unknown>();
+  for (const row of rows) {
+    // As in the public methods, NULL is skipped only after latest selection.
+    if (row.etag === null || row.etag === undefined) continue;
+    if (scope.provider) result.set(row.entity_ref, row.etag);
+    else {
+      check(
+        typeof row.provider === 'string',
+        'Candidate winning row lacks provenance',
+      );
+      result.set(row.entity_ref, { etag: row.etag, provider: row.provider });
+    }
+  }
+  return result;
+}
+async function callQuery(
+  db: Knex,
+  store: PostgresHistoryStore,
+  scope: Scope,
+  queryMode: QueryMode,
+) {
+  if (queryMode === 'public') return callLatest(store, scope);
+  const rows: LatestRow[] = await lateJoinSql(db, scope);
+  return latestRowsToMap(rows, scope);
+}
 async function explain(
   db: Knex,
   store: PostgresHistoryStore,
@@ -438,6 +517,7 @@ async function explain(
   oracle: Oracle,
   phase: string,
   emit: Emit,
+  queryMode: QueryMode,
 ) {
   const captured: { sql: string; bindings?: readonly unknown[] }[] = [];
   const listener = (query: { sql: string; bindings?: readonly unknown[] }) => {
@@ -445,18 +525,22 @@ async function explain(
   };
   db.on('query', listener);
   try {
-    assertMap(await callLatest(store, scope), expectedMap(oracle, scope));
+    assertMap(
+      await callQuery(db, store, scope, queryMode),
+      expectedMap(oracle, scope),
+    );
   } finally {
     db.removeListener('query', listener);
   }
-  const builder = latestSql(db, scope);
+  const builder =
+    queryMode === 'public' ? latestSql(db, scope) : lateJoinSql(db, scope);
   const native = builder.toSQL().toNative();
   const normalize = (sql: string) => sql.replace(/\s+/g, ' ').trim();
   check(
     captured.length === 1 &&
       normalize(captured[0].sql) === normalize(native.sql) &&
       hash(captured[0].bindings) === hash(native.bindings),
-    'EXPLAIN/public SQL mismatch',
+    'EXPLAIN/executed SQL mismatch',
   );
   const query = builder.toSQL();
   const result = await db.raw(
@@ -468,8 +552,11 @@ async function explain(
     phase,
     scope: scope.name,
     sqlShapeSha256: hash(normalize(native.sql)),
-    matchedPublicSqlAndBindings: true,
-    latency: 'EXPLAIN execution/planning only; not public-method latency',
+    queryMode,
+    ...(queryMode === 'public'
+      ? { matchedPublicSqlAndBindings: true }
+      : { matchedExecutedSqlAndBindings: true }),
+    latency: 'EXPLAIN execution/planning only; not executor latency',
     plan: sanitizePlan(result.rows[0]['QUERY PLAN'][0]),
   });
 }
@@ -477,6 +564,7 @@ async function validateMaps(
   store: PostgresHistoryStore,
   oracle: Oracle,
   emit: Emit,
+  candidateDb?: Knex,
 ) {
   for (const scope of SCOPES) {
     const expected = expectedMap(oracle, scope);
@@ -486,7 +574,21 @@ async function validateMaps(
       scope: scope.name,
       count: expected.size,
       sha256: hash([...expected].sort()),
+      queryMode: 'public',
     });
+    if (candidateDb) {
+      assertMap(
+        await callQuery(candidateDb, store, scope, 'late-join-candidate'),
+        expected,
+      );
+      await emit({
+        type: 'map-validated',
+        scope: scope.name,
+        count: expected.size,
+        sha256: hash([...expected].sort()),
+        queryMode: 'late-join-candidate',
+      });
+    }
   }
 }
 async function counts(db: Knex, rows: number, cycles: number) {
@@ -583,12 +685,13 @@ async function readPhase(
   oracle: Oracle,
   phase: string,
   emit: Emit,
+  queryMode: QueryMode,
 ) {
   const samples = new Map(SCOPES.map(s => [s.name, [] as number[]]));
   for (let round = -WARMUPS; round < SAMPLES; round++) {
     for (const scope of SCOPES) {
       const timed = await measure(
-        () => callLatest(store, scope),
+        () => callQuery(db, store, scope, queryMode),
         `${phase}/${scope.name}/${round}`,
         emit,
       );
@@ -602,6 +705,7 @@ async function readPhase(
         try {
           await emit({
             type: 'sample-validation-failure',
+            queryMode,
             status: 'nonpass',
             phase,
             scope: scope.name,
@@ -618,6 +722,7 @@ async function readPhase(
         samples.get(scope.name)!.push(timed.durationMs);
         await emit({
           type: 'read-sample',
+          queryMode,
           phase,
           scope: scope.name,
           round,
@@ -629,14 +734,18 @@ async function readPhase(
   for (const scope of SCOPES) {
     await emit({
       type: 'read-samples',
+      queryMode,
       phase,
       scope: scope.name,
       ...summary(samples.get(scope.name)!),
       warmupsExcluded: WARMUPS,
       order: 'paired fixed scope order each round',
-      includes: 'public method, pool acquisition, SQL, result mapping',
+      includes:
+        queryMode === 'public'
+          ? 'public method, pool acquisition, SQL, result mapping'
+          : 'harness candidate SQL, pool acquisition, result map conversion; not a current public method',
     });
-    await explain(db, store, scope, oracle, phase, emit);
+    await explain(db, store, scope, oracle, phase, emit, queryMode);
   }
 }
 async function diagnostics(db: Knex, emit: Emit) {
@@ -756,6 +865,9 @@ async function indexWidthCompatibilityProbe(
     const row = { ...entityToRow(entity), etag };
     const input = cycle([row], 0);
     await store.recordCycle(input);
+    const oracle = createOracle();
+    applyCycle(oracle, input, 0);
+    await validateMaps(store, oracle, emit, db);
     check(
       (
         await store.loadCurrentEtags(input.provider, { source: 'provider' })
@@ -764,6 +876,7 @@ async function indexWidthCompatibilityProbe(
       'Baseline did not preserve the opaque public etag',
     );
     await buildIndexes(db, ['bench_latest_ordered'], emit);
+    await validateMaps(store, oracle, emit, db);
     check(
       (await store.loadCurrentEtags(input.provider)).get(row.entityRef) ===
         etag,
@@ -790,6 +903,7 @@ async function indexWidthCompatibilityProbe(
       };
     }
     const installed = await inventory(db);
+    await validateMaps(store, oracle, emit, db);
     check(
       installed.some(
         index =>
@@ -807,6 +921,7 @@ async function indexWidthCompatibilityProbe(
       etagAsciiBytes: Buffer.byteLength(etag),
       baselinePublicWriteAndExactRead: true,
       orderingOnlyBuildSucceeded: true,
+      candidateExactReadBeforeAndAfterBothIndexAttempts: true,
       ...coveringOutcome,
       ...(await counts(db, 1, 1)),
       scope:
@@ -845,27 +960,29 @@ async function semanticFixture(
       if (op === 'delete') input.deletes = [row.entityRef];
       await store.recordCycle(input);
       ordinal = applyCycle(oracle, input, ordinal);
+      // Both executors are checked at every transition, not only at final state.
+      await validateMaps(store, oracle, emit, db);
       return input;
     };
     await commit(0, 0, 'insert', 1000);
     await commit(1, 2, 'update', 2000);
     // A later ID with an older timestamp must not win.
     await commit(2, 1, 'update', 500);
-    await validateMaps(store, oracle, emit);
+    await validateMaps(store, oracle, emit, db);
     check(
       (await store.loadAllCurrentEtags()).get(row.entityRef)?.provider ===
         'bench-beta',
       'Timestamp order semantic mismatch',
     );
     await commit(3, 1, 'update', 2000);
-    await validateMaps(store, oracle, emit);
+    await validateMaps(store, oracle, emit, db);
     check(
       (await store.loadAllCurrentEtags()).get(row.entityRef)?.etag ===
         'semantic-3',
       'ID tie semantic mismatch',
     );
     await commit(4, 2, 'delete', 3000);
-    await validateMaps(store, oracle, emit);
+    await validateMaps(store, oracle, emit, db);
     check(
       (await store.loadAllCurrentEtags()).size === 0 &&
         (
@@ -874,7 +991,7 @@ async function semanticFixture(
       'Delete/scope semantic mismatch',
     );
     await commit(5, 0, 'insert', 4000);
-    await validateMaps(store, oracle, emit);
+    await validateMaps(store, oracle, emit, db);
     const ledger = await commit(6, 3, 'update', 4500);
     // NULL etag on a non-delete is outside public EntityRow's contract. Only
     // this tiny SQL fixture inserts it; no contract or schema is weakened.
@@ -899,6 +1016,7 @@ async function semanticFixture(
       op: 'update',
       etag: null,
     });
+    await validateMaps(store, oracle, emit, db);
     for (const variant of VARIANTS) {
       // Add cumulatively only in this tiny semantic DB; timing databases are fresh.
       const installed = await inventory(db);
@@ -907,7 +1025,7 @@ async function semanticFixture(
         variant.indexes.filter(name => !installed.some(i => i.name === name)),
         emit,
       );
-      await validateMaps(store, oracle, emit);
+      await validateMaps(store, oracle, emit, db);
       check(
         (await store.loadAllCurrentEtags()).size === 0 &&
           (await store.loadCurrentEtags('bench-alpha')).get(row.entityRef) ===
@@ -918,6 +1036,10 @@ async function semanticFixture(
     await emit({
       type: 'semantic-fixture',
       status: 'pass',
+      queryModesValidatedAfterEveryTransition: [
+        'public',
+        'late-join-candidate',
+      ],
       cases: [
         'competing provenance',
         'scope before selection',
@@ -928,7 +1050,7 @@ async function semanticFixture(
         'non-delete NULL etag after latest',
       ],
       layoutNote:
-        'baseline, global, scoped, combined, ordered traversed cumulatively in this tiny DB, ending with all four candidate indexes; timed selected variants each fresh',
+        'all seven variant records traversed cumulatively in this tiny DB, ending with all four candidate indexes; both executors checked; timed selected variants each fresh',
     });
   });
 }
@@ -940,6 +1062,7 @@ async function runVariant(
   entities: Entity[],
   emit: Emit,
 ) {
+  const queryMode = variant.queryMode ?? 'public';
   await ownedDatabase(databases, emit, async (db, store) => {
     const oracle = createOracle();
     let ordinal = 0;
@@ -949,7 +1072,7 @@ async function runVariant(
       await measure(() => store.recordCycle(input), `seed/${revision}`, emit);
       ordinal = applyCycle(oracle, input, ordinal);
     }
-    await validateMaps(store, oracle, emit);
+    await validateMaps(store, oracle, emit, db);
     const invalid = await db.raw(
       `SELECT count(*)::int AS count FROM (SELECT entity_ref FROM catalog_history_entities GROUP BY entity_ref HAVING count(*) <> ? OR count(DISTINCT etag) <> ?) invalid`,
       [options.revisions, options.revisions],
@@ -987,7 +1110,7 @@ async function runVariant(
     // Outside any transaction, same explicit visibility preparation for all.
     await db.raw('VACUUM (ANALYZE) catalog_history_entities');
     await statistics(db, 'vacuum-analyzed-before-reads', emit);
-    await readPhase(db, store, oracle, 'vacuum-analyzed', emit);
+    await readPhase(db, store, oracle, 'vacuum-analyzed', emit, queryMode);
     await statistics(db, 'before-writes', emit);
     const durations: number[] = [];
     const width = Math.min(100, options.refs);
@@ -1020,13 +1143,14 @@ async function runVariant(
         'recordCycle acknowledgement including normal transaction and commit',
       heldWriterBarrier: false,
     });
-    await validateMaps(store, oracle, emit);
+    await validateMaps(store, oracle, emit, db);
     await readPhase(
       db,
       store,
       oracle,
       'fresh committed writes; no manual vacuum after write phase',
       emit,
+      queryMode,
     );
     await statistics(db, 'after-write-reads', emit);
     await sizes(db, 'after-writes', emit);
@@ -1038,7 +1162,7 @@ async function runVariant(
         options.revisions + SAMPLES,
       )),
     });
-    await validateMaps(store, oracle, emit);
+    await validateMaps(store, oracle, emit, db);
   });
 }
 
@@ -1084,11 +1208,16 @@ async function environment(options: Options, emit: Emit) {
     dirty,
     packages,
     options,
-    variants: VARIANTS,
-    selectedMatrix: VARIANTS.filter(v => options.variants.includes(v.name)),
+    variants: VARIANTS.map(v => ({ ...v, queryMode: v.queryMode ?? 'public' })),
+    defaultIndexMatrix: DEFAULT_VARIANTS,
+    selectedMatrix: VARIANTS.filter(v => options.variants.includes(v.name)).map(
+      v => ({ ...v, queryMode: v.queryMode ?? 'public' }),
+    ),
     scopes: SCOPES,
     pluginQueryTimeoutMs: 10000,
     latestPluginDeadline: 'none (unchanged public methods)',
+    candidateDeadline:
+      'fixture statement cap only; harness candidate, not a production change',
     fixtureStatementTimeoutMs: 30000,
     fixtureAcquireTimeoutMs: 35000,
     poolMax: 12,
@@ -1123,7 +1252,11 @@ async function runBenchmark(databases: TestDatabases) {
     )) {
       stage = variant.name;
       const variantEmit: Emit = event =>
-        emit({ ...event, variant: variant.name });
+        emit({
+          queryMode: variant.queryMode ?? 'public',
+          ...event,
+          variant: variant.name,
+        });
       await runVariant(databases, variant, options, entities, variantEmit);
       await variantEmit({
         type: 'variant-result',
@@ -1219,11 +1352,96 @@ describe('latest-state index harness invariants', () => {
     'ordered,',
     ',ordered',
     ' ordered',
+    'late-join-existing,late-join-existing',
   ])('rejects invalid variant list %j', variants => {
     // Arrange
     const env = { HISTORY_INDEX_VARIANTS: variants };
     // Act / Assert
     expect(() => optionsFromEnvironment(env)).toThrow('HISTORY_INDEX_VARIANTS');
+  });
+  it('selects both candidate layouts without changing the public baseline', () => {
+    // Arrange
+    const env = {
+      HISTORY_INDEX_VARIANTS: 'baseline,late-join-existing,late-join-ordered',
+    };
+    // Act
+    const options = optionsFromEnvironment(env);
+    const selected = VARIANTS.filter(v => options.variants.includes(v.name));
+    // Assert
+    expect(selected).toEqual([
+      { name: 'baseline', indexes: [] },
+      {
+        name: 'late-join-existing',
+        indexes: [],
+        queryMode: 'late-join-candidate',
+      },
+      {
+        name: 'late-join-ordered',
+        indexes: ['bench_latest_ordered'],
+        queryMode: 'late-join-candidate',
+      },
+    ]);
+  });
+  it.each(SCOPES)(
+    'keeps scope inside ID selection and delete filtering outside for $name',
+    scope => {
+      // Arrange: compilation only; no connection or network allocation.
+      const db = knex({ client: 'pg' });
+      // Act
+      const native = lateJoinSql(db, scope).toSQL().toNative();
+      const [selection, output] = native.sql.split(') select ');
+      // Assert
+      expect(selection).toContain('select distinct on ("entity_ref") "id"');
+      expect(selection).toContain(
+        'order by "entity_ref" asc, "changed_at" desc, "id" desc',
+      );
+      expect(selection.includes('"provider" =')).toBe(Boolean(scope.provider));
+      expect(selection.includes('"source" =')).toBe(Boolean(scope.source));
+      expect(selection).not.toMatch(/"op"|"etag"/);
+      expect(output).toContain(
+        'inner join "catalog_history_entities" as "e" on "e"."id" = "latest"."id"',
+      );
+      expect(output).toContain('where "e"."op" !=');
+      expect(output).not.toContain('is not null');
+      expect(native.bindings).toEqual(
+        [scope.provider, scope.source, 'delete'].filter(v => v !== undefined),
+      );
+    },
+  );
+  it.each([SCOPES[0], SCOPES[3]])(
+    'preserves opaque etags and skips null only in result conversion for $name',
+    scope => {
+      // Arrange
+      const rows = [
+        {
+          entity_ref: 'opaque',
+          etag: 'opaque—not a hash',
+          provider: 'bench-beta',
+        },
+        { entity_ref: 'empty', etag: '', provider: 'bench-alpha' },
+        { entity_ref: 'null', etag: null, provider: 'bench-alpha' },
+      ];
+      // Act
+      const result = latestRowsToMap(rows, scope);
+      // Assert
+      expect([...result]).toEqual(
+        scope.provider
+          ? [
+              ['opaque', 'opaque—not a hash'],
+              ['empty', ''],
+            ]
+          : [
+              ['opaque', { etag: 'opaque—not a hash', provider: 'bench-beta' }],
+              ['empty', { etag: '', provider: 'bench-alpha' }],
+            ],
+      );
+    },
+  );
+  it('rejects a candidate row missing winning provenance rather than inventing a provider', () => {
+    // Arrange
+    const rows = [{ entity_ref: 'x', etag: 'opaque' }];
+    // Act / Assert
+    expect(() => latestRowsToMap(rows, SCOPES[3])).toThrow('lacks provenance');
   });
   it.each([
     { HISTORY_INDEX_REFS: '' },
@@ -1426,7 +1644,7 @@ describe('latest-state index harness invariants', () => {
   });
 });
 
-it('measures unchanged public latest methods across owned PostgreSQL index layouts', async () => {
+it('compares public latest methods and harness query candidates on owned PostgreSQL', async () => {
   // Arrange: finite fixture and owned Docker only. Act: run phases. Assert:
   // independent maps, SQL identity, counts and cleanup are checked throughout.
   await expect(runBenchmark(databases)).resolves.toBeUndefined();

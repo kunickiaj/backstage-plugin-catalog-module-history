@@ -40,6 +40,7 @@
     "bench:baseline": "backstage-cli package test --runInBand --watch=false --runTestsByPath src/benchmarks/catalogHistory.baseline.benchmark.ts --testMatch '**/*.benchmark.ts'",
     "bench:queries": "backstage-cli package test --runInBand --watch=false --runTestsByPath src/benchmarks/historyQueries.benchmark.ts --testMatch '**/*.benchmark.ts'",
     "bench:latest-indexes": "backstage-cli package test --runInBand --watch=false --runTestsByPath src/benchmarks/latestStateIndexes.benchmark.ts --testMatch '**/*.benchmark.ts'",
+    "bench:latest-query": "env HISTORY_INDEX_VARIANTS=baseline,late-join-existing,late-join-ordered backstage-cli package test --runInBand --watch=false --runTestsByPath src/benchmarks/latestStateIndexes.benchmark.ts --testMatch '**/*.benchmark.ts'",
     "test:watch": "backstage-cli package test --watch",
     "start": "backstage-cli package start",
     "tsc": "tsc",
