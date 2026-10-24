@@ -18,6 +18,14 @@ The `0.2.0` global-feed index builds during history startup and blocks history e
 4. **Optionally reconciles served catalog truth** (`source='reconciler'`). The in-process scheduler reads the public Catalog API, including stitched `relations`, `status.items`, and orphan state. Defaults when enabled: hourly, 10m timeout, 30s initial delay, task id `catalog-history-reconcile`. The external CLI remains available for isolated CronJobs or ad-hoc runs.
 5. **Optionally serves retained history** from the same store (`catalog.history.api.enabled`). The catalog module exposes authenticated, permission-controlled routes under `/api/catalog/history`, including a feed across entities that were later deleted; it does not require a separate backend plugin or database.
 
+## Known deletion-capture limitation
+
+History records a delete only when a configured capture path observes it. Actions such as **Unregister** that remove entities or locations directly can bypass the provider wrapper, so they do not guarantee a delete event. Earlier retained events can remain readable on the global history page; they do not prove that deletion was captured or make history a complete audit log of catalog deletion actions.
+
+The reconciler is disabled by default and runs hourly when enabled without a custom schedule. It needs its own earlier scan as a baseline; provider and processing records do not supply that baseline.
+
+It can later record an observed disappearance, but misses entities deleted before its first scan and deletions followed by recreation between scans. Its recorded time is the observation time, not the actual deletion time, and it cannot recover the deletion actor or payload.
+
 ## Install
 
 ```sh
