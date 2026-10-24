@@ -17,6 +17,7 @@ const ENTITY_INSERT_CHUNK_SIZE = 1000;
 
 type PostgresHistoryStoreOptions = {
   ownsDatabase?: boolean;
+  queryTimeoutMs?: number;
 };
 
 function parseEntityRef(entityRef: string): {
@@ -126,7 +127,9 @@ export class PostgresHistoryStore implements HistoryStore {
     private readonly db: Knex,
     private readonly options: PostgresHistoryStoreOptions = {},
   ) {
-    this.query = new PostgresHistoryQueryService(db);
+    this.query = new PostgresHistoryQueryService(db, {
+      queryTimeoutMs: options.queryTimeoutMs,
+    });
   }
 
   async ensureReady(): Promise<void> {

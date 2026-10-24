@@ -110,6 +110,8 @@ catalog:
     # Serve authenticated entity-history reads from the catalog backend.
     api:
       enabled: false
+      # Default Postgres history-read statement limit (current source; next release).
+      queryTimeoutMs: 10000
 
     # Scheduled in-process reconciliation through the public Catalog API.
     reconciler:
@@ -120,30 +122,33 @@ catalog:
         initialDelay: { seconds: 30 }
 ```
 
-| Key                                                | Default                    | Effect                                                                                                                                      |
-| -------------------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `catalog.history.enabled`                          | `true`                     | Master switch. Set to `false` to skip schema bootstrap, processor capture, and reconciler.                                                  |
-| `catalog.history.database`                         | unset                      | Deprecated history database override honored by the default store factory. Prefer custom `historyStoreServiceRef` factories for new setups. |
-| `catalog.history.database.client`                  | `pg`                       | Knex client for the deprecated history database override.                                                                                   |
-| `catalog.history.database.connection`              | Backstage database service | Knex connection string or object for the deprecated history storage override. Treated as secret config.                                     |
-| `catalog.history.provider`                         | unset                      | Provider-layer capture settings.                                                                                                            |
-| `catalog.history.provider.enabled`                 | `true`                     | Gates provider-layer recording when passed to `HistoryRecordingEntityProvider`.                                                             |
-| `catalog.history.processing`                       | unset                      | Processor-layer capture settings.                                                                                                           |
-| `catalog.history.processing.enabled`               | `false`                    | Enables processor-layer capture via `HistoryRecordingCatalogProcessor`.                                                                     |
-| `catalog.history.api`                              | unset                      | HTTP history API settings.                                                                                                                  |
-| `catalog.history.api.enabled`                      | `false`                    | Enables entity history, version, and cross-entity change-feed routes under `/api/catalog/history`.                                          |
-| `catalog.history.reconciler`                       | unset                      | Scheduled in-process reconciler settings.                                                                                                   |
-| `catalog.history.reconciler.enabled`               | `false`                    | Enables scheduled in-process reconciliation.                                                                                                |
-| `catalog.history.reconciler.schedule`              | unset                      | Optional Backstage scheduler config; omitted uses the defaults below.                                                                       |
-| `catalog.history.reconciler.schedule.frequency`    | `{ hours: 1 }`             | Scheduler frequency for the in-process reconciler.                                                                                          |
-| `catalog.history.reconciler.schedule.timeout`      | `{ minutes: 10 }`          | Scheduler timeout for one reconcile run.                                                                                                    |
-| `catalog.history.reconciler.schedule.initialDelay` | `{ seconds: 30 }`          | Delay before the first scheduled reconcile run.                                                                                             |
+| Key                                                | Default                    | Effect                                                                                                                                               |
+| -------------------------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `catalog.history.enabled`                          | `true`                     | Master switch. Set to `false` to skip schema bootstrap, processor capture, and reconciler.                                                           |
+| `catalog.history.database`                         | unset                      | Deprecated history database override honored by the default store factory. Prefer custom `historyStoreServiceRef` factories for new setups.          |
+| `catalog.history.database.client`                  | `pg`                       | Knex client for the deprecated history database override.                                                                                            |
+| `catalog.history.database.connection`              | Backstage database service | Knex connection string or object for the deprecated history storage override. Treated as secret config.                                              |
+| `catalog.history.provider`                         | unset                      | Provider-layer capture settings.                                                                                                                     |
+| `catalog.history.provider.enabled`                 | `true`                     | Gates provider-layer recording when passed to `HistoryRecordingEntityProvider`.                                                                      |
+| `catalog.history.processing`                       | unset                      | Processor-layer capture settings.                                                                                                                    |
+| `catalog.history.processing.enabled`               | `false`                    | Enables processor-layer capture via `HistoryRecordingCatalogProcessor`.                                                                              |
+| `catalog.history.api`                              | unset                      | HTTP history API settings.                                                                                                                           |
+| `catalog.history.api.enabled`                      | `false`                    | Enables entity history, version, and cross-entity change-feed routes under `/api/catalog/history`.                                                   |
+| `catalog.history.api.queryTimeoutMs`               | `10000`                    | Current source: per-SQL-statement timeout in milliseconds for history reads through the default Postgres store. `0` disables only this plugin limit. |
+| `catalog.history.reconciler`                       | unset                      | Scheduled in-process reconciler settings.                                                                                                            |
+| `catalog.history.reconciler.enabled`               | `false`                    | Enables scheduled in-process reconciliation.                                                                                                         |
+| `catalog.history.reconciler.schedule`              | unset                      | Optional Backstage scheduler config; omitted uses the defaults below.                                                                                |
+| `catalog.history.reconciler.schedule.frequency`    | `{ hours: 1 }`             | Scheduler frequency for the in-process reconciler.                                                                                                   |
+| `catalog.history.reconciler.schedule.timeout`      | `{ minutes: 10 }`          | Scheduler timeout for one reconcile run.                                                                                                             |
+| `catalog.history.reconciler.schedule.initialDelay` | `{ seconds: 30 }`          | Delay before the first scheduled reconcile run.                                                                                                      |
 
 Processing capture and the scheduled reconciler are config-only after `backend.add(import('@kunickiaj/backstage-plugin-catalog-backend-module-history'))`; no extra code wiring is needed.
 
 ## Read history over HTTP in `0.2.0`
 
 Enable the API in the existing catalog module. It uses the same history store and database as recording; do not install a separate history backend plugin. Its route prefix is `/api/catalog/history`, not the previously planned `/api/catalog-history`.
+
+Current source adds `catalog.history.api.queryTimeoutMs`, which defaults to 10 seconds after the next release. It limits each history-read SQL statement in the default Postgres store, not the complete HTTP request; a detail lookup can run two separately limited statements. A lower positive Postgres `statement_timeout` remains in effect, while `0` removes only the plugin limit and retains any database limit.
 
 ```yaml
 catalog:
