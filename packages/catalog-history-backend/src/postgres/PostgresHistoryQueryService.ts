@@ -24,6 +24,10 @@ import type {
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import { ensureSchema } from './ensureSchema';
 import { diffSnapshots } from './diffSnapshots';
+import {
+  normalizeQueryTimeoutMs,
+  withHistoryQueryTimeout,
+} from './historyQueryTimeout';
 
 const ISO_8601_INSTANT =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
@@ -193,8 +197,14 @@ function rowToVersion(row: HistoryEntityRow): HistoryEntityVersion {
  */
 export class PostgresHistoryQueryService {
   private schemaReady: Promise<void> | undefined;
+  private readonly queryTimeoutMs: number;
 
-  constructor(private readonly db: Knex) {}
+  constructor(
+    private readonly db: Knex,
+    options: { queryTimeoutMs?: number } = {},
+  ) {
+    this.queryTimeoutMs = normalizeQueryTimeoutMs(options.queryTimeoutMs);
+  }
 
   async ensureReady(): Promise<void> {
     this.schemaReady ??= ensureSchema(this.db).catch(error => {
@@ -210,15 +220,18 @@ export class PostgresHistoryQueryService {
     await this.ensureReady();
 
     const limit = normalizeLimit(request.limit);
-    const rows = await this.applyEntityFilters(
-      this.db<HistoryEntityRow>('catalog_history_entities'),
-      request,
-    )
-      .modify(query => this.applyCursor(query, request.cursor))
-      .orderBy('changed_at', 'desc')
-      .orderBy('id', 'desc')
-      .limit(limit + 1)
-      .select('*');
+    this.validateReadRequest(request);
+    const rows = await this.read(db =>
+      this.applyEntityFilters(
+        db<HistoryEntityRow>('catalog_history_entities'),
+        request,
+      )
+        .modify(query => this.applyCursor(query, request.cursor))
+        .orderBy('changed_at', 'desc')
+        .orderBy('id', 'desc')
+        .limit(limit + 1)
+        .select('*'),
+    );
 
     return {
       items: rows.slice(0, limit).map(rowToTimelineItem),
@@ -237,41 +250,44 @@ export class PostgresHistoryQueryService {
     }
     await this.ensureReady();
     const limit = normalizeLimit(request.limit);
-    const query = this.applyChangeFilters(
-      this.db<HistoryEntityRow>('catalog_history_entities'),
-      request,
-    );
-    if (request.entityRef !== undefined) {
-      query.where('entity_ref', request.entityRef);
-    }
-    if (request.kind !== undefined) {
-      query.whereRaw('LOWER(??) = LOWER(?)', ['kind', request.kind]);
-    }
-    const cursor = decodeCursor(request.cursor);
-    if (cursor) {
-      // Use the stored timestamp, not its millisecond-rounded cursor value.
-      query.whereRaw(
-        '(changed_at, id) < (select changed_at, id from catalog_history_entities where id = ?)',
-        [cursor.id],
+    this.validateReadRequest(request);
+    const rows = await this.read(db => {
+      const query = this.applyChangeFilters(
+        db<HistoryEntityRow>('catalog_history_entities'),
+        request,
       );
-    }
-    const rows = await query
-      .orderBy('changed_at', 'desc')
-      .orderBy('id', 'desc')
-      .limit(limit + 1)
-      .select(
-        'id',
-        'cycle_id',
-        'entity_ref',
-        'kind',
-        'namespace',
-        'name',
-        'source',
-        'provider',
-        'op',
-        'changed_at',
-        'etag',
-      );
+      if (request.entityRef !== undefined) {
+        query.where('entity_ref', request.entityRef);
+      }
+      if (request.kind !== undefined) {
+        query.whereRaw('LOWER(??) = LOWER(?)', ['kind', request.kind]);
+      }
+      const cursor = decodeCursor(request.cursor);
+      if (cursor) {
+        // Use the stored timestamp, not its millisecond-rounded cursor value.
+        query.whereRaw(
+          '(changed_at, id) < (select changed_at, id from catalog_history_entities where id = ?)',
+          [cursor.id],
+        );
+      }
+      return query
+        .orderBy('changed_at', 'desc')
+        .orderBy('id', 'desc')
+        .limit(limit + 1)
+        .select(
+          'id',
+          'cycle_id',
+          'entity_ref',
+          'kind',
+          'namespace',
+          'name',
+          'source',
+          'provider',
+          'op',
+          'changed_at',
+          'etag',
+        );
+    });
     return {
       items: rows.slice(0, limit).map(rowToChange),
       nextCursor:
@@ -285,27 +301,30 @@ export class PostgresHistoryQueryService {
     await this.ensureReady();
 
     const limit = normalizeLimit(request.limit);
-    const distinctVersions = this.applyEntityFilters(
-      this.db<HistoryEntityRow>('catalog_history_entities'),
-      request,
-    )
-      .whereNot('op', 'delete')
-      .whereNotNull('etag')
-      .distinctOn('source', 'provider', 'etag')
-      .orderBy('source')
-      .orderBy('provider')
-      .orderBy('etag')
-      .orderBy('changed_at', 'desc')
-      .orderBy('id', 'desc')
-      .select('*')
-      .as('versions');
+    this.validateReadRequest(request);
+    const rows = await this.read(db => {
+      const distinctVersions = this.applyEntityFilters(
+        db<HistoryEntityRow>('catalog_history_entities'),
+        request,
+      )
+        .whereNot('op', 'delete')
+        .whereNotNull('etag')
+        .distinctOn('source', 'provider', 'etag')
+        .orderBy('source')
+        .orderBy('provider')
+        .orderBy('etag')
+        .orderBy('changed_at', 'desc')
+        .orderBy('id', 'desc')
+        .select('*')
+        .as('versions');
 
-    const rows = await this.db<HistoryEntityRow>(distinctVersions)
-      .modify(query => this.applyCursor(query, request.cursor))
-      .orderBy('changed_at', 'desc')
-      .orderBy('id', 'desc')
-      .limit(limit + 1)
-      .select('*');
+      return db<HistoryEntityRow>(distinctVersions)
+        .modify(query => this.applyCursor(query, request.cursor))
+        .orderBy('changed_at', 'desc')
+        .orderBy('id', 'desc')
+        .limit(limit + 1)
+        .select('*');
+    });
 
     return {
       items: rows.slice(0, limit).map(rowToVersion),
@@ -321,28 +340,29 @@ export class PostgresHistoryQueryService {
       throw new InputError('Invalid history row id');
     }
     await this.ensureReady();
-    const row = await this.db<HistoryEntityRow>('catalog_history_entities')
-      .where({ id: request.id, entity_ref: request.entityRef })
-      .first();
-    if (!row) {
-      throw new NotFoundError('History version not found');
-    }
-    // Compare in Postgres to retain timestamp precision beyond JS milliseconds.
-    const previousRow = await this.db<HistoryEntityRow>(
-      'catalog_history_entities',
-    )
-      .where({
-        entity_ref: row.entity_ref,
-        source: row.source,
-        provider: row.provider,
-      })
-      .whereRaw(
-        '(changed_at, id) < (select changed_at, id from catalog_history_entities where id = ?)',
-        [row.id],
-      )
-      .orderBy('changed_at', 'desc')
-      .orderBy('id', 'desc')
-      .first();
+    const { row, previousRow } = await this.read(async db => {
+      const currentRow = await db<HistoryEntityRow>('catalog_history_entities')
+        .where({ id: request.id, entity_ref: request.entityRef })
+        .first();
+      if (!currentRow) {
+        throw new NotFoundError('History version not found');
+      }
+      // Compare in Postgres to retain timestamp precision beyond JS milliseconds.
+      const previous = await db<HistoryEntityRow>('catalog_history_entities')
+        .where({
+          entity_ref: currentRow.entity_ref,
+          source: currentRow.source,
+          provider: currentRow.provider,
+        })
+        .whereRaw(
+          '(changed_at, id) < (select changed_at, id from catalog_history_entities where id = ?)',
+          [currentRow.id],
+        )
+        .orderBy('changed_at', 'desc')
+        .orderBy('id', 'desc')
+        .first();
+      return { row: currentRow, previousRow: previous };
+    });
     const version = rowToVersion(row);
     const previousVersion = previousRow ? rowToVersion(previousRow) : undefined;
     return {
@@ -354,6 +374,25 @@ export class PostgresHistoryQueryService {
           ? diffSnapshots(previousVersion.snapshot, version.snapshot)
           : undefined,
     };
+  }
+
+  private read<T>(read: (executor: Knex) => PromiseLike<T>): Promise<T> {
+    return withHistoryQueryTimeout(this.db, this.queryTimeoutMs, read);
+  }
+
+  private validateReadRequest(
+    request: Pick<
+      HistoryEntityTimelineRequest,
+      'cursor' | 'changedAfter' | 'changedBefore'
+    >,
+  ): void {
+    decodeCursor(request.cursor);
+    if (request.changedAfter !== undefined) {
+      this.parseTimestamp(request.changedAfter, 'changedAfter');
+    }
+    if (request.changedBefore !== undefined) {
+      this.parseTimestamp(request.changedBefore, 'changedBefore');
+    }
   }
 
   private applyEntityFilters<TRecord extends {}>(

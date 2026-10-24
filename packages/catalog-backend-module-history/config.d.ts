@@ -17,6 +17,15 @@ export interface Config {
       api?: {
         /** Enables timeline and version routes. Defaults to false. */
         enabled?: boolean;
+        /**
+         * Per-SQL-statement history read timeout in milliseconds for the default
+         * PostgreSQL store only. Defaults to 10000; must be an integer from 0
+         * through 2147483647. A stricter existing database timeout still applies.
+         * Set to 0 to disable the plugin limit without changing host limits.
+         * Does not limit pool acquisition, schema setup, mapping, transaction
+         * cleanup, or the entire HTTP request, and does not apply to custom stores.
+         */
+        queryTimeoutMs?: number;
       };
 
       /**

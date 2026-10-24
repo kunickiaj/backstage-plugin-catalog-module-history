@@ -22,6 +22,31 @@ The `@kunickiaj/backstage-plugin-catalog-backend-module-history` default export 
 
 For compatibility, the default factory still honors the deprecated `catalog.history.database` override. Prefer a custom service factory for new dedicated-storage setups.
 
+## Statement timeouts
+
+Current source adds a 10-second PostgreSQL `statement_timeout` for each history-read SQL statement made through the default store. The setting is available after the next release; it does not apply to capture writes, schema setup, pool acquisition, application-side mapping, transaction cleanup, or the whole HTTP request. A timed-out read follows the existing sanitized backend-error path, which currently returns `500`, not a new timeout status.
+
+```yaml
+catalog:
+  history:
+    api:
+      queryTimeoutMs: 10000
+```
+
+A disconnected HTTP client does not immediately cancel its SQL; the statement can continue until its database deadline. Exact event detail runs two SELECTs, each with its own limit rather than one shared request budget.
+
+`queryTimeoutMs` must be an integer from `0` through `2147483647`. Set it to `0` to disable the plugin limit; an existing database `statement_timeout` still applies, and a lower positive database limit wins over the configured value.
+
+Backstage treats a configuration value of `null` as absent, so it selects the default rather than disabling the limit. Use `0` explicitly to disable the plugin limit.
+
+The setting configures the default Postgres factory. Custom query implementations must set their own limits. A manually constructed `PostgresHistoryStore` can use the same option:
+
+```ts
+import { PostgresHistoryStore } from '@kunickiaj/backstage-plugin-catalog-history-storage-node';
+
+const store = new PostgresHistoryStore(db, { queryTimeoutMs: 5_000 });
+```
+
 ## Migration bookkeeping in `0.2.0`
 
 Backstage modules may own tables in their target plugin's logical database. The current source uses `catalog_history_knex_migrations` and its lock table for new history installations, separate from the target plugin's migration log. See the [Backstage module guidance](https://backstage.io/docs/backend-system/building-plugins-and-modules/).
