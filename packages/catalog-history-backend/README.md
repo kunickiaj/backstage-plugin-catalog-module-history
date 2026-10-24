@@ -47,6 +47,10 @@ import { PostgresHistoryStore } from '@kunickiaj/backstage-plugin-catalog-histor
 const store = new PostgresHistoryStore(db, { queryTimeoutMs: 5_000 });
 ```
 
+## Metrics (current source)
+
+The release after `0.2.0` adds optional storage metrics to the default factory through Backstage's `metricsServiceRef`. Applications configure the OpenTelemetry SDK and exporter at the backend root; custom `HistoryStore` implementations are not instrumented automatically. See the workspace [observability guide](../../docs/observability.md) for setup, instrument names, labels, and manual-store use.
+
 ## Migration bookkeeping in `0.2.0`
 
 Backstage modules may own tables in their target plugin's logical database. The current source uses `catalog_history_knex_migrations` and its lock table for new history installations, separate from the target plugin's migration log. See the [Backstage module guidance](https://backstage.io/docs/backend-system/building-plugins-and-modules/).

@@ -1,4 +1,5 @@
 import { Knex } from 'knex';
+import type { MetricsService } from '@backstage/backend-plugin-api/alpha';
 import {
   CaptureSource,
   CurrentEtag,
@@ -8,6 +9,11 @@ import {
 } from '@kunickiaj/backstage-plugin-catalog-history-node';
 import { ensureSchema } from './ensureSchema';
 import { PostgresHistoryQueryService } from './PostgresHistoryQueryService';
+import { normalizeQueryTimeoutMs } from './historyQueryTimeout';
+import {
+  createHistoryStorageMetrics,
+  type HistoryStorageMetrics,
+} from './historyStorageMetrics';
 
 // catalog_history_entities has ~20 inserted columns, so the PostgreSQL
 // bind-parameter limit (65,535) caps a single INSERT at ~3,276 rows. Chunking
@@ -18,6 +24,7 @@ const ENTITY_INSERT_CHUNK_SIZE = 1000;
 type PostgresHistoryStoreOptions = {
   ownsDatabase?: boolean;
   queryTimeoutMs?: number;
+  metrics?: MetricsService;
 };
 
 function parseEntityRef(entityRef: string): {
@@ -122,21 +129,27 @@ export class PostgresHistoryStore implements HistoryStore {
   private schemaReady: Promise<void> | undefined;
   private shutdownPromise: Promise<void> | undefined;
   private readonly shutdownHooks: Array<() => Promise<void>> = [];
+  private readonly metrics: HistoryStorageMetrics;
 
   constructor(
     private readonly db: Knex,
     private readonly options: PostgresHistoryStoreOptions = {},
   ) {
+    const queryTimeoutMs = normalizeQueryTimeoutMs(options.queryTimeoutMs);
+    this.metrics = createHistoryStorageMetrics(options.metrics);
     this.query = new PostgresHistoryQueryService(db, {
-      queryTimeoutMs: options.queryTimeoutMs,
+      queryTimeoutMs,
+      metrics: this.metrics,
     });
   }
 
   async ensureReady(): Promise<void> {
-    this.schemaReady ??= ensureSchema(this.db).catch(error => {
-      this.schemaReady = undefined;
-      throw error;
-    });
+    this.schemaReady ??= this.metrics
+      .schema('store', () => ensureSchema(this.db))
+      .catch(error => {
+        this.schemaReady = undefined;
+        throw error;
+      });
     await this.schemaReady;
   }
 
@@ -153,146 +166,174 @@ export class PostgresHistoryStore implements HistoryStore {
     provider: string,
     opts: { source?: CaptureSource } = {},
   ): Promise<Map<string, string>> {
-    await this.ensureReady();
+    return this.metrics.storage(
+      'load_current_etags',
+      () => opts.source ?? 'all',
+      async () => {
+        await this.ensureReady();
 
-    // changed_at is set to the cycle's finishedAt for every row in a cycle,
-    // so two rows for the same entity_ref can be tied on changed_at alone
-    // (same cycle, or two cycles finishing in the same clock tick). id is
-    // BIGSERIAL and strictly monotonic, so id DESC is a deterministic
-    // tie-breaker for "latest".
-    const latest = this.db('catalog_history_entities')
-      .select('entity_ref', 'op', 'etag')
-      .distinctOn('entity_ref')
-      .where({ provider })
-      .orderBy('entity_ref')
-      .orderBy('changed_at', 'desc')
-      .orderBy('id', 'desc');
-    if (opts.source) {
-      latest.where('source', opts.source);
-    }
+        // changed_at is set to the cycle's finishedAt for every row in a cycle,
+        // so two rows for the same entity_ref can be tied on changed_at alone
+        // (same cycle, or two cycles finishing in the same clock tick). id is
+        // BIGSERIAL and strictly monotonic, so id DESC is a deterministic
+        // tie-breaker for "latest".
+        const latest = this.db('catalog_history_entities')
+          .select('entity_ref', 'op', 'etag')
+          .distinctOn('entity_ref')
+          .where({ provider })
+          .orderBy('entity_ref')
+          .orderBy('changed_at', 'desc')
+          .orderBy('id', 'desc');
+        if (opts.source) {
+          latest.where('source', opts.source);
+        }
 
-    const rows = await this.db
-      .with('latest', latest)
-      .from('latest')
-      .where('op', '!=', 'delete')
-      .select('entity_ref', 'etag');
+        const rows = await this.db
+          .with('latest', latest)
+          .from('latest')
+          .where('op', '!=', 'delete')
+          .select('entity_ref', 'etag');
 
-    const result = new Map<string, string>();
-    for (const row of rows) {
-      if (row.etag !== null && row.etag !== undefined) {
-        result.set(row.entity_ref, row.etag);
-      }
-    }
-    return result;
+        const result = new Map<string, string>();
+        for (const row of rows) {
+          if (row.etag !== null && row.etag !== undefined) {
+            result.set(row.entity_ref, row.etag);
+          }
+        }
+        return result;
+      },
+    );
   }
 
   async loadAllCurrentEtags(
     opts: { source?: CaptureSource } = {},
   ): Promise<Map<string, CurrentEtag>> {
-    await this.ensureReady();
+    return this.metrics.storage(
+      'load_all_current_etags',
+      () => opts.source ?? 'all',
+      async () => {
+        await this.ensureReady();
 
-    // id DESC is a deterministic tie-breaker on changed_at; see the comment
-    // in loadCurrentEtags for the full rationale.
-    const latest = this.db('catalog_history_entities')
-      .select('entity_ref', 'op', 'etag', 'provider')
-      .distinctOn('entity_ref')
-      .orderBy('entity_ref')
-      .orderBy('changed_at', 'desc')
-      .orderBy('id', 'desc');
-    if (opts.source) {
-      latest.where('source', opts.source);
-    }
+        // id DESC is a deterministic tie-breaker on changed_at; see the comment
+        // in loadCurrentEtags for the full rationale.
+        const latest = this.db('catalog_history_entities')
+          .select('entity_ref', 'op', 'etag', 'provider')
+          .distinctOn('entity_ref')
+          .orderBy('entity_ref')
+          .orderBy('changed_at', 'desc')
+          .orderBy('id', 'desc');
+        if (opts.source) {
+          latest.where('source', opts.source);
+        }
 
-    const rows = await this.db
-      .with('latest', latest)
-      .from('latest')
-      .where('op', '!=', 'delete')
-      .select('entity_ref', 'etag', 'provider');
+        const rows = await this.db
+          .with('latest', latest)
+          .from('latest')
+          .where('op', '!=', 'delete')
+          .select('entity_ref', 'etag', 'provider');
 
-    const result = new Map<string, CurrentEtag>();
-    for (const row of rows) {
-      if (row.etag !== null && row.etag !== undefined) {
-        result.set(row.entity_ref, {
-          etag: row.etag,
-          provider: row.provider,
-        });
-      }
-    }
-    return result;
+        const result = new Map<string, CurrentEtag>();
+        for (const row of rows) {
+          if (row.etag !== null && row.etag !== undefined) {
+            result.set(row.entity_ref, {
+              etag: row.etag,
+              provider: row.provider,
+            });
+          }
+        }
+        return result;
+      },
+    );
   }
 
   async recordCycle(input: CycleInput): Promise<void> {
-    await this.ensureReady();
+    return this.metrics.storage(
+      'record_cycle',
+      () => input.source,
+      () =>
+        this.metrics.record(input, async () => {
+          await this.ensureReady();
 
-    const changedAt = input.finishedAt;
+          const changedAt = input.finishedAt;
 
-    await this.db.transaction(async tx => {
-      await tx('catalog_history_cycles').insert({
-        cycle_id: input.cycleId,
-        provider: input.provider,
-        source: input.source,
-        mutation_type: input.mutationType,
-        started_at: input.startedAt,
-        finished_at: input.finishedAt,
-        n_added: input.inserts.length,
-        n_modified: input.updates.length,
-        n_removed: input.deletes.length,
-        n_unchanged: input.unchangedCount,
-      });
+          await this.metrics.persist(
+            () => input.source,
+            () =>
+              this.db.transaction(async tx => {
+                await tx('catalog_history_cycles').insert({
+                  cycle_id: input.cycleId,
+                  provider: input.provider,
+                  source: input.source,
+                  mutation_type: input.mutationType,
+                  started_at: input.startedAt,
+                  finished_at: input.finishedAt,
+                  n_added: input.inserts.length,
+                  n_modified: input.updates.length,
+                  n_removed: input.deletes.length,
+                  n_unchanged: input.unchangedCount,
+                });
 
-      const entityRows: EntityInsertRow[] = [];
-      for (const row of input.inserts) {
-        entityRows.push(
-          buildEntityRow(
-            row,
-            input.cycleId,
-            input.provider,
-            input.source,
-            'insert',
-            changedAt,
-          ),
-        );
-      }
-      for (const row of input.updates) {
-        entityRows.push(
-          buildEntityRow(
-            row,
-            input.cycleId,
-            input.provider,
-            input.source,
-            'update',
-            changedAt,
-          ),
-        );
-      }
-      for (const ref of input.deletes) {
-        entityRows.push(
-          buildDeleteRow(
-            ref,
-            input.cycleId,
-            input.provider,
-            input.source,
-            changedAt,
-          ),
-        );
-      }
+                const entityRows: EntityInsertRow[] = [];
+                for (const row of input.inserts) {
+                  entityRows.push(
+                    buildEntityRow(
+                      row,
+                      input.cycleId,
+                      input.provider,
+                      input.source,
+                      'insert',
+                      changedAt,
+                    ),
+                  );
+                }
+                for (const row of input.updates) {
+                  entityRows.push(
+                    buildEntityRow(
+                      row,
+                      input.cycleId,
+                      input.provider,
+                      input.source,
+                      'update',
+                      changedAt,
+                    ),
+                  );
+                }
+                for (const ref of input.deletes) {
+                  entityRows.push(
+                    buildDeleteRow(
+                      ref,
+                      input.cycleId,
+                      input.provider,
+                      input.source,
+                      changedAt,
+                    ),
+                  );
+                }
 
-      if (entityRows.length > 0) {
-        await tx.batchInsert(
-          'catalog_history_entities',
-          entityRows,
-          ENTITY_INSERT_CHUNK_SIZE,
-        );
-      }
-    });
+                if (entityRows.length > 0) {
+                  await tx.batchInsert(
+                    'catalog_history_entities',
+                    entityRows,
+                    ENTITY_INSERT_CHUNK_SIZE,
+                  );
+                }
+              }),
+            { callerOwnedTransaction: this.db.isTransaction === true },
+          );
+        }),
+    );
   }
 
   private async shutdownOnce(): Promise<void> {
-    for (const hook of this.shutdownHooks) {
-      await hook();
-    }
-    if (this.options.ownsDatabase) {
-      await this.db.destroy();
+    try {
+      for (const hook of this.shutdownHooks) {
+        await hook();
+      }
+      if (this.options.ownsDatabase) {
+        await this.db.destroy();
+      }
+    } finally {
+      this.metrics.dispose();
     }
   }
 }

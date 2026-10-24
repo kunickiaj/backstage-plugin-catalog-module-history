@@ -2,6 +2,7 @@ import {
   coreServices,
   createServiceFactory,
 } from '@backstage/backend-plugin-api';
+import { metricsServiceRef } from '@backstage/backend-plugin-api/alpha';
 import { type Knex, knex as createKnex } from 'knex';
 import { historyStoreServiceRef } from '@kunickiaj/backstage-plugin-catalog-history-node';
 import { PostgresHistoryStore } from '../postgres/PostgresHistoryStore';
@@ -37,8 +38,9 @@ export const historyStoreServiceFactory = createServiceFactory({
     database: coreServices.database,
     logger: coreServices.logger,
     lifecycle: coreServices.lifecycle,
+    metrics: metricsServiceRef,
   },
-  async factory({ config, database, logger, lifecycle }) {
+  async factory({ config, database, logger, lifecycle, metrics }) {
     const queryTimeoutMs = normalizeQueryTimeoutMs(
       config.getOptionalBoolean('catalog.history.enabled') === false
         ? undefined
@@ -66,6 +68,7 @@ export const historyStoreServiceFactory = createServiceFactory({
     const store = new PostgresHistoryStore(db, {
       ownsDatabase,
       queryTimeoutMs,
+      metrics,
     });
     lifecycle.addShutdownHook(async () => {
       await store.shutdown();
