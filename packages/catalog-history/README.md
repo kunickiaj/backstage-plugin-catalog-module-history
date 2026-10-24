@@ -110,6 +110,14 @@ Capture sources describe where the record came from:
 - `processing` records catalog processor output.
 - `reconciler` records the served catalog view observed by reconciliation.
 
+### Structured snapshots in unreleased source
+
+The current workspace adds read-only sections for recorded entity fields, metadata, spec, relations, and status items. Owner, memberships, parent, and orphan status come from the selected saved snapshot, without filling gaps from spec fields or the current catalog entity.
+
+Missing fields show **Not recorded** or a category-specific missing message. Recorded empty lists and objects have explicit empty states; an orphan value of `false` shows **No**. JSON scalars preserve their types, and nested values appear as keyboard-focusable JSON blocks within their fields. The complete raw snapshot remains available separately.
+
+For a deletion, these sections appear only within **Last recorded snapshot before deletion** when that earlier snapshot exists. They do not describe a deletion payload or a current entity state.
+
 ## Access and unavailable history
 
 The backend requires an authenticated user. When the Backstage permission framework is enabled, the policy must explicitly allow `catalog-history.read`; otherwise the tab reports an access error.

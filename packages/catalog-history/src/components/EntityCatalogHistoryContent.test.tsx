@@ -309,7 +309,9 @@ describe('EntityCatalogHistoryContent', () => {
     expect(
       within(previous).getByText('directory-provider'),
     ).toBeInTheDocument();
-    expect(within(previous).getByText(/"snapshot-owner"/)).toBeInTheDocument();
+    expect(
+      within(previous).getByText(/"snapshot-owner"/, { selector: 'pre' }),
+    ).toBeInTheDocument();
     expect(screen.queryByText('Raw snapshot')).not.toBeInTheDocument();
     expect(
       screen.queryByRole('region', { name: 'Changes from previous event' }),
@@ -808,7 +810,7 @@ describe('EntityCatalogHistoryContent', () => {
 
     // Act
     fireEvent.click(await screen.findByRole('row', { name: /^Event update,/ }));
-    await screen.findByText(/"snapshot-owner"/);
+    await screen.findByText(/"snapshot-owner"/, { selector: 'pre' });
     fireEvent.click(screen.getByRole('row', { name: /^Event delete,/ }));
 
     // Assert

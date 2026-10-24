@@ -220,6 +220,8 @@ Text fields apply after 300 ms; dropdowns and valid dates apply immediately. Dat
 
 Select a timeline row by pointer or keyboard to inspect its exact event; there is no separate inspect action. The responsive timeline and inspector panels show update field changes when available, plus raw JSON separately. Delete events remain tombstones with no current snapshot; when a prior saved snapshot is available, the inspector labels it as the last recorded snapshot before deletion and shows its provenance. It is not the deletion payload.
 
+Unreleased source also displays recorded metadata, spec, relations, status items, owner, memberships, parent, and orphan status as read-only fields. Missing values stay distinct from recorded empty values or `false`; fields are not filled from the live catalog. Nested values remain available as JSON within their fields, alongside the complete raw snapshot.
+
 The backend requires an authenticated user and, when permissions are enabled, an explicit `ALLOW` for `catalog-history.read`. A disabled, unreachable, or older backend without the route appears as a history `404`; expired sessions return `401`; rejected permission decisions return `403`. The standalone page shows a compatibility message when a custom history API does not implement the change feed (`501`); the entity tab remains available. Deleted entities may have retained API history, but the entity tab cannot open after the catalog entity itself is absent. There is no cycle, stats, facets, as-of, or arbitrary version-comparison view.
 
 See the [frontend package README](packages/catalog-history/README.md) for workspace use, NFS exports, and user-facing error guidance.

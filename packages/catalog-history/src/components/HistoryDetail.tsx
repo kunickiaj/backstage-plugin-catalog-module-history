@@ -6,6 +6,7 @@ import type { CatalogHistoryApi } from '../api/CatalogHistoryApi';
 import { HistoryError } from './HistoryError';
 import { HistoryProvenance } from './HistoryProvenance';
 import { HistoryChanges } from './HistoryChanges';
+import { HistorySnapshot } from './HistorySnapshot';
 import styles from './History.module.css';
 
 export function HistoryDetail(props: {
@@ -77,12 +78,15 @@ function Snapshot({ event }: { event: HistoryEntityVersionResponse }) {
     );
   if (!event.snapshot) return <p>No snapshot was recorded for this event.</p>;
   return (
-    <details open={event.changes === undefined} className={styles.disclosure}>
-      <summary>Raw snapshot</summary>
-      <pre className={styles.code}>
-        {JSON.stringify(event.snapshot, null, 2)}
-      </pre>
-    </details>
+    <>
+      <HistorySnapshot snapshot={event.snapshot} />
+      <details open={event.changes === undefined} className={styles.disclosure}>
+        <summary>Raw snapshot</summary>
+        <pre className={styles.code}>
+          {JSON.stringify(event.snapshot, null, 2)}
+        </pre>
+      </details>
+    </>
   );
 }
 
@@ -103,6 +107,7 @@ function DeletedSnapshot({ event }: { event: HistoryEntityVersionResponse }) {
         the deletion payload.
       </p>
       <HistoryProvenance event={previous} />
+      <HistorySnapshot snapshot={previous.snapshot} />
       <pre className={styles.code}>
         {JSON.stringify(previous.snapshot, null, 2)}
       </pre>
