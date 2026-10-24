@@ -213,7 +213,7 @@ describe('ensureSchema', () => {
     const catalogNames = (await readdir(catalogMigrationsDir))
       .filter(name => name.endsWith('.js'))
       .sort();
-    expect(catalogNames).toHaveLength(43);
+    expect(catalogNames).toHaveLength(46);
     await db.migrate.latest({
       directory: catalogMigrationsDir,
       tableName: legacyLedger,

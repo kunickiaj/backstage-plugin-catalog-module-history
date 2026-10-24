@@ -109,7 +109,7 @@ new HistoryRecordingEntityProvider({
 });
 ```
 
-This uses normal Backstage dependency injection; it does not fetch a global meter. The installed `@backstage/backend-plugin-api` `1.10.1` alpha surface provides `metricsServiceRef`, and the standard `createBackend()` in `@backstage/backend-defaults` `0.18.0` registers its factory.
+This uses normal Backstage dependency injection; it does not fetch a global meter. The installed `@backstage/backend-plugin-api` `1.11.0` alpha surface provides `metricsServiceRef`, and the standard `createBackend()` in `@backstage/backend-defaults` `0.18.1` registers its factory.
 
 Manual provider wrappers, processors, and `reconcile` calls accept an optional metrics service. A standalone CLI or manual reconciliation call without one is not high-level instrumented; its existing logs and domain behavior remain unchanged. There is no implicit global meter or `HistoryStore` telemetry interface.
 
@@ -133,7 +133,7 @@ Do not use these metrics as a complete availability signal or audit-completeness
 
 ## Custom storage
 
-The default `historyStoreServiceFactory` injects `metricsServiceRef` from the installed `@backstage/backend-plugin-api` `1.10.1` alpha surface. When constructing the Postgres store yourself, metrics are optional:
+The default `historyStoreServiceFactory` injects `metricsServiceRef` from the installed `@backstage/backend-plugin-api` `1.11.0` alpha surface. When constructing the Postgres store yourself, metrics are optional:
 
 ```ts
 import { PostgresHistoryStore } from '@kunickiaj/backstage-plugin-catalog-history-storage-node';

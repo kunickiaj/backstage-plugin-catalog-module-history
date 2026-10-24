@@ -23,7 +23,7 @@ type CatalogRow = {
   unprocessed_hash: string;
 };
 
-// Catalog 3.9.0 is pinned as a devDependency: its public API does not expose
+// Catalog 4.0.2 is pinned as a devDependency: its public API does not expose
 // provider persistence in isolation. Keep these internal entry points here so
 // upgrades must verify the real connection, migrations, and database contract.
 const catalogRoot = dirname(
