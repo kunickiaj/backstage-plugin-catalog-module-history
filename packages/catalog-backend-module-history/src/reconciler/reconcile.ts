@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { LoggerService } from '@backstage/backend-plugin-api';
+import type { MetricsService } from '@backstage/backend-plugin-api/alpha';
 import {
   EntityRow,
   HistoryStore,
@@ -7,11 +8,13 @@ import {
 } from '@kunickiaj/backstage-plugin-catalog-history-node';
 import { entityToRow } from '../mapping/entityToRow';
 import { EntityFetcher } from './EntityFetcher';
+import { createCaptureMetrics } from '../telemetry/captureMetrics';
 
 export type ReconcileOptions = {
   fetcher: EntityFetcher;
   store: HistoryStore;
   logger: LoggerService;
+  metrics?: MetricsService;
 };
 
 /**
@@ -34,57 +37,104 @@ export type ReconcileOptions = {
  */
 export async function reconcile(opts: ReconcileOptions): Promise<void> {
   const { fetcher, store, logger } = opts;
-  const startedAt = new Date();
+  const captureMetrics = createCaptureMetrics('reconciler', opts.metrics);
+  const stopOperation = captureMetrics.startOperation('reconcile');
+  let completed = false;
+  try {
+    const startedAt = new Date();
 
-  const entities = await fetcher.getEntities();
-  const rows: EntityRow[] = entities.map(entity => entityToRow(entity));
-  const incomingRefs = new Set(rows.map(r => r.entityRef));
+    const stopFetch = captureMetrics.startPhase('fetch');
+    let fetched = false;
+    let entities: Awaited<ReturnType<EntityFetcher['getEntities']>>;
+    try {
+      entities = await fetcher.getEntities();
+      fetched = true;
+    } finally {
+      stopFetch(fetched ? 'success' : 'error');
+    }
+    const stopMapping = captureMetrics.startPhase('prepare');
+    let mapped = false;
+    let rows: EntityRow[];
+    let incomingRefs: Set<string>;
+    try {
+      rows = entities.map(entity => entityToRow(entity));
+      incomingRefs = new Set(rows.map(r => r.entityRef));
+      mapped = true;
+    } finally {
+      stopMapping(mapped ? 'success' : 'error');
+    }
 
-  const existing = await store.loadAllCurrentEtags({ source: 'reconciler' });
+    const stopBaseline = captureMetrics.startPhase('baseline');
+    let loaded = false;
+    let existing: Awaited<ReturnType<HistoryStore['loadAllCurrentEtags']>>;
+    try {
+      existing = await store.loadAllCurrentEtags({ source: 'reconciler' });
+      loaded = true;
+    } finally {
+      stopBaseline(loaded ? 'success' : 'error');
+    }
 
-  const inserts: EntityRow[] = [];
-  const updates: EntityRow[] = [];
-  let unchangedCount = 0;
+    const inserts: EntityRow[] = [];
+    const updates: EntityRow[] = [];
+    let unchangedCount = 0;
+    const deletes: string[] = [];
 
-  for (const row of rows) {
-    const prev = existing.get(row.entityRef);
-    if (prev === undefined) {
-      inserts.push(row);
-    } else if (prev.etag !== row.etag) {
-      updates.push(row);
+    const stopDiff = captureMetrics.startPhase('prepare');
+    let diffed = false;
+    try {
+      for (const row of rows) {
+        const prev = existing.get(row.entityRef);
+        if (prev === undefined) {
+          inserts.push(row);
+        } else if (prev.etag !== row.etag) {
+          updates.push(row);
+        } else {
+          unchangedCount++;
+        }
+      }
+
+      for (const ref of existing.keys()) {
+        if (!incomingRefs.has(ref)) {
+          deletes.push(ref);
+        }
+      }
+      diffed = true;
+    } finally {
+      stopDiff(diffed ? 'success' : 'error');
+    }
+
+    const stopRecord = captureMetrics.startPhase('record');
+    let recorded = false;
+    try {
+      await store.recordCycle({
+        cycleId: randomUUID(),
+        provider: RECONCILER_PROVIDER,
+        source: 'reconciler',
+        mutationType: 'full',
+        startedAt,
+        finishedAt: new Date(),
+        inserts,
+        updates,
+        deletes,
+        unchangedCount,
+      });
+      recorded = true;
+    } finally {
+      stopRecord(recorded ? 'success' : 'error');
+    }
+
+    const total = inserts.length + updates.length + deletes.length;
+    if (total === 0) {
+      logger.info(
+        `Reconciler heartbeat: no drift across ${unchangedCount} entities`,
+      );
     } else {
-      unchangedCount++;
+      logger.info(
+        `Reconciler recorded drift: ${inserts.length} insert(s), ${updates.length} update(s), ${deletes.length} delete(s); ${unchangedCount} unchanged`,
+      );
     }
-  }
-
-  const deletes: string[] = [];
-  for (const ref of existing.keys()) {
-    if (!incomingRefs.has(ref)) {
-      deletes.push(ref);
-    }
-  }
-
-  await store.recordCycle({
-    cycleId: randomUUID(),
-    provider: RECONCILER_PROVIDER,
-    source: 'reconciler',
-    mutationType: 'full',
-    startedAt,
-    finishedAt: new Date(),
-    inserts,
-    updates,
-    deletes,
-    unchangedCount,
-  });
-
-  const total = inserts.length + updates.length + deletes.length;
-  if (total === 0) {
-    logger.info(
-      `Reconciler heartbeat: no drift across ${unchangedCount} entities`,
-    );
-  } else {
-    logger.info(
-      `Reconciler recorded drift: ${inserts.length} insert(s), ${updates.length} update(s), ${deletes.length} delete(s); ${unchangedCount} unchanged`,
-    );
+    completed = true;
+  } finally {
+    stopOperation(completed ? 'success' : 'error');
   }
 }
