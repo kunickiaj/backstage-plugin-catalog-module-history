@@ -314,6 +314,7 @@ env \
 - [Migrate from the historical single module](docs/migration.md)
 - [Implementation plan](docs/plans/2026-05-11-catalog-history-backstage-module.md)
 - [Productization roadmap](docs/plans/2026-07-05-catalog-history-productization-roadmap.md)
+- [Benchmark fixture generator](docs/benchmark-fixtures.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [`0.2.0` release and E2E setup](docs/releases/0.2.0.md)
 
