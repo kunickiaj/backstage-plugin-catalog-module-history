@@ -6,6 +6,10 @@ This opt-in diagnostic runs synthetic catalog snapshots against the public
 PostgreSQL 16 Docker database; it is not a production benchmark or a database
 durability sign-off.
 
+For direct history-store query and controlled-write measurements, see the
+[history store query benchmark](benchmark-queries.md). It records four completed
+store-only runs separately and does not change this diagnostic's historical results.
+
 The harness starts the public catalog backend and the module's default history
 feature. It registers a `HistoryRecordingEntityProvider` around a synthetic
 provider through the catalog processing extension point, then runs the same
