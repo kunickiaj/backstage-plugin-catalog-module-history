@@ -12,9 +12,11 @@ late-join candidate with the ordering-only index wins only for unscoped reads.
 It regresses scoped reads, especially source-only reads. The candidate on the
 existing indexes has no general benefit.
 
-Keep the production methods and indexes unchanged. A narrower scope-aware query
-candidate using existing indexes is planned but has not been measured. It is not
-a migration proposal.
+Keep the production methods and indexes unchanged. The follow-up
+[lateral candidate benchmark](benchmark-latest-lateral.md) found mixed results:
+its raw candidate was statistics-sensitive at 200,000 rows, and its materialized
+candidate improves only the unscoped shape in the fixture. It is not a migration
+proposal.
 
 ## Candidate query
 
