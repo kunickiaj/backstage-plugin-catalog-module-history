@@ -18,8 +18,9 @@ Do not recommend the ordering-only index with the current query either. At
 benchmark did not force planner settings or change the query to make it appear
 useful.
 
-Keep the current indexes and query unchanged. Follow-up work will evaluate a
-width-safe query/index design; it has not been measured yet.
+Keep the current indexes and query unchanged. The [latest-state query candidate
+benchmark](benchmark-latest-query.md) reports mixed follow-up results: only its
+unscoped ordering-index case improved, while scoped cases regressed.
 
 ## Run the benchmark
 
