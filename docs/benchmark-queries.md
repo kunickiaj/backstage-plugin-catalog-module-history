@@ -238,6 +238,9 @@ work should measure current-state query and index shapes, including read benefit
 against write and storage cost, before any migration decision. These runs do not
 set a target service level or show production-scale behavior.
 
+The [latest-state index benchmark](benchmark-latest-indexes.md) records the
+isolated PostgreSQL 16 comparison and its decision to defer a migration.
+
 ## Read the artifact
 
 Each artifact includes environment and package versions, source SHA and dirty
