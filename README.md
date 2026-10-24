@@ -311,6 +311,7 @@ env \
 
 ## Documentation
 
+- [Migrate from the historical single module](docs/migration.md)
 - [Implementation plan](docs/plans/2026-05-11-catalog-history-backstage-module.md)
 - [Productization roadmap](docs/plans/2026-07-05-catalog-history-productization-roadmap.md)
 - [Architecture](docs/ARCHITECTURE.md)
