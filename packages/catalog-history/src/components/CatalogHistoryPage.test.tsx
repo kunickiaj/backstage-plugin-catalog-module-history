@@ -13,6 +13,8 @@ import type {
   HistoryEntityVersionResponse,
   HistoryChangeFeedResponse,
   HistoryTimelineSummary,
+  HistoryEntitySearchResponse,
+  HistoryKindSearchResponse,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import {
   catalogHistoryApiRef,
@@ -71,6 +73,496 @@ function setup() {
 
 describe('CatalogHistoryPage', () => {
   afterEach(() => jest.useRealTimers());
+
+  it('queries literal entity prefixes in applied scope without applying drafts or reading snapshots', async () => {
+    // Arrange: the discovered deletion is absent from the loaded event page.
+    const { api, mount } = setup();
+    const selected = {
+      entityRef: deletedRef,
+      kind: 'Group',
+      namespace: 'teams',
+      name: 'retired-team',
+    };
+    const rawProvider = ' Original Provider ';
+    api.getEntities = jest
+      .fn()
+      .mockResolvedValue({ items: [selected], nextCursor: 'entity-only' });
+    api.getKinds = jest.fn().mockResolvedValue({ items: ['Group', 'API'] });
+    api.getProviders = jest.fn().mockResolvedValue({ items: [rawProvider] });
+    api.getChangeFeed.mockResolvedValue({ items: [event('loaded')] });
+    mount();
+    await screen.findByRole('row', { name: /^Event loaded,/ });
+    const kind = screen.getByRole('combobox', { name: 'Kind' });
+    fireEvent.focus(kind);
+    fireEvent.keyDown(kind, { key: 'ArrowDown', code: 'ArrowDown' });
+    fireEvent.click(await screen.findByRole('option', { name: 'Group' }));
+    fireEvent.click(screen.getByRole('button', { name: /Source$/ }));
+    fireEvent.click(screen.getByRole('option', { name: 'provider' }));
+    fireEvent.click(screen.getByRole('button', { name: /Operation$/ }));
+    fireEvent.click(screen.getByRole('option', { name: 'delete' }));
+    const after = '2026-10-01T12:00';
+    const before = '2026-10-24T12:00';
+    fireEvent.change(screen.getByLabelText('Recorded after (local time)'), {
+      target: { value: after },
+    });
+    fireEvent.change(screen.getByLabelText('Recorded before (local time)'), {
+      target: { value: before },
+    });
+    const provider = screen.getByRole('combobox', { name: 'Provider' });
+    fireEvent.focus(provider);
+    fireEvent.keyDown(provider, { key: 'ArrowDown', code: 'ArrowDown' });
+    fireEvent.click(
+      await screen.findByRole('option', { name: 'Original Provider' }),
+    );
+    const scope = {
+      kind: 'Group',
+      source: 'provider',
+      provider: rawProvider,
+      op: 'delete',
+      changedAfter: new Date(after).toISOString(),
+      changedBefore: new Date(before).toISOString(),
+    };
+    await waitFor(() =>
+      expect(api.getChangeFeed).toHaveBeenLastCalledWith({
+        ...scope,
+        limit: 25,
+        cursor: undefined,
+      }),
+    );
+    const input = screen.getByRole('combobox', { name: 'Entity' });
+    fireEvent.focus(input);
+    await waitFor(() =>
+      expect(api.getEntities).toHaveBeenCalledWith({
+        ...scope,
+        prefix: undefined,
+        limit: 25,
+      }),
+    );
+    const feedCalls = api.getChangeFeed.mock.calls.length;
+    const entityCalls = jest.mocked(api.getEntities).mock.calls.length;
+
+    // Act: an inverted date draft must not enter the discovery context.
+    fireEvent.change(screen.getByLabelText('Recorded before (local time)'), {
+      target: { value: '2026-09-01T12:00' },
+    });
+    jest.useFakeTimers();
+    fireEvent.change(input, { target: { value: 'raw%_\\' } });
+    await act(async () => jest.advanceTimersByTime(299));
+    expect(api.getEntities).toHaveBeenCalledTimes(entityCalls);
+    await act(async () => jest.advanceTimersByTime(1));
+    jest.useRealTimers();
+    fireEvent.keyDown(input, { key: 'Escape', code: 'Escape' });
+    fireEvent.focus(kind);
+    jest.useFakeTimers();
+    fireEvent.change(kind, { target: { value: 'gR' } });
+    await act(async () => jest.advanceTimersByTime(300));
+    jest.useRealTimers();
+    fireEvent.keyDown(kind, { key: 'Escape', code: 'Escape' });
+
+    // Assert
+    expect(api.getEntities).toHaveBeenLastCalledWith({
+      ...scope,
+      prefix: 'raw%_\\',
+      limit: 25,
+    });
+    expect(api.getChangeFeed).toHaveBeenCalledTimes(feedCalls);
+    expect(api.getEntityVersion).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Check history filters',
+    );
+    for (const [request] of jest.mocked(api.getEntities).mock.calls) {
+      expect(request).not.toHaveProperty('entityRef');
+      expect(request).not.toHaveProperty('owner');
+      expect(request).not.toHaveProperty('cursor');
+    }
+    for (const [request] of jest.mocked(api.getKinds).mock.calls) {
+      expect(Object.keys(request!)).toEqual(['prefix', 'limit', 'cursor']);
+    }
+    expect(api.getKinds).toHaveBeenLastCalledWith({
+      prefix: 'gR',
+      limit: 25,
+      cursor: undefined,
+    });
+  });
+
+  it('applies a returned canonical identity and kind atomically, retaining selections while editing prefixes or other filters', async () => {
+    // Arrange: identical names must remain distinct across kind and namespace.
+    const { api, mount } = setup();
+    const selected = {
+      entityRef: 'group:teams/shared',
+      kind: 'Group',
+      namespace: 'teams',
+      name: 'shared',
+    };
+    const other = {
+      entityRef: 'component:default/shared',
+      kind: 'Component',
+      namespace: 'default',
+      name: 'shared',
+    };
+    const rawProvider = ' Exact Provider ';
+    api.getEntities = jest.fn().mockResolvedValue({ items: [other, selected] });
+    api.getKinds = jest
+      .fn()
+      .mockResolvedValue({ items: ['API', 'Component', 'Group'] });
+    api.getProviders = jest.fn().mockResolvedValue({ items: [rawProvider] });
+    mount();
+    await screen.findByText('No recorded events match these filters.');
+    const provider = screen.getByRole('combobox', { name: 'Provider' });
+    fireEvent.focus(provider);
+    fireEvent.keyDown(provider, { key: 'ArrowDown', code: 'ArrowDown' });
+    fireEvent.click(
+      await screen.findByRole('option', { name: 'Exact Provider' }),
+    );
+    const input = screen.getByRole('combobox', { name: 'Entity' });
+    fireEvent.focus(input);
+    fireEvent.keyDown(input, { key: 'ArrowDown', code: 'ArrowDown' });
+    // Act
+    fireEvent.click(
+      await screen.findByRole('option', { name: 'shared — Group / teams' }),
+    );
+    await waitFor(() =>
+      expect(api.getChangeFeed).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          entityRef: selected.entityRef,
+          kind: 'Group',
+          provider: rawProvider,
+          cursor: undefined,
+        }),
+      ),
+    );
+    expect(screen.getByRole('combobox', { name: 'Kind' })).toHaveValue('Group');
+    const callsAfterSelection = api.getChangeFeed.mock.calls.length;
+    fireEvent.focus(input);
+    jest.useFakeTimers();
+    fireEvent.change(input, { target: { value: 'unselected-name' } });
+    fireEvent.change(provider, { target: { value: 'unselected-provider' } });
+    await act(async () => jest.advanceTimersByTime(300));
+    jest.useRealTimers();
+    expect(api.getChangeFeed).toHaveBeenCalledTimes(callsAfterSelection);
+    fireEvent.click(screen.getByRole('button', { name: /Source$/ }));
+    fireEvent.click(screen.getByRole('option', { name: 'processing' }));
+    const after = '2026-10-01T12:00';
+    fireEvent.change(screen.getByLabelText('Recorded after (local time)'), {
+      target: { value: after },
+    });
+
+    // Assert
+    await waitFor(() =>
+      expect(api.getChangeFeed).toHaveBeenLastCalledWith({
+        entityRef: selected.entityRef,
+        kind: 'Group',
+        provider: rawProvider,
+        source: 'processing',
+        changedAfter: new Date(after).toISOString(),
+        limit: 25,
+        cursor: undefined,
+      }),
+    );
+    expect(api.getEntities).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'Group',
+        provider: rawProvider,
+        prefix: 'unselected-name',
+      }),
+    );
+    expect(api.getEntityVersion).not.toHaveBeenCalled();
+    for (const [request] of jest.mocked(api.getEntities).mock.calls) {
+      expect(request).not.toHaveProperty('entityRef');
+      expect(request).not.toHaveProperty('owner');
+    }
+    expect(
+      api.getChangeFeed.mock.calls
+        .slice(1)
+        .every(
+          ([request]) =>
+            !request.entityRef || request.entityRef === selected.entityRef,
+        ),
+    ).toBe(true);
+  });
+
+  it('retains entity on All kinds, retains kind on Clear entity, and clears entity on an incompatible kind', async () => {
+    // Arrange
+    const { api, mount } = setup();
+    const selected = {
+      entityRef: deletedRef,
+      kind: 'Group',
+      namespace: 'teams',
+      name: 'retired-team',
+    };
+    api.getEntities = jest.fn().mockResolvedValue({ items: [selected] });
+    api.getKinds = jest.fn().mockResolvedValue({ items: ['API', 'Group'] });
+    mount();
+    await screen.findByText('No recorded events match these filters.');
+    const entity = screen.getByRole('combobox', { name: 'Entity' });
+    const kind = screen.getByRole('combobox', { name: 'Kind' });
+    const chooseEntity = async () => {
+      fireEvent.focus(entity);
+      fireEvent.keyDown(entity, { key: 'ArrowDown', code: 'ArrowDown' });
+      fireEvent.click(
+        await screen.findByRole('option', {
+          name: 'retired-team — Group / teams',
+        }),
+      );
+    };
+    const chooseKind = async (name: string) => {
+      fireEvent.focus(kind);
+      fireEvent.keyDown(kind, { key: 'ArrowDown', code: 'ArrowDown' });
+      fireEvent.click(await screen.findByRole('option', { name }));
+    };
+    await chooseEntity();
+    // Act / Assert: All kinds removes only kind, never the selected exact ref.
+    await chooseKind('All kinds');
+    await waitFor(() =>
+      expect(api.getChangeFeed).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          entityRef: deletedRef,
+          kind: undefined,
+          cursor: undefined,
+        }),
+      ),
+    );
+    expect(entity).toHaveValue('retired-team');
+    await chooseKind('Group');
+    fireEvent.click(screen.getByRole('button', { name: 'Clear entity' }));
+    await waitFor(() =>
+      expect(api.getChangeFeed).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          kind: 'Group',
+          cursor: undefined,
+        }),
+      ),
+    );
+    expect(api.getChangeFeed.mock.calls.at(-1)![0].entityRef).toBeUndefined();
+    expect(entity).toHaveValue('');
+    expect(kind).toHaveValue('Group');
+    await chooseEntity();
+    await chooseKind('API');
+    await waitFor(() =>
+      expect(api.getChangeFeed).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          kind: 'API',
+          cursor: undefined,
+        }),
+      ),
+    );
+    expect(api.getChangeFeed.mock.calls.at(-1)![0].entityRef).toBeUndefined();
+    expect(entity).toHaveValue('');
+    expect(kind).toHaveValue('API');
+  });
+
+  it('keeps metadata cursors out of event paging, resets pages on entity selection, and inspects the exact row by keyboard', async () => {
+    // Arrange
+    const { api, mount } = setup();
+    const selected = {
+      entityRef: deletedRef,
+      kind: 'Group',
+      namespace: 'teams',
+      name: 'retired-team',
+    };
+    api.getEntities = jest
+      .fn()
+      .mockResolvedValue({ items: [selected], nextCursor: 'entities-only' });
+    api.getKinds = jest.fn().mockImplementation(async request =>
+      request.cursor
+        ? { items: ['Group'] }
+        : {
+            items: Array.from({ length: 25 }, (_, i) => `Kind${i}`),
+            nextCursor: 'kinds-only',
+          },
+    );
+    api.getChangeFeed.mockImplementation(async request => ({
+      items: [
+        event(
+          `${request.entityRef ? 'selected' : 'initial'}${request.cursor ? '-older' : ''}`,
+          request.entityRef ?? componentRef,
+        ),
+      ],
+      nextCursor: request.cursor ? undefined : 'events-only',
+    }));
+    api.getEntityVersion.mockImplementation(async ({ id, entityRef }) =>
+      event(id, entityRef),
+    );
+    mount();
+    await screen.findByRole('row', { name: /^Event initial,/ });
+    const kind = screen.getByRole('combobox', { name: 'Kind' });
+    fireEvent.focus(kind);
+    fireEvent.keyDown(kind, { key: 'ArrowDown', code: 'ArrowDown' });
+    const calls = api.getChangeFeed.mock.calls.length;
+    // Act
+    await screen.findByRole('option', { name: 'Kind24' });
+    fireEvent.keyDown(kind, { key: 'Escape', code: 'Escape' });
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Load more kinds' }),
+    );
+    await waitFor(() =>
+      expect(api.getKinds).toHaveBeenLastCalledWith({
+        prefix: undefined,
+        limit: 25,
+        cursor: 'kinds-only',
+      }),
+    );
+    expect(api.getChangeFeed).toHaveBeenCalledTimes(calls);
+    fireEvent.keyDown(kind, { key: 'Escape', code: 'Escape' });
+    fireEvent.click(screen.getByRole('button', { name: 'Load older' }));
+    await waitFor(() =>
+      expect(api.getChangeFeed).toHaveBeenLastCalledWith({
+        limit: 25,
+        cursor: 'events-only',
+      }),
+    );
+    const entity = screen.getByRole('combobox', { name: 'Entity' });
+    fireEvent.focus(entity);
+    fireEvent.keyDown(entity, { key: 'ArrowDown', code: 'ArrowDown' });
+    fireEvent.click(
+      await screen.findByRole('option', {
+        name: 'retired-team — Group / teams',
+      }),
+    );
+    const row = await screen.findByRole('row', { name: /^Event selected,/ });
+    act(() => row.focus());
+    fireEvent.keyDown(row, { key: 'Enter', code: 'Enter' });
+    fireEvent.keyUp(row, { key: 'Enter', code: 'Enter' });
+    await screen.findByText('cycle-selected');
+    // Assert
+    expect(api.getChangeFeed).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        entityRef: deletedRef,
+        kind: 'Group',
+        cursor: undefined,
+      }),
+    );
+    expect(
+      screen.queryByRole('row', { name: /^Event initial,/ }),
+    ).not.toBeInTheDocument();
+    expect(api.getEntityVersion).toHaveBeenCalledWith({
+      entityRef: deletedRef,
+      id: 'selected',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Load older' }));
+    await waitFor(() =>
+      expect(api.getChangeFeed).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          entityRef: deletedRef,
+          kind: 'Group',
+          cursor: 'events-only',
+        }),
+      ),
+    );
+  });
+
+  it.each(['first', 'later'] as const)(
+    'ignores %s metadata responses after reset and never reapplies a previous exact identity',
+    async stage => {
+      // Arrange
+      const { api, mount } = setup();
+      const selected = {
+        entityRef: deletedRef,
+        kind: 'Group',
+        namespace: 'teams',
+        name: 'retired-team',
+      };
+      const entities = deferred<HistoryEntitySearchResponse>();
+      const kinds = deferred<HistoryKindSearchResponse>();
+      api.getEntities = jest.fn();
+      api.getKinds = jest.fn();
+      if (stage === 'later') {
+        jest
+          .mocked(api.getEntities)
+          .mockResolvedValueOnce({ items: [selected] });
+        jest.mocked(api.getKinds).mockResolvedValueOnce({
+          items: ['Group'],
+          nextCursor: 'old-kinds',
+        });
+      }
+      jest
+        .mocked(api.getEntities)
+        .mockReturnValueOnce(entities.promise)
+        .mockResolvedValue({ items: [] });
+      jest
+        .mocked(api.getKinds)
+        .mockReturnValueOnce(kinds.promise)
+        .mockResolvedValue({ items: [] });
+      mount();
+      await screen.findByText('No recorded events match these filters.');
+      const entity = screen.getByRole('combobox', { name: 'Entity' });
+      fireEvent.focus(entity);
+      fireEvent.keyDown(entity, { key: 'ArrowDown', code: 'ArrowDown' });
+      await waitFor(() => expect(api.getEntities).toHaveBeenCalledTimes(1));
+      if (stage === 'later') {
+        fireEvent.click(
+          await screen.findByRole('option', {
+            name: 'retired-team — Group / teams',
+          }),
+        );
+        fireEvent.focus(entity);
+        jest.useFakeTimers();
+        fireEvent.change(entity, { target: { value: 'obsolete-prefix' } });
+        await act(async () => jest.advanceTimersByTime(300));
+        jest.useRealTimers();
+      }
+      fireEvent.keyDown(entity, { key: 'Escape', code: 'Escape' });
+      const kind = screen.getByRole('combobox', { name: 'Kind' });
+      fireEvent.focus(kind);
+      fireEvent.keyDown(kind, { key: 'ArrowDown', code: 'ArrowDown' });
+      if (stage === 'later') {
+        await screen.findByRole('option', { name: 'Group' });
+        fireEvent.keyDown(kind, { key: 'Escape', code: 'Escape' });
+        fireEvent.click(
+          await screen.findByRole('button', { name: 'Load more kinds' }),
+        );
+      }
+      await waitFor(() =>
+        expect(api.getKinds).toHaveBeenCalledTimes(stage === 'later' ? 2 : 1),
+      );
+      await waitFor(() =>
+        expect(api.getEntities).toHaveBeenCalledTimes(
+          stage === 'later' ? 2 : 1,
+        ),
+      );
+      // Act
+      fireEvent.keyDown(kind, { key: 'Escape', code: 'Escape' });
+      fireEvent.click(screen.getByRole('button', { name: 'Reset filters' }));
+      await act(async () => {
+        entities.resolve({
+          items: [selected],
+          nextCursor: 'obsolete-entities',
+        });
+        kinds.resolve({
+          items: ['ObsoleteKind'],
+          nextCursor: 'obsolete-kinds',
+        });
+      });
+      const resetEntity = screen.getByRole('combobox', { name: 'Entity' });
+      fireEvent.focus(resetEntity);
+      fireEvent.keyDown(resetEntity, { key: 'ArrowDown', code: 'ArrowDown' });
+      await screen.findByText('No matching entities.');
+      fireEvent.keyDown(resetEntity, { key: 'Escape', code: 'Escape' });
+      fireEvent.click(screen.getByRole('button', { name: /Source$/ }));
+      fireEvent.click(screen.getByRole('option', { name: 'processing' }));
+      // Assert: another filter change must not resurrect the pre-reset exact ref.
+      await waitFor(() =>
+        expect(api.getChangeFeed).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            source: 'processing',
+            kind: undefined,
+            cursor: undefined,
+          }),
+        ),
+      );
+      expect(api.getChangeFeed.mock.calls.at(-1)![0].entityRef).toBeUndefined();
+      expect(resetEntity).toHaveValue('');
+      expect(screen.getByRole('combobox', { name: 'Kind' })).toHaveValue(
+        'All kinds',
+      );
+      expect(
+        screen.queryByRole('option', { name: /retired-team|ObsoleteKind/ }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: 'Load more kinds' }),
+      ).not.toBeInTheDocument();
+    },
+  );
 
   it('uses applied global scope for provider discovery and retains the exact selection while editing another prefix', async () => {
     // Arrange
