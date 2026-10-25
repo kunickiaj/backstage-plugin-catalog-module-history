@@ -165,8 +165,16 @@ export interface HistoryEntitySnapshot extends HistoryEntityIdentity {
 /**
  * High-level change flags for timeline badges and filter UIs.
  *
- * These fields summarize common catalog changes without requiring clients to
- * fetch or compute a full structured diff for every timeline row.
+ * Optional flags compare saved fields between adjacent events for the same
+ * entity, source, and provider. For an update with a non-delete predecessor,
+ * `true` means known changed values and `false` means known unchanged values.
+ * A flag is omitted when either value or the comparison is unavailable,
+ * including inserts, deletes, and missing or deleted predecessors. Providers
+ * and query implementations may leave summaries empty.
+ *
+ * Arrays are compared as whole, order-sensitive values; object key order is
+ * ignored. These flags describe saved field differences, not upstream deltas
+ * or graph semantics, without requiring a full structured diff.
  *
  * @public
  */

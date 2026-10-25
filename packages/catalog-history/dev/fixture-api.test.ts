@@ -318,8 +318,65 @@ describe('development fixture API', () => {
     ]);
     expect(rows[0].snapshot).toEqual(rows[2].snapshot);
     expect(rows[0].summary).toEqual({});
-    expect(rows[2].summary).toEqual({ ownerChanged: true });
+    expect(rows[2].summary).toEqual({
+      ownerChanged: true,
+      relationsChanged: true,
+      statusChanged: false,
+    });
     await expect(etagRead).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('returns static field evidence on both timeline pages without filling baseline or lifecycle gaps', async () => {
+    // Arrange: explicit fixture expectations, not another snapshot diff engine.
+    const api = createFixtureApi();
+
+    // Act
+    const first = await api.getEntityTimeline({ entityRef: previewEntityRef });
+    const second = await api.getEntityTimeline({
+      entityRef: previewEntityRef,
+      cursor: first.nextCursor,
+    });
+    const current = await api.getEntityVersion({
+      entityRef: previewEntityRef,
+      id: 'synthetic-event-10',
+    });
+
+    // Assert: only the warning-bearing update has a positive status flag.
+    expect(
+      [...first.items, ...second.items].map(row => [row.id, row.summary]),
+    ).toEqual([
+      [
+        'synthetic-event-10',
+        { ownerChanged: true, relationsChanged: true, statusChanged: true },
+      ],
+      [
+        'synthetic-event-9',
+        { ownerChanged: true, relationsChanged: true, statusChanged: false },
+      ],
+      ['synthetic-event-8', {}],
+      ['synthetic-event-7', {}],
+      ['synthetic-event-6', {}],
+      [
+        'synthetic-event-5',
+        { ownerChanged: true, relationsChanged: true, statusChanged: false },
+      ],
+      [
+        'synthetic-event-4',
+        { ownerChanged: true, relationsChanged: true, statusChanged: false },
+      ],
+      ['synthetic-event-3', {}],
+      ['synthetic-event-2', {}],
+      ['synthetic-event-1', {}],
+    ]);
+    expect(current.summary).toEqual(first.items[0].summary);
+    expect(current.snapshot?.statusItems).toEqual([
+      {
+        type: 'backstage.io/catalog-processing',
+        level: 'warning',
+        message: 'Synthetic processing warning for preview only',
+      },
+    ]);
+    expect(current.previousVersion?.summary).toEqual({});
   });
 
   it('returns a delete tombstone without inventing a snapshot', async () => {

@@ -13,6 +13,7 @@ import type {
   HistoryEntityTimelineRequest,
   HistoryEntityTimelineResponse,
   HistoryTimelineItem,
+  HistoryTimelineSummary,
   HistoryEntityVersion,
   HistoryEntityVersionRequest,
   HistoryEntityVersionResponse,
@@ -23,7 +24,7 @@ import type {
   HistorySource,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import { ensureSchema } from './ensureSchema';
-import { diffSnapshots } from './diffSnapshots';
+import { diffSnapshots, summarizeSnapshotFields } from './diffSnapshots';
 import {
   normalizeQueryTimeoutMs,
   withHistoryQueryTimeout,
@@ -62,6 +63,22 @@ type HistoryEntityRow = HistoryChangeRow & {
   relations: unknown;
   status_items: unknown;
   orphan: boolean | null;
+};
+
+type SummaryRow = Partial<
+  Pick<
+    HistoryEntityRow,
+    'id' | 'op' | 'owner' | 'relations' | 'status_items' | 'orphan'
+  >
+>;
+
+type HistoryTimelineRow = HistoryEntityRow & {
+  previous_id?: string | null;
+  previous_op?: HistoryOperation | null;
+  previous_owner?: string | null;
+  previous_relations?: unknown;
+  previous_status_items?: unknown;
+  previous_orphan?: boolean | null;
 };
 
 type CursorPayload = {
@@ -154,13 +171,86 @@ function rowToSnapshot(row: HistoryEntityRow): HistoryEntitySnapshot {
     email: row.email ?? undefined,
     parent: row.parent ?? undefined,
     memberOf: asStringArray(row.member_of),
-    owner: row.owner ?? undefined,
+    ...rowToSummaryFields(row),
     metadata: asJsonObject(row.metadata),
     spec: asJsonObject(row.spec),
+  };
+}
+
+function rowToSummaryFields(row: SummaryRow) {
+  return {
+    owner: row.owner ?? undefined,
     relations: asJsonObjectArray(row.relations),
     statusItems: asJsonObjectArray(row.status_items),
     orphan: row.orphan ?? undefined,
   };
+}
+
+function rowToSummary(
+  row: SummaryRow,
+  previous?: SummaryRow,
+): HistoryTimelineSummary {
+  if (
+    row.op !== 'update' ||
+    previous?.id === undefined ||
+    (previous.op !== 'insert' && previous.op !== 'update')
+  ) {
+    return {};
+  }
+  return summarizeSnapshotFields(
+    rowToSummaryFields(previous),
+    rowToSummaryFields(row),
+  );
+}
+
+function rowToSummarizedTimelineItem(
+  row: HistoryTimelineRow,
+): HistoryTimelineItem {
+  return {
+    ...rowToTimelineItem(row),
+    summary: rowToSummary(row, {
+      id: row.previous_id ?? undefined,
+      op: row.previous_op ?? undefined,
+      owner: row.previous_owner,
+      relations: row.previous_relations,
+      status_items: row.previous_status_items,
+      orphan: row.previous_orphan,
+    }),
+  };
+}
+
+function withTimelinePredecessors(
+  db: Knex,
+  page: Knex.QueryBuilder<HistoryEntityRow, HistoryEntityRow[]>,
+): Knex.QueryBuilder<HistoryTimelineRow, HistoryTimelineRow[]> {
+  // Select the physical predecessor before considering its operation or payload.
+  const previous = db<HistoryEntityRow>('catalog_history_entities as older')
+    .select({
+      previous_id: 'older.id',
+      previous_op: 'older.op',
+      previous_owner: 'older.owner',
+      previous_relations: 'older.relations',
+      previous_status_items: 'older.status_items',
+      previous_orphan: 'older.orphan',
+    })
+    .where('page.op', 'update')
+    .whereRaw('?? = ??', ['older.entity_ref', 'page.entity_ref'])
+    .whereRaw('?? = ??', ['older.source', 'page.source'])
+    .whereRaw('?? = ??', ['older.provider', 'page.provider'])
+    .whereRaw('(older.changed_at, older.id) < (page.changed_at, page.id)')
+    .orderBy('older.changed_at', 'desc')
+    .orderBy('older.id', 'desc')
+    .limit(1)
+    .toSQL();
+
+  // Page first so predecessor payloads are fetched only for selected events.
+  return db<HistoryTimelineRow>(page.as('page'))
+    .joinRaw(`LEFT JOIN LATERAL (${previous.sql}) AS previous ON true`, [
+      ...previous.bindings,
+    ])
+    .orderBy('page.changed_at', 'desc')
+    .orderBy('page.id', 'desc')
+    .select<HistoryTimelineRow[]>('page.*', 'previous.*');
 }
 
 function rowToTimelineItem(row: HistoryChangeRow): HistoryTimelineItem {
@@ -231,19 +321,22 @@ export class PostgresHistoryQueryService {
     const limit = normalizeLimit(request.limit);
     this.validateReadRequest(request);
     const rows = await this.read('timeline', db =>
-      this.applyEntityFilters(
-        db<HistoryEntityRow>('catalog_history_entities'),
-        request,
-      )
-        .modify(query => this.applyCursor(query, request.cursor))
-        .orderBy('changed_at', 'desc')
-        .orderBy('id', 'desc')
-        .limit(limit + 1)
-        .select('*'),
+      withTimelinePredecessors(
+        db,
+        this.applyEntityFilters(
+          db<HistoryEntityRow>('catalog_history_entities'),
+          request,
+        )
+          .modify(query => this.applyCursor(query, request.cursor))
+          .orderBy('changed_at', 'desc')
+          .orderBy('id', 'desc')
+          .limit(limit + 1)
+          .select('*'),
+      ),
     );
 
     return {
-      items: rows.slice(0, limit).map(rowToTimelineItem),
+      items: rows.slice(0, limit).map(rowToSummarizedTimelineItem),
       nextCursor:
         rows.length > limit ? encodeCursor(rows[limit - 1]) : undefined,
     };
@@ -376,6 +469,7 @@ export class PostgresHistoryQueryService {
     const previousVersion = previousRow ? rowToVersion(previousRow) : undefined;
     return {
       ...version,
+      summary: rowToSummary(row, previousRow),
       previousVersion,
       changes:
         previousVersion?.snapshot &&
