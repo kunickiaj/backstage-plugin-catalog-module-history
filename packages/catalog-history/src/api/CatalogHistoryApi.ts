@@ -8,6 +8,10 @@ import type {
   HistoryEntityVersionResponse,
   HistoryProviderSearchRequest,
   HistoryProviderSearchResponse,
+  HistoryEntitySearchRequest,
+  HistoryEntitySearchResponse,
+  HistoryKindSearchRequest,
+  HistoryKindSearchResponse,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 
 /** Read recorded events and their exact snapshots. @public */
@@ -16,6 +20,14 @@ export interface CatalogHistoryApi {
   getProviders?(
     request: HistoryProviderSearchRequest,
   ): Promise<HistoryProviderSearchResponse>;
+  /** Optional name-prefix discovery over retained identities, including deletes. */
+  getEntities?(
+    request: HistoryEntitySearchRequest,
+  ): Promise<HistoryEntitySearchResponse>;
+  /** Optional paginated discovery of retained kinds. */
+  getKinds?(
+    request: HistoryKindSearchRequest,
+  ): Promise<HistoryKindSearchResponse>;
   getChangeFeed?(
     request: HistoryChangeFeedRequest,
   ): Promise<HistoryChangeFeedResponse>;

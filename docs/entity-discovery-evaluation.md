@@ -128,7 +128,7 @@ evaluation.
 ## Reproduce the fixture
 
 Docker is required. The benchmark creates a new randomly credentialed PostgreSQL
-16 container on loopback, applies the three current migrations, seeds its own
+16 container on loopback, applies the three baseline migrations, seeds its own
 data, and removes its pool and container in `finally`. It accepts no user
 database connection.
 

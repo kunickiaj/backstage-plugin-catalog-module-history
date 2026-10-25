@@ -8,26 +8,26 @@ The plugin creates instruments only. Configure the OpenTelemetry SDK and exporte
 
 Metric names and units below are SDK instrument names. An exporter can normalize dots or add unit suffixes, so do not assume every backend exposes the same literal PromQL name.
 
-| Instrument                                       | Type and unit               | Attributes                       | Records                                                                                                                             |
-| ------------------------------------------------ | --------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `catalog.history.storage.operations`             | Counter, `{operation}`      | `operation`, `source`, `outcome` | Store methods: `record_cycle`, `load_current_etags`, and `load_all_current_etags`.                                                  |
-| `catalog.history.storage.operation.duration`     | Histogram, `s`              | `operation`, `source`, `outcome` | The complete store method, including lazy schema setup, pool wait, mapping, and database work.                                      |
-| `catalog.history.storage.persistence.duration`   | Histogram, `s`              | `source`, `outcome`              | The transaction invocation through its awaited commit acknowledgement, including pool work, cycle insert, mapping, SQL, and commit. |
-| `catalog.history.capture.window.duration`        | Histogram, `s`              | `source`, `outcome`              | A valid nonnegative `finishedAt - startedAt` interval from the capture input.                                                       |
-| `catalog.history.capture.last_success.timestamp` | Observable gauge, `s`       | `source`                         | Application time after a persistence transaction succeeds, including empty heartbeat cycles.                                        |
-| `catalog.history.query.operations`               | Counter, `{operation}`      | `operation`, `outcome`           | Database query phases for `timeline`, `feed`, `versions`, `detail`, and provider discovery (`providers`).                           |
-| `catalog.history.query.operation.duration`       | Histogram, `s`              | `operation`, `outcome`           | The query-phase wrapper, including pool, transaction control, and cleanup.                                                          |
-| `catalog.history.schema.initializations`         | Counter, `{initialization}` | `component`, `outcome`           | Actual `ensureSchema` attempts and retries for `store` and `query`.                                                                 |
-| `catalog.history.schema.initialization.duration` | Histogram, `s`              | `component`, `outcome`           | Duration of the same schema-initialization attempt.                                                                                 |
-| `catalog.history.schema.initialized`             | Observable gauge, `1`       | `component`                      | `0` before an observed initialization or after a failed attempt; `1` after `ensureSchema` fulfills.                                 |
-| `catalog.history.capture.operations`             | Counter, `{operation}`      | `source`, `operation`, `outcome` | One completed high-level provider mutation, processing observation, nonempty processing flush, or reconciliation run.               |
-| `catalog.history.capture.operation.duration`     | Histogram, `s`              | `source`, `operation`, `outcome` | Duration of that same high-level operation.                                                                                         |
-| `catalog.history.capture.phases`                 | Counter, `{phase}`          | `source`, `phase`, `outcome`     | One completed capture phase.                                                                                                        |
-| `catalog.history.capture.phase.duration`         | Histogram, `s`              | `source`, `phase`, `outcome`     | Duration of that same capture phase.                                                                                                |
+| Instrument                                       | Type and unit               | Attributes                       | Records                                                                                                                                                            |
+| ------------------------------------------------ | --------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `catalog.history.storage.operations`             | Counter, `{operation}`      | `operation`, `source`, `outcome` | Store methods: `record_cycle`, `load_current_etags`, and `load_all_current_etags`.                                                                                 |
+| `catalog.history.storage.operation.duration`     | Histogram, `s`              | `operation`, `source`, `outcome` | The complete store method, including lazy schema setup, pool wait, mapping, and database work.                                                                     |
+| `catalog.history.storage.persistence.duration`   | Histogram, `s`              | `source`, `outcome`              | The transaction invocation through its awaited commit acknowledgement, including pool work, cycle insert, mapping, SQL, and commit.                                |
+| `catalog.history.capture.window.duration`        | Histogram, `s`              | `source`, `outcome`              | A valid nonnegative `finishedAt - startedAt` interval from the capture input.                                                                                      |
+| `catalog.history.capture.last_success.timestamp` | Observable gauge, `s`       | `source`                         | Application time after a persistence transaction succeeds, including empty heartbeat cycles.                                                                       |
+| `catalog.history.query.operations`               | Counter, `{operation}`      | `operation`, `outcome`           | Database query phases for `timeline`, `feed`, `versions`, `detail`, provider discovery (`providers`), entity discovery (`entities`), and Kind discovery (`kinds`). |
+| `catalog.history.query.operation.duration`       | Histogram, `s`              | `operation`, `outcome`           | The query-phase wrapper, including pool, transaction control, and cleanup.                                                                                         |
+| `catalog.history.schema.initializations`         | Counter, `{initialization}` | `component`, `outcome`           | Actual `ensureSchema` attempts and retries for `store` and `query`.                                                                                                |
+| `catalog.history.schema.initialization.duration` | Histogram, `s`              | `component`, `outcome`           | Duration of the same schema-initialization attempt.                                                                                                                |
+| `catalog.history.schema.initialized`             | Observable gauge, `1`       | `component`                      | `0` before an observed initialization or after a failed attempt; `1` after `ensureSchema` fulfills.                                                                |
+| `catalog.history.capture.operations`             | Counter, `{operation}`      | `source`, `operation`, `outcome` | One completed high-level provider mutation, processing observation, nonempty processing flush, or reconciliation run.                                              |
+| `catalog.history.capture.operation.duration`     | Histogram, `s`              | `source`, `operation`, `outcome` | Duration of that same high-level operation.                                                                                                                        |
+| `catalog.history.capture.phases`                 | Counter, `{phase}`          | `source`, `phase`, `outcome`     | One completed capture phase.                                                                                                                                       |
+| `catalog.history.capture.phase.duration`         | Histogram, `s`              | `source`, `phase`, `outcome`     | Duration of that same capture phase.                                                                                                                               |
 
 `source` is one of `provider`, `processing`, `reconciler`, `all`, or `unknown` where applicable. The high-level instruments use only `provider`, `processing`, and `reconciler`. Persistence converts `all` to `unknown` because it is not a capture source. Storage outcomes are `success` and `error`; query metrics also classify `NotFoundError` as `not_found` and PostgreSQL cancellation (`57014`) as `timeout`.
 
-Labels are finite and controlled. The plugin does not add raw provider IDs, entity references, SQL, payloads, or error strings to metric attributes. Provider details remain in the existing logs.
+Labels are finite and controlled. The plugin does not add raw provider IDs, prefixes, names, entity references, SQL, payloads, or error strings to metric attributes. Provider details remain in the existing logs.
 
 ### High-level capture labels
 
@@ -37,6 +37,10 @@ High-level `operation` values are fixed:
 - `processing_entity`
 - `processing_flush`
 - `reconcile`
+
+Query `operation` also has fixed values: `timeline`, `feed`, `versions`,
+`detail`, `providers`, `entities`, and `kinds`. Entity and Kind discovery use
+one paged SELECT each; they add no count query or per-entity fetch.
 
 High-level `phase` values are fixed:
 

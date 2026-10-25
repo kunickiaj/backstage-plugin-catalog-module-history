@@ -134,6 +134,40 @@ Missing optional `getProviders` support or a `404`/`501` discovery response swit
 
 Stored empty provider names are displayed but cannot be selected because the existing history API rejects an empty `provider` parameter. Nonempty whitespace names have escaped labels for readability and retain their original value when selected.
 
+## SDK: retained entity and Kind discovery
+
+Unreleased source adds optional `getEntities` and `getKinds` methods to
+`CatalogHistoryApi` and `CatalogHistoryClient`. With an injected API instance
+named `api`, they query retained history; they do not add a picker or change
+the existing History tab or catalog-history page.
+
+```ts
+const page = await api.getEntities?.({
+  prefix: 'pay',
+  kind: 'Component',
+  source: 'provider',
+  limit: 25,
+});
+
+// page?.items[0]
+// { entityRef: 'component:default/payment-api', kind: 'Component',
+//   namespace: 'default', name: 'payment-api' }
+
+const kinds = await api.getKinds?.({ prefix: 'com', limit: 25 });
+```
+
+Entity discovery accepts `prefix`, `kind`, `source`, `provider`, `op`,
+`changedAfter`, `changedBefore`, `limit`, and `cursor`. It returns only
+identity metadata from the latest matching retained row per canonical reference,
+including delete-only history. Kind discovery accepts only `prefix`, `limit`,
+and `cursor`, and returns one stored spelling per folded retained kind.
+
+Both methods are optional for custom API implementations. The client forwards
+HTTP failures by status without caching or compatibility fallback: `404` means
+the route is absent, `501` means the store lacks that method, and `401`/`403`
+remain authentication or authorization failures. Treat cursors as opaque and
+reset them when changing a bound prefix or entity-search filter.
+
 ## Access and unavailable history
 
 The backend requires an authenticated user. When the Backstage permission framework is enabled, the policy must explicitly allow `catalog-history.read`; otherwise the tab reports an access error.

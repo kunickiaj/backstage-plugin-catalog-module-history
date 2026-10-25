@@ -11,8 +11,10 @@ import {
   isHistoryOperation,
   isHistorySource,
   type HistoryChangeFeedRequest,
+  type HistoryEntitySearchRequest,
   type HistoryEntityTimelineRequest,
   type HistoryEntityVersionRequest,
+  type HistoryKindSearchRequest,
   type HistoryProviderSearchRequest,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 
@@ -36,6 +38,18 @@ const PROVIDER_QUERY_KEYS = [
   'limit',
   'cursor',
 ];
+const ENTITY_QUERY_KEYS = [
+  'prefix',
+  'kind',
+  'source',
+  'provider',
+  'op',
+  'changedAfter',
+  'changedBefore',
+  'limit',
+  'cursor',
+];
+const KIND_QUERY_KEYS = ['prefix', 'limit', 'cursor'];
 
 function timestamp(value: string | undefined): string | undefined {
   if (value === undefined) {
@@ -69,12 +83,24 @@ function pageLimit(value: string | undefined): number {
 
 function queryValues(
   req: Request,
-  endpoint: 'history' | 'versions' | 'version' | 'changes' | 'providers',
+  endpoint:
+    | 'history'
+    | 'versions'
+    | 'version'
+    | 'changes'
+    | 'providers'
+    | 'entities'
+    | 'kinds',
 ) {
   const allowed = new Set(endpoint === 'version' ? [] : COMMON_QUERY_KEYS);
   if (endpoint === 'providers') {
     allowed.clear();
     PROVIDER_QUERY_KEYS.forEach(key => allowed.add(key));
+  }
+  if (endpoint === 'entities' || endpoint === 'kinds') {
+    allowed.clear();
+    const keys = endpoint === 'entities' ? ENTITY_QUERY_KEYS : KIND_QUERY_KEYS;
+    keys.forEach(key => allowed.add(key));
   }
   if (endpoint === 'history' || endpoint === 'changes') {
     allowed.add('op');
@@ -91,7 +117,11 @@ function queryValues(
     queryStart === -1 ? '' : req.originalUrl.slice(queryStart + 1),
   );
   for (const [key, value] of query) {
-    const emptyPrefix = endpoint === 'providers' && key === 'prefix';
+    const emptyPrefix =
+      (endpoint === 'providers' ||
+        endpoint === 'entities' ||
+        endpoint === 'kinds') &&
+      key === 'prefix';
     if (
       !allowed.has(key) ||
       Object.hasOwn(values, key) ||
@@ -206,6 +236,31 @@ export function parseHistoryProviderSearchRequest(
     changedBefore,
     limit,
     cursor,
+  };
+}
+
+export function parseHistoryEntitySearchRequest(
+  req: Request,
+): HistoryEntitySearchRequest {
+  const values = queryValues(req, 'entities');
+  if (values.kind !== undefined && !validators.isValidKind(values.kind)) {
+    throw new InputError('Invalid history entity kind');
+  }
+  return {
+    ...changeFilters(values),
+    prefix: values.prefix,
+    kind: values.kind,
+  };
+}
+
+export function parseHistoryKindSearchRequest(
+  req: Request,
+): HistoryKindSearchRequest {
+  const values = queryValues(req, 'kinds');
+  return {
+    prefix: values.prefix,
+    limit: pageLimit(values.limit),
+    cursor: values.cursor,
   };
 }
 

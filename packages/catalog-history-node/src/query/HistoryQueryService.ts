@@ -21,6 +21,10 @@ import type {
   HistoryStatsResponse,
   HistoryProviderSearchRequest,
   HistoryProviderSearchResponse,
+  HistoryEntitySearchRequest,
+  HistoryEntitySearchResponse,
+  HistoryKindSearchRequest,
+  HistoryKindSearchResponse,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 
 /**
@@ -69,6 +73,16 @@ export interface HistoryQueryService {
   getProviders?(
     request: HistoryProviderSearchRequest,
   ): Promise<HistoryProviderSearchResponse>;
+
+  /** Optional retained-identity discovery; history entity-ref filters remain exact. */
+  getEntities?(
+    request: HistoryEntitySearchRequest,
+  ): Promise<HistoryEntitySearchResponse>;
+
+  /** Optional paginated discovery of retained kinds, independent of active filters. */
+  getKinds?(
+    request: HistoryKindSearchRequest,
+  ): Promise<HistoryKindSearchResponse>;
 
   getFacets(request: HistoryFacetsRequest): Promise<HistoryFacetsResponse>;
 

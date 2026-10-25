@@ -30,7 +30,12 @@ export interface HistoryStore {
     HistoryQueryService,
     'getEntityTimeline' | 'getEntityVersions' | 'getEntityVersion'
   > &
-    Partial<Pick<HistoryQueryService, 'getChangeFeed' | 'getProviders'>>;
+    Partial<
+      Pick<
+        HistoryQueryService,
+        'getChangeFeed' | 'getProviders' | 'getEntities' | 'getKinds'
+      >
+    >;
 
   /**
    * Prepares the backing store for reads and writes.

@@ -196,8 +196,12 @@ Replace `createMyHistoryStore()` with your implementation returning a
 `HistoryStore`; it is not a function supplied by this package.
 
 The custom store must provide the read/query capability, including
-`getEntityVersion`, before enabling the HTTP API. There is no separate history
-backend plugin to register.
+`getEntityVersion`, before enabling the HTTP API. In unreleased source,
+`getEntities` and `getKinds` are optional query methods: existing custom stores
+continue to start and serve their existing routes. The authenticated discovery
+routes return `501` after authorization when a custom query omits either
+method; an older backend without the route returns `404`. There is no separate
+history backend plugin to register.
 
 ## 7. Plan the database upgrade
 
@@ -215,6 +219,17 @@ The global-feed index builds during schema bootstrap and blocks writes to
 `catalog_history_entities` while PostgreSQL builds it. Schedule a maintenance
 window for large retained histories. Do not downgrade a database using the new
 dedicated migration log to `0.1.0`.
+
+Unreleased source adds migration
+`20261025000000_entity_discovery_name_index.js`. It creates
+`catalog_history_entities_name_prefix_idx` on the first 128 folded name
+characters with `C` collation and `text_pattern_ops`, then runs `ANALYZE`.
+The regular transactional build also blocks history entity writes until commit;
+reads continue. `catalog.history.api.queryTimeoutMs` applies to read SQL only,
+not schema bootstrap, index build, or `ANALYZE`. Back up first, validate the
+upgrade with representative retained history in staging, and schedule an
+operator-controlled maintenance window. The migration has no concurrent-build
+or automatic precreation path.
 
 Read the [storage migration notes](../packages/catalog-history-backend/README.md#migration-bookkeeping-in-020)
 and [global index notes](../packages/catalog-history-backend/README.md#global-history-feed-index-in-020)

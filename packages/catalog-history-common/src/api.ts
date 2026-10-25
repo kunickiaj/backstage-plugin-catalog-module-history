@@ -361,6 +361,61 @@ export interface HistoryProviderSearchRequest
 export type HistoryProviderSearchResponse = HistoryPage<string>;
 
 /**
+ * Discover distinct identities represented by retained entity-history rows,
+ * including delete tombstones. Filters select matching observations before
+ * choosing the latest matching row for each canonical entity reference.
+ *
+ * @public
+ */
+export interface HistoryEntitySearchRequest
+  extends
+    HistoryPageOptions,
+    Pick<
+      HistoryChangeFilter,
+      'kind' | 'source' | 'provider' | 'op' | 'changedAfter' | 'changedBefore'
+    > {
+  /**
+   * Case-insensitive literal name prefix using PostgreSQL LOWER. Omitted or
+   * empty lists the first identities in scope. Whitespace is preserved;
+   * percent, underscore and backslash have no wildcard meaning.
+   */
+  prefix?: string;
+  /** The already selected entity must not restrict discovery of alternatives. */
+  entityRef?: never;
+  /** Owner filtering is not part of identity discovery. */
+  owner?: never;
+}
+
+/**
+ * Identities ordered by PostgreSQL-folded name, then canonical reference, using
+ * C collation. Fields come from one latest matching observation, not the live
+ * catalog. Cursors bind prefix and context; pagination is live, not a snapshot.
+ *
+ * @public
+ */
+export type HistoryEntitySearchResponse = HistoryPage<HistoryEntityIdentity>;
+
+/**
+ * Discover all retained kinds independently of the selected history filters.
+ *
+ * @public
+ */
+export interface HistoryKindSearchRequest extends HistoryPageOptions {
+  /** Case-insensitive literal kind prefix; omitted or empty lists first kinds. */
+  prefix?: string;
+}
+
+/**
+ * One stored spelling per PostgreSQL-folded kind, choosing the smallest stored
+ * spelling under C collation. Pages sort by the folded kind under C collation
+ * and include kinds represented only by delete tombstones. No live status or
+ * event counts are implied. Cursors bind the prefix; pagination is live.
+ *
+ * @public
+ */
+export type HistoryKindSearchResponse = HistoryPage<string>;
+
+/**
  * Distinct persisted version of one entity.
  *
  * @public

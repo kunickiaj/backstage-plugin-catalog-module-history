@@ -9,6 +9,8 @@ import type {
   HistoryChangeFeedRequest,
   HistoryChangeFeedResponse,
   HistoryCycleChange,
+  HistoryEntitySearchRequest,
+  HistoryEntitySearchResponse,
   HistoryEntitySnapshot,
   HistoryEntityTimelineRequest,
   HistoryEntityTimelineResponse,
@@ -20,12 +22,22 @@ import type {
   HistoryEntityVersionsRequest,
   HistoryEntityVersionsResponse,
   HistoryJsonObject,
+  HistoryKindSearchRequest,
+  HistoryKindSearchResponse,
   HistoryOperation,
   HistoryProviderSearchRequest,
   HistoryProviderSearchResponse,
   HistorySource,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import { ensureSchema } from './ensureSchema';
+import {
+  decodeEntitySearchCursor,
+  decodeKindSearchCursor,
+  encodeEntitySearchCursor,
+  encodeKindSearchCursor,
+  entitySearchScope,
+  kindSearchScope,
+} from './entityDiscoveryCursor';
 import { diffSnapshots, summarizeSnapshotFields } from './diffSnapshots';
 import {
   decodeProviderSearchCursor,
@@ -71,6 +83,39 @@ type HistoryEntityRow = HistoryChangeRow & {
   status_items: unknown;
   orphan: boolean | null;
 };
+
+type EntityDiscoveryRow = Pick<
+  HistoryChangeRow,
+  'entity_ref' | 'kind' | 'namespace' | 'name'
+> & { folded_name: string };
+
+type KindDiscoveryRow = { kind: string; folded_name: string };
+
+function escapeLikeSql(value: string): string {
+  return `replace(replace(replace(${value}, chr(92), chr(92)||chr(92)), '%', chr(92)||'%'), '_', chr(92)||'_')`;
+}
+
+function applyDiscoveryPrefix<TRecord extends {}, TResult>(
+  query: Knex.QueryBuilder<TRecord, TResult>,
+  field: 'name' | 'kind',
+  prefix: string | undefined,
+): void {
+  if (prefix === undefined || prefix === '') return;
+  // Fold in the database locale, then escape literals. Truncate the raw folded
+  // prefix before escaping so the index predicate never splits an escape pair.
+  query.whereRaw(
+    `lower(??) COLLATE "C" LIKE ${escapeLikeSql('lower(?::text)')} || '%' ESCAPE chr(92)`,
+    [field, prefix],
+  );
+  if (field === 'name') {
+    // This index predicate narrows candidates; the full-name recheck above is
+    // required for prefixes longer than 128 characters and shared prefixes.
+    query.whereRaw(
+      `left(lower(name), 128) COLLATE "C" LIKE ${escapeLikeSql('left(lower(?::text), 128)')} || '%' ESCAPE chr(92)`,
+      [prefix],
+    );
+  }
+}
 
 type SummaryRow = Partial<
   Pick<
@@ -454,6 +499,108 @@ export class PostgresHistoryQueryService {
       nextCursor:
         rows.length > limit
           ? encodeProviderSearchCursor(rows[limit - 1].provider, scope)
+          : undefined,
+    };
+  }
+
+  async getEntities(
+    request: HistoryEntitySearchRequest,
+  ): Promise<HistoryEntitySearchResponse> {
+    await this.ensureReady();
+    const limit = normalizeLimit(request.limit);
+    const scope = entitySearchScope(request);
+    this.validateReadRequest({
+      changedAfter: request.changedAfter,
+      changedBefore: request.changedBefore,
+    });
+    const anchor = decodeEntitySearchCursor(request.cursor, scope);
+    const rows = await this.read('entities', db => {
+      // Project only supported scope: a selected entity or extra owner property
+      // must never narrow the available names.
+      const matching = this.applyChangeFilters(
+        db<HistoryEntityRow>('catalog_history_entities'),
+        {
+          source: request.source,
+          provider: request.provider,
+          op: request.op,
+          changedAfter: request.changedAfter,
+          changedBefore: request.changedBefore,
+        },
+      );
+      if (request.kind !== undefined) {
+        matching.whereRaw('LOWER(kind) = LOWER(?)', [request.kind]);
+      }
+      applyDiscoveryPrefix(matching, 'name', request.prefix);
+      // Keep all identity fields from one latest matching observation, including
+      // delete-only identities. Native timestamp/ID order retains PG precision.
+      const choices = matching
+        .select(db.raw('DISTINCT ON (entity_ref COLLATE "C") entity_ref'))
+        .select('kind', 'namespace', 'name')
+        .select(db.raw('lower(name) AS folded_name'))
+        .orderByRaw('entity_ref COLLATE "C", changed_at DESC, id DESC');
+      const page = db<EntityDiscoveryRow>(choices.as('choices'));
+      if (anchor !== undefined) {
+        page.whereRaw(
+          '(folded_name COLLATE "C", entity_ref COLLATE "C") > (?::text COLLATE "C", ?::text COLLATE "C")',
+          [anchor.foldedName, anchor.entityRef],
+        );
+      }
+      return page
+        .select('entity_ref', 'kind', 'namespace', 'name', 'folded_name')
+        .orderByRaw('folded_name COLLATE "C", entity_ref COLLATE "C"')
+        .limit(limit + 1);
+    });
+    return {
+      items: rows.slice(0, limit).map(row => ({
+        entityRef: row.entity_ref,
+        kind: row.kind,
+        namespace: row.namespace,
+        name: row.name,
+      })),
+      nextCursor:
+        rows.length > limit
+          ? encodeEntitySearchCursor(
+              {
+                foldedName: rows[limit - 1].folded_name,
+                entityRef: rows[limit - 1].entity_ref,
+              },
+              scope,
+            )
+          : undefined,
+    };
+  }
+
+  async getKinds(
+    request: HistoryKindSearchRequest,
+  ): Promise<HistoryKindSearchResponse> {
+    await this.ensureReady();
+    const limit = normalizeLimit(request.limit);
+    const scope = kindSearchScope(request);
+    const anchor = decodeKindSearchCursor(request.cursor, scope);
+    const rows = await this.read('kinds', db => {
+      // Kinds describe the entire retained entity history, independent of the
+      // current entity-search filters. Preserve one original stored spelling.
+      const choices = db<HistoryEntityRow>('catalog_history_entities')
+        .select(db.raw('MIN(kind COLLATE "C") AS kind'))
+        .select(db.raw('lower(kind) COLLATE "C" AS folded_name'))
+        .groupByRaw('lower(kind) COLLATE "C"');
+      applyDiscoveryPrefix(choices, 'kind', request.prefix);
+      const page = db<KindDiscoveryRow>(choices.as('choices'));
+      if (anchor !== undefined) {
+        page.whereRaw('folded_name COLLATE "C" > ?::text COLLATE "C"', [
+          anchor,
+        ]);
+      }
+      return page
+        .select('kind', 'folded_name')
+        .orderByRaw('folded_name COLLATE "C"')
+        .limit(limit + 1);
+    });
+    return {
+      items: rows.slice(0, limit).map(row => row.kind),
+      nextCursor:
+        rows.length > limit
+          ? encodeKindSearchCursor(rows[limit - 1].folded_name, scope)
           : undefined,
     };
   }

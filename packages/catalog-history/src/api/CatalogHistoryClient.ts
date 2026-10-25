@@ -7,10 +7,14 @@ import {
 import type {
   HistoryChangeFeedRequest,
   HistoryChangeFeedResponse,
+  HistoryEntitySearchRequest,
+  HistoryEntitySearchResponse,
   HistoryEntityTimelineRequest,
   HistoryEntityTimelineResponse,
   HistoryEntityVersionRequest,
   HistoryEntityVersionResponse,
+  HistoryKindSearchRequest,
+  HistoryKindSearchResponse,
   HistoryProviderSearchRequest,
   HistoryProviderSearchResponse,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
@@ -25,6 +29,48 @@ export interface CatalogHistoryClientOptions {
 /** Catalog history HTTP client. @public */
 export class CatalogHistoryClient implements CatalogHistoryApi {
   constructor(private readonly options: CatalogHistoryClientOptions) {}
+
+  async getEntities(
+    request: HistoryEntitySearchRequest,
+  ): Promise<HistoryEntitySearchResponse> {
+    const limit = request.limit ?? DEFAULT_HISTORY_PAGE_LIMIT;
+    if (!Number.isInteger(limit) || limit < 1) {
+      throw new Error('History page size must be a positive integer.');
+    }
+    const query = new URLSearchParams({
+      limit: String(Math.min(limit, MAX_HISTORY_PAGE_LIMIT)),
+    });
+    (
+      [
+        'source',
+        'provider',
+        'op',
+        'changedAfter',
+        'changedBefore',
+        'cursor',
+      ] as const
+    ).forEach(key => {
+      if (request[key] !== undefined) query.set(key, request[key]);
+    });
+    if (request.prefix) query.set('prefix', request.prefix);
+    if (request.kind !== undefined) query.set('kind', request.kind.trim());
+    return this.fetch(`/history/entities?${query}`);
+  }
+
+  async getKinds(
+    request: HistoryKindSearchRequest,
+  ): Promise<HistoryKindSearchResponse> {
+    const limit = request.limit ?? DEFAULT_HISTORY_PAGE_LIMIT;
+    if (!Number.isInteger(limit) || limit < 1) {
+      throw new Error('History page size must be a positive integer.');
+    }
+    const query = new URLSearchParams({
+      limit: String(Math.min(limit, MAX_HISTORY_PAGE_LIMIT)),
+    });
+    if (request.prefix) query.set('prefix', request.prefix);
+    if (request.cursor !== undefined) query.set('cursor', request.cursor);
+    return this.fetch(`/history/kinds?${query}`);
+  }
 
   async getProviders(
     request: HistoryProviderSearchRequest,
