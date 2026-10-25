@@ -14,6 +14,7 @@ import {
   type HistoryChangeFeedRequest,
   type HistoryCycleDetailRequest,
   type HistoryCycleListRequest,
+  type HistoryEntityAsOfRequest,
   type HistoryEntitySearchRequest,
   type HistoryEntityTimelineRequest,
   type HistoryEntityVersionRequest,
@@ -101,6 +102,7 @@ function queryValues(
   endpoint:
     | 'history'
     | 'versions'
+    | 'as-of'
     | 'version'
     | 'changes'
     | 'providers'
@@ -110,6 +112,10 @@ function queryValues(
     | 'cycle',
 ) {
   const allowed = new Set(endpoint === 'version' ? [] : COMMON_QUERY_KEYS);
+  if (endpoint === 'as-of') {
+    allowed.clear();
+    ['timestamp', 'source', 'provider'].forEach(key => allowed.add(key));
+  }
   if (endpoint === 'providers') {
     allowed.clear();
     PROVIDER_QUERY_KEYS.forEach(key => allowed.add(key));
@@ -177,6 +183,27 @@ function validatedEntityRef(ref: {
     throw new InputError('Invalid history entity reference');
   }
   return stringifyEntityRef({ kind, namespace, name });
+}
+
+export function parseHistoryEntityAsOfRequest(
+  req: Request,
+): HistoryEntityAsOfRequest {
+  const ref = entityRef(req);
+  const values = queryValues(req, 'as-of');
+  const cutoff = timestamp(values.timestamp);
+  if (cutoff === undefined) {
+    throw new InputError('History timestamp is required');
+  }
+  const { source } = values;
+  if (source !== undefined && !isHistorySource(source)) {
+    throw new InputError('Invalid history source');
+  }
+  return {
+    entityRef: ref,
+    timestamp: cutoff,
+    source,
+    provider: values.provider,
+  };
 }
 
 export function parseHistoryVersionRequest(

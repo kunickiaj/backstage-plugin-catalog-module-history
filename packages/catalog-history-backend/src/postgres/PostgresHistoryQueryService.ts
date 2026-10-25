@@ -3,6 +3,7 @@ import { InputError, NotFoundError } from '@backstage/errors';
 import { Knex } from 'knex';
 import {
   DEFAULT_HISTORY_PAGE_LIMIT,
+  HISTORY_SOURCES,
   MAX_HISTORY_PAGE_LIMIT,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import type {
@@ -15,6 +16,8 @@ import type {
   HistoryCycleDetailRequest,
   HistoryCycleDetailResponse,
   HistoryMutationType,
+  HistoryEntityAsOfRequest,
+  HistoryEntityAsOfResponse,
   HistoryEntitySearchRequest,
   HistoryEntitySearchResponse,
   HistoryEntitySnapshot,
@@ -791,6 +794,41 @@ export class PostgresHistoryQueryService {
     };
   }
 
+  async getEntityAsOf(
+    request: HistoryEntityAsOfRequest,
+  ): Promise<HistoryEntityAsOfResponse> {
+    await this.ensureReady();
+    const asOf = this.validateAsOfRequest(request);
+    const rows = await this.read('as_of', db => {
+      // Only declared predicates may narrow the latest physical observation.
+      const query = db<HistoryEntityRow>('catalog_history_entities')
+        .where('entity_ref', request.entityRef)
+        .where('changed_at', '<=', asOf);
+      if (request.source !== undefined) {
+        query.where('source', request.source);
+      }
+      if (request.provider !== undefined) {
+        query.where('provider', request.provider);
+      }
+      return query
+        .orderBy('changed_at', 'desc')
+        .orderBy('id', 'desc')
+        .limit(1)
+        .select<HistoryEntityRow[]>('*');
+    });
+    if (!rows.length) return { entityRef: request.entityRef, asOf };
+    const version = rowToVersion(rows[0]);
+    if (version.op === 'delete') {
+      return { entityRef: request.entityRef, asOf, version };
+    }
+    return {
+      entityRef: request.entityRef,
+      asOf,
+      version,
+      snapshot: version.snapshot,
+    };
+  }
+
   async getEntityVersions(
     request: HistoryEntityVersionsRequest,
   ): Promise<HistoryEntityVersionsResponse> {
@@ -882,6 +920,31 @@ export class PostgresHistoryQueryService {
     );
   }
 
+  private validateAsOfRequest(request: HistoryEntityAsOfRequest): string {
+    if (
+      typeof request.entityRef !== 'string' ||
+      request.entityRef.length === 0
+    ) {
+      throw new InputError('History entityRef must be a nonempty string');
+    }
+    if (
+      request.source !== undefined &&
+      !HISTORY_SOURCES.includes(request.source)
+    ) {
+      throw new InputError('Invalid history source');
+    }
+    if (
+      request.provider !== undefined &&
+      typeof request.provider !== 'string'
+    ) {
+      throw new InputError('History provider must be a string');
+    }
+    if (typeof request.timestamp !== 'string') {
+      throw new InputError('Invalid history timestamp');
+    }
+    return this.parseTimestamp(request.timestamp, 'timestamp');
+  }
+
   private validateReadRequest(
     request: Pick<
       HistoryEntityTimelineRequest,
@@ -952,11 +1015,12 @@ export class PostgresHistoryQueryService {
 
   private parseTimestamp(
     timestamp: string,
-    field: 'changedAfter' | 'changedBefore',
+    field: 'changedAfter' | 'changedBefore' | 'timestamp',
   ): string {
     const parsed = new Date(timestamp);
     if (!ISO_8601_INSTANT.test(timestamp) || Number.isNaN(parsed.getTime())) {
-      throw new InputError(`Invalid history ${field} timestamp`);
+      const label = field === 'timestamp' ? 'timestamp' : `${field} timestamp`;
+      throw new InputError(`Invalid history ${label}`);
     }
     return timestamp;
   }

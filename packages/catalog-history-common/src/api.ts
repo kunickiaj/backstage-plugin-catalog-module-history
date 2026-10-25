@@ -476,20 +476,26 @@ export interface HistoryEntityVersionsRequest
 export type HistoryEntityVersionsResponse = HistoryPage<HistoryEntityVersion>;
 
 /**
- * Entity as-of request options.
+ * Request the latest physical retained observation at or before a timestamp.
+ * Optional source and provider predicates match exactly. Without them, the
+ * latest matching observation can come from any capture layer; fields are
+ * never combined across observations or filled from the live catalog.
  *
  * @public
  */
 export interface HistoryEntityAsOfRequest {
   entityRef: string;
-  /** ISO 8601 timestamp. */
+  /** Inclusive ISO 8601 cutoff; database comparison preserves microseconds. */
   timestamp: string;
   source?: HistorySource;
   provider?: string;
 }
 
 /**
- * Entity state as of a timestamp.
+ * One saved observation at the requested cutoff, with its recorded provenance.
+ * A deletion returns its tombstone version without a snapshot. No eligible
+ * retained observation leaves version and snapshot absent; this is unknown
+ * from retained data, not evidence that the entity never existed.
  *
  * @public
  */

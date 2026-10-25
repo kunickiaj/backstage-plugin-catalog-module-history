@@ -28,6 +28,12 @@ The cycle endpoints additionally use the optional `listCycles` and `getCycle` qu
 
 `listCycles` returns recorded cycle headers and `getCycle` returns one header with a page of retained change metadata. Cycle counts are values recorded for the capture run, so they can exceed the retained rows returned by a detail page. The default Postgres implementation runs one query for a cycle list and two for a cycle detail: it loads the header first and does not query changes when the header is absent.
 
+## As-of read capability in the unreleased source
+
+`HistoryStore.query.getEntityAsOf` is optional for custom stores. It accepts an entity reference, a required timestamp, and optional exact source and provider filters; it returns the latest retained physical observation at or before that timestamp, or no observation. A custom store without it continues to serve existing routes; the catalog route returns `501` after normal authentication and `catalog-history.read` authorization.
+
+The default Postgres implementation uses one lookup with an inclusive timestamp cutoff, ordered by stored `changed_at` and bigint `id`, both descending. It applies the normal per-statement timeout and records the fixed query-metric operation `as_of`.
+
 ## Statement timeouts
 
 Current source adds a 10-second PostgreSQL `statement_timeout` for each history-read SQL statement made through the default store. The setting is available after the next release; it does not apply to capture writes, schema setup, pool acquisition, application-side mapping, transaction cleanup, or the whole HTTP request. A timed-out read follows the existing sanitized backend-error path, which currently returns `500`, not a new timeout status.

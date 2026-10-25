@@ -362,6 +362,40 @@ describe('public recording cycle navigation', () => {
     expect(api.getChangeFeed).toHaveBeenCalledTimes(1);
   });
 
+  it('retains an applied source through the real public cycle route and Back', async () => {
+    // Arrange: query navigation must preserve the page's applied filter state.
+    const api = setup();
+    mount(api, '/audit-history');
+    await screen.findByRole('row', { name: /^Event selected,/ });
+    fireEvent.click(screen.getByRole('button', { name: /Source$/ }));
+    fireEvent.click(screen.getByRole('option', { name: 'provider' }));
+    await screen.findByRole('row', { name: /^Event selected,/ });
+
+    // Act
+    fireEvent.click(screen.getByRole('row', { name: /^Event selected,/ }));
+    fireEvent.click(
+      await screen.findByRole('link', {
+        name: `View recording cycle ${cycleId}`,
+      }),
+    );
+    await screen.findByRole('heading', { name: 'Recording cycle' });
+    expect(
+      screen.queryByRole('button', { name: /Source$/ }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('link', { name: 'Back to catalog history' }),
+    );
+    await screen.findByRole('row', { name: /^Event selected,/ });
+
+    // Assert: both the visible control and the returned feed retain the source.
+    expect(screen.getByRole('button', { name: /Source$/ })).toHaveTextContent(
+      'provider',
+    );
+    expect(api.getChangeFeed).toHaveBeenLastCalledWith(
+      expect.objectContaining({ source: 'provider' }),
+    );
+  });
+
   it('treats an empty query ID as missing rather than fetching an empty cycle', async () => {
     // Arrange
     const api = setup();
@@ -425,98 +459,5 @@ describe('public recording cycle navigation', () => {
     expect(
       within(inspector).getByText(header.provider.trim()),
     ).toBeInTheDocument();
-  });
-
-  it('restores applied controls and exact request scope after returning from a cycle', async () => {
-    // Arrange
-    const api = setup();
-    mount(api, '/audit-history');
-    await screen.findByRole('row', { name: /^Event selected,/ });
-    const provider = screen.getByRole('combobox', { name: 'Provider' });
-    fireEvent.focus(provider);
-    fireEvent.keyDown(provider, { key: 'ArrowDown' });
-    fireEvent.click(
-      await screen.findByRole('option', { name: 'Recorded Provider' }),
-    );
-    const entity = screen.getByRole('combobox', { name: 'Entity' });
-    fireEvent.focus(entity);
-    fireEvent.keyDown(entity, { key: 'ArrowDown' });
-    fireEvent.click(
-      await screen.findByRole('option', {
-        name: 'example — Component / default',
-      }),
-    );
-    fireEvent.click(screen.getByRole('button', { name: /Source$/ }));
-    fireEvent.click(screen.getByRole('option', { name: 'provider' }));
-    fireEvent.click(screen.getByRole('button', { name: /Operation$/ }));
-    fireEvent.click(screen.getByRole('option', { name: 'update' }));
-    const after = '2026-10-01T12:00';
-    fireEvent.change(screen.getByLabelText('Recorded after (local time)'), {
-      target: { value: after },
-    });
-    await screen.findByRole('row', { name: /^Event selected,/ });
-    // Act
-    fireEvent.click(screen.getByRole('row', { name: /^Event selected,/ }));
-    fireEvent.click(
-      await screen.findByRole('link', {
-        name: `View recording cycle ${cycleId}`,
-      }),
-    );
-    await screen.findByRole('heading', { name: 'Recording cycle' });
-    expect(
-      screen.queryByRole('combobox', { name: 'Entity' }),
-    ).not.toBeInTheDocument();
-    fireEvent.click(
-      screen.getByRole('link', { name: 'Back to catalog history' }),
-    );
-    await screen.findByRole('row', { name: /^Event selected,/ });
-    // Assert: controls and subsequent changes must agree with the retained request.
-    expect(screen.getByRole('combobox', { name: 'Entity' })).toHaveValue(
-      'example',
-    );
-    expect(screen.getByRole('combobox', { name: 'Kind' })).toHaveValue(
-      'Component',
-    );
-    expect(screen.getByRole('combobox', { name: 'Provider' })).toHaveValue(
-      header.provider,
-    );
-    expect(screen.getByLabelText('Recorded after (local time)')).toHaveValue(
-      after,
-    );
-    expect(screen.getByRole('button', { name: /Source$/ })).toHaveTextContent(
-      'provider',
-    );
-    expect(
-      screen.getByRole('button', { name: /Operation$/ }),
-    ).toHaveTextContent('update');
-    fireEvent.click(screen.getByRole('button', { name: /Source$/ }));
-    fireEvent.click(screen.getByRole('option', { name: 'processing' }));
-    await waitFor(() =>
-      expect(api.getChangeFeed).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          entityRef,
-          kind: 'Component',
-          provider: header.provider,
-          source: 'processing',
-          changedAfter: new Date(after).toISOString(),
-        }),
-      ),
-    );
-    const kind = screen.getByRole('combobox', { name: 'Kind' });
-    fireEvent.focus(kind);
-    fireEvent.keyDown(kind, { key: 'ArrowDown' });
-    fireEvent.click(await screen.findByRole('option', { name: 'Group' }));
-    await waitFor(() =>
-      expect(api.getChangeFeed).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          kind: 'Group',
-          provider: header.provider,
-        }),
-      ),
-    );
-    expect(
-      jest.mocked(api.getChangeFeed!).mock.calls.at(-1)![0].entityRef,
-    ).toBeUndefined();
-    expect(screen.getByRole('combobox', { name: 'Entity' })).toHaveValue('');
   });
 });

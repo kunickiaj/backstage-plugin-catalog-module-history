@@ -21,6 +21,7 @@ import {
   parseHistoryChangeFeedRequest,
   parseHistoryCycleDetailRequest,
   parseHistoryCycleListRequest,
+  parseHistoryEntityAsOfRequest,
   parseHistoryEntitySearchRequest,
   parseHistoryKindSearchRequest,
   parseHistoryProviderSearchRequest,
@@ -156,6 +157,21 @@ export function createHistoryRouter(options: HistoryRouterOptions): Router {
     const result = await retrieve(() => getChangeFeed(request), options);
     res.json(result);
   });
+  router.get(
+    '/history/entities/:kind/:namespace/:name/as-of',
+    async (req, res) => {
+      await authorize(req, options);
+      const getEntityAsOf = options.query.getEntityAsOf?.bind(options.query);
+      if (!getEntityAsOf) {
+        throw new NotImplementedError(
+          'This history store does not support reading entity history as of a timestamp.',
+        );
+      }
+      const request = parseHistoryEntityAsOfRequest(req);
+      const result = await retrieve(() => getEntityAsOf(request), options);
+      res.json(result);
+    },
+  );
   for (const endpoint of ['history', 'versions'] as const) {
     router.get(
       `/history/entities/:kind/:namespace/:name/${endpoint}`,
