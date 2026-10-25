@@ -1,6 +1,6 @@
 /** @jsxRuntime automatic */
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Button, Select, TextField } from '@backstage/ui';
+import { Alert, Button, Select } from '@backstage/ui';
 import {
   makeValidator,
   parseEntityRef,
@@ -12,9 +12,14 @@ import {
   isHistoryOperation,
   isHistorySource,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
-import type { HistoryChangeFeedRequest } from '@kunickiaj/backstage-plugin-catalog-history-common';
+import type {
+  HistoryChangeFeedRequest,
+  HistoryEntityIdentity,
+} from '@kunickiaj/backstage-plugin-catalog-history-common';
 import type { CatalogHistoryApi } from '../api/CatalogHistoryApi';
 import { HistoryProviderFilter } from './HistoryProviderFilter';
+import { HistoryEntityFilter } from './HistoryEntityFilter';
+import { HistoryKindFilter } from './HistoryKindFilter';
 import styles from './History.module.css';
 
 export type HistoryFiltersValue = Omit<
@@ -61,6 +66,7 @@ function entityFilters(
 function parseFilters(
   draft: typeof empty,
   exactProvider?: string,
+  exactEntity?: HistoryEntityIdentity,
 ): HistoryFiltersValue | undefined {
   const after = draft.after ? new Date(draft.after) : undefined;
   const before = draft.before ? new Date(draft.before) : undefined;
@@ -75,6 +81,7 @@ function parseFilters(
   }
   return {
     ...entityFilters(draft),
+    ...(exactEntity ? { entityRef: exactEntity.entityRef } : {}),
     source: isHistorySource(draft.source) ? draft.source : undefined,
     provider: exactProvider ?? (draft.provider.trim() || undefined),
     op: isHistoryOperation(draft.op) ? draft.op : undefined,
@@ -94,6 +101,9 @@ export function HistoryFilters(props: {
   const [error, setError] = useState('');
   const [resetToken, setResetToken] = useState(0);
   const exactProvider = useRef<string>();
+  const [selectedEntity, setSelectedEntity] = useState<HistoryEntityIdentity>();
+  const [kindRevision, setKindRevision] = useState(0);
+  const exactEntity = useRef<HistoryEntityIdentity>();
   const timer = useRef<ReturnType<typeof setTimeout>>();
   const onApply = useRef(props.onApply);
   const applied = useRef(JSON.stringify(parseFilters(empty)));
@@ -117,7 +127,11 @@ export function HistoryFilters(props: {
       );
       return;
     }
-    const filters = parseFilters(next, exactProvider.current);
+    const filters = parseFilters(
+      next,
+      exactProvider.current,
+      exactEntity.current,
+    );
     if (!filters) {
       setError(
         'Enter valid dates, with recorded after no later than recorded before.',
@@ -136,6 +150,21 @@ export function HistoryFilters(props: {
     if (debounce) timer.current = setTimeout(apply, 300);
     else apply();
   }
+  function changeKind(kind: string, debounce = false) {
+    const incompatible = Boolean(
+      kind.trim() &&
+      selectedEntity &&
+      kind.trim().toLowerCase() !== selectedEntity.kind.toLowerCase(),
+    );
+    if (incompatible) {
+      exactEntity.current = undefined;
+      setSelectedEntity(undefined);
+    }
+    update(
+      { ...draft, kind, entityRef: incompatible ? '' : draft.entityRef },
+      debounce,
+    );
+  }
   return (
     <form
       onSubmit={event => event.preventDefault()}
@@ -145,20 +174,44 @@ export function HistoryFilters(props: {
       <div className={styles.filterFields}>
         {props.scope === 'all' && (
           <>
-            <TextField
-              className={styles.field}
-              label="Entity reference"
-              description="Exact entity reference. Short names default to Component in the default namespace."
-              placeholder="component:default/example-service"
+            <HistoryEntityFilter
+              key={`entity-${resetToken}`}
+              api={props.api}
+              context={{
+                kind: props.appliedFilters?.kind,
+                source: props.appliedFilters?.source,
+                provider: props.appliedFilters?.provider,
+                op: props.appliedFilters?.op,
+                changedAfter: props.appliedFilters?.changedAfter,
+                changedBefore: props.appliedFilters?.changedBefore,
+              }}
+              selected={selectedEntity}
+              appliedEntityRef={props.appliedFilters?.entityRef}
               value={draft.entityRef}
-              onChange={entityRef => update({ ...draft, entityRef }, true)}
+              onLegacyChange={entityRef => {
+                exactEntity.current = undefined;
+                setSelectedEntity(undefined);
+                update({ ...draft, entityRef }, true);
+              }}
+              onSelect={entity => {
+                exactEntity.current = entity;
+                setSelectedEntity(entity);
+                if (entity) setKindRevision(value => value + 1);
+                update({
+                  ...draft,
+                  entityRef: entity?.entityRef ?? '',
+                  kind: entity?.kind ?? draft.kind,
+                });
+              }}
             />
-            <TextField
-              className={styles.field}
-              label="Kind"
-              placeholder="Component"
+            <HistoryKindFilter
+              key={`kind-${resetToken}`}
+              api={props.api}
               value={draft.kind}
-              onChange={kind => update({ ...draft, kind }, true)}
+              appliedKind={props.appliedFilters?.kind}
+              selectionRevision={kindRevision}
+              onLegacyChange={kind => changeKind(kind, true)}
+              onSelect={kind => changeKind(kind ?? '')}
             />
           </>
         )}
@@ -244,6 +297,8 @@ export function HistoryFilters(props: {
           onPress={() => {
             cancelPending();
             exactProvider.current = undefined;
+            exactEntity.current = undefined;
+            setSelectedEntity(undefined);
             setResetToken(value => value + 1);
             setDraft(empty);
             setError('');

@@ -82,6 +82,55 @@ function setup() {
 }
 
 describe('EntityCatalogHistoryContent', () => {
+  it('hides global entity and kind discovery even when both capabilities exist, retaining fixed provider scope', async () => {
+    // Arrange
+    const { api, mount } = setup();
+    api.getEntities = jest.fn().mockResolvedValue({ items: [] });
+    api.getKinds = jest.fn().mockResolvedValue({ items: [] });
+    api.getProviders = jest
+      .fn()
+      .mockResolvedValue({ items: ['fixed-provider'] });
+    mount();
+    await screen.findByText('No recorded events match these filters.');
+    // Act
+    const provider = screen.getByRole('combobox', { name: 'Provider' });
+    fireEvent.focus(provider);
+    fireEvent.keyDown(provider, { key: 'ArrowDown', code: 'ArrowDown' });
+    fireEvent.click(
+      await screen.findByRole('option', { name: 'fixed-provider' }),
+    );
+    // Assert
+    await waitFor(() =>
+      expect(api.getEntityTimeline).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          entityRef,
+          provider: 'fixed-provider',
+          cursor: undefined,
+        }),
+      ),
+    );
+    expect(api.getProviders).toHaveBeenCalledWith({
+      entityRef,
+      prefix: undefined,
+      limit: 25,
+    });
+    expect(
+      screen.queryByRole('combobox', { name: 'Entity' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('combobox', { name: 'Kind' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('textbox', { name: 'Entity reference' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('textbox', { name: 'Kind' }),
+    ).not.toBeInTheDocument();
+    expect(api.getEntities).not.toHaveBeenCalled();
+    expect(api.getKinds).not.toHaveBeenCalled();
+    expect(api.getEntityVersion).not.toHaveBeenCalled();
+  });
+
   it('discovers providers in applied entity scope and commits only a returned exact name before paging events', async () => {
     // Arrange: discovery must not depend on the providers in loaded rows.
     const { api, mount } = setup();

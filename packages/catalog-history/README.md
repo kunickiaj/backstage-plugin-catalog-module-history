@@ -134,12 +134,24 @@ Missing optional `getProviders` support or a `404`/`501` discovery response swit
 
 Stored empty provider names are displayed but cannot be selected because the existing history API rejects an empty `provider` parameter. Nonempty whitespace names have escaped labels for readability and retain their original value when selected.
 
+### Entity and Kind pickers in unreleased source
+
+The standalone page's **Entity** picker searches retained entity names by literal, case-insensitive prefix after 300 ms. Choose a returned identity to apply its exact reference without typing the reference yourself. Options show name, kind, and namespace so equal names remain distinguishable. Retained delete-only identities are included; the picker does not query the live catalog or infer current/deleted status.
+
+Selecting an Entity also sets its Kind in one filter update. Choosing an incompatible Kind clears Entity; **All kinds** removes only the kind predicate and keeps Entity. Clearing Entity leaves Kind selected. While editing either search, the previous selection stays applied. Enter or blur does not turn unfinished search text into a filter.
+
+Entity suggestions use only the applied kind, source, exact provider, operation, and valid time filters, never the selected reference or unfinished drafts. Only the first 25 suggestions are shown; a narrowing hint means more matches exist. **Kind** searches all retained kinds independently of those filters and uses **Load more kinds** to reach later pages. Loading kind suggestions does not page the event list.
+
+Each control handles compatibility independently. Missing `getEntities` or `getKinds`, or its `404`/`501` response, retains the corresponding legacy textbox. Entity-reference text keeps its exact-match and default-Component/default-namespace behavior; Kind text keeps its existing matching behavior. A discovery prefix is not automatically applied on fallback. `401`/`403` remain access errors, successful empty responses remain supported discovery, and other failures offer Retry. Reset clears selections and pending work; stale results cannot restore an old selection or append an obsolete kind page.
+
+The entity-scoped History tab does not show or call these global discovery controls. Existing provider selections preserve their original case and whitespace through Entity and Kind changes.
+
 ## SDK: retained entity and Kind discovery
 
 Unreleased source adds optional `getEntities` and `getKinds` methods to
-`CatalogHistoryApi` and `CatalogHistoryClient`. With an injected API instance
-named `api`, they query retained history; they do not add a picker or change
-the existing History tab or catalog-history page.
+`CatalogHistoryApi` and `CatalogHistoryClient`. The standalone page uses them
+for the pickers above. Custom consumers can also call them through an injected
+API instance named `api`:
 
 ```ts
 const page = await api.getEntities?.({
