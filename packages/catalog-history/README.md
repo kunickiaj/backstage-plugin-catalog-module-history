@@ -180,6 +180,22 @@ the route is absent, `501` means the store lacks that method, and `401`/`403`
 remain authentication or authorization failures. Treat cursors as opaque and
 reset them when changing a bound prefix or entity-search filter.
 
+### Cycle SDK methods in unreleased source
+
+```ts
+const cycles = await api.listCycles?.({ source: 'provider', limit: 25 });
+
+const cycle = await api.getCycle?.({
+  cycleId: '00000000-0000-4000-8000-000000000001',
+  limit: 25,
+});
+```
+
+`listCycles` and `getCycle` are also optional. They return recorded cycle
+metadata and a retained change page, respectively; the packaged UI does not add
+a cycle view. The client URI-encodes cycle IDs and filter values, uses the same
+authenticated fetch API, and has no fallback or cache.
+
 ## Access and unavailable history
 
 The backend requires an authenticated user. When the Backstage permission framework is enabled, the policy must explicitly allow `catalog-history.read`; otherwise the tab reports an access error.

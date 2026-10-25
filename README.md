@@ -188,9 +188,61 @@ Use a timeline item's `id` to inspect that event. Do not look it up by etag or u
 
 The entity list routes accept `source` (`provider`, `processing`, or `reconciler`), `provider`, `changedAfter`, `changedBefore`, `limit`, and `cursor`; the history route also accepts `op` (`insert`, `update`, or `delete`). The change-feed route accepts those filters plus `entityRef` and `kind`. `entityRef` is an exact canonical entity reference, not a partial search. `kind` is an exact, case-insensitive match and supports custom kinds. Timestamps must be ISO 8601 instants. `limit` is a positive integer, defaults to `25`, and is capped at `100`. Cursors are opaque and paginate live data, not a frozen result set. Pass `nextCursor` as `cursor` unchanged, and reset pagination after changing filters or refreshing results. Unknown, empty, or repeated query parameters, invalid values, and the unsupported `owner` filter return `400`.
 
-The detail route accepts no query parameters. Invalid, nonpositive, or out-of-range PostgreSQL bigint IDs return `400`; an absent row or an ID for another entity returns `404`. The API returns retained history for deleted entities and does not filter rows by current catalog visibility. An approved `catalog-history.read` permission grants access to all retained history, not only entities visible in the current catalog. An empty list is `200` with `items: []`. Errors are `401` for missing authentication, `403` for a rejected permission decision, and `500` for a sanitized backend failure. Cycle, stats, facets, as-of, and arbitrary diff routes are not available yet.
+The detail route accepts no query parameters. Invalid, nonpositive, or out-of-range PostgreSQL bigint IDs return `400`; an absent row or an ID for another entity returns `404`. The API returns retained history for deleted entities and does not filter rows by current catalog visibility. An approved `catalog-history.read` permission grants access to all retained history, not only entities visible in the current catalog. An empty list is `200` with `items: []`. Errors are `401` for missing authentication, `403` for a rejected permission decision, and `500` for a sanitized backend failure. Stats, facets, as-of, and arbitrary diff routes are not available yet.
 
 Unreleased source populates saved-field summaries on the default Postgres entity timeline and selected-event detail. Owner, relations, status, and orphan flags compare the immediately preceding saved event from the same entity, source, and provider, even when that event falls outside the current page or filters. A flag is omitted if either recorded value or the comparison is unavailable; known unchanged values produce `false`. Inserts, deletes, and updates without a comparable predecessor have empty summaries. Arrays are compared as whole, order-sensitive values, not graph semantics. The global feed, version lists, and nested predecessor summaries still return `{}`. The default Postgres query implementation in published `0.2.0` returns empty summaries.
+
+### Read recording cycles in the unreleased source
+
+`GET /api/catalog/history/cycles` lists recorded capture cycles. It accepts exact `source`, `provider`, `op`, and `mutationType` filters; inclusive `startedAfter`, `startedBefore`, `finishedAfter`, and `finishedBefore` instants; `limit`; and `cursor`. `op` selects cycles with a retained changed-entity row of that operation. Cycles without an `op` filter include heartbeat cycles.
+
+```sh
+curl -H 'Authorization: Bearer <TOKEN>' \
+  'https://backstage.example.com/api/catalog/history/cycles?source=provider&limit=25'
+
+curl -H 'Authorization: Bearer <TOKEN>' \
+  'https://backstage.example.com/api/catalog/history/cycles/00000000-0000-4000-8000-000000000001?limit=1'
+```
+
+`GET /api/catalog/history/cycles/:cycleId` returns the cycle header and its retained changed-entity rows. Its only query parameters are `limit` and `cursor`. Cycle IDs use hyphenated UUID form; uppercase input is normalized to lowercase, and nil and other UUID versions are accepted. Limits default to `25` and cap at `100`. Unknown, empty, or repeated query parameters and invalid values return `400`.
+
+The list sorts by stored start time and then UUID, newest first. Changed rows sort by stored change time and then bigint row ID, newest first. Cursors preserve PostgreSQL microseconds even though response timestamps use JavaScript Date precision. Forward the opaque cursor from the list or `changes` page without reconstructing it. List and change-page cursors are not interchangeable: they bind their filters or cycle ID, but allow a different page limit. Pages read live retained data rather than a fixed snapshot.
+
+```json
+{
+  "cycle": {
+    "cycleId": "00000000-0000-4000-8000-000000000001",
+    "provider": "example-provider",
+    "source": "provider",
+    "mutationType": "delta",
+    "startedAt": "2026-10-24T12:00:00.123Z",
+    "finishedAt": "2026-10-24T12:00:01.123Z",
+    "counts": { "inserted": 1, "updated": 2, "deleted": 0, "unchanged": 4 }
+  },
+  "changes": {
+    "items": [
+      {
+        "id": "42",
+        "entityRef": "component:default/example-service",
+        "kind": "Component",
+        "namespace": "default",
+        "name": "example-service",
+        "source": "provider",
+        "provider": "example-provider",
+        "op": "update",
+        "cycleId": "00000000-0000-4000-8000-000000000001",
+        "changedAt": "2026-10-24T12:00:01.123Z",
+        "summary": {}
+      }
+    ],
+    "nextCursor": "..."
+  }
+}
+```
+
+`counts` are totals recorded when the cycle ran: `inserted`, `updated`, `deleted`, and `unchanged`. They are not a count of the current catalog, the current page, or the retained rows. If older entity rows are removed, the recorded counts stay unchanged. An existing cycle with no retained changes returns `200` with `changes.items: []`; this does not mean the cycle recorded no activity. An unknown cycle returns `404`. Cycle change rows are metadata only; use the exact entity-version route to retrieve a snapshot or an event's full details.
+
+Cycle routes require the same user authentication and `catalog-history.read` authorization as the other history routes. An older backend has no route (`404`); a custom store without the relevant query capability returns `501` after authentication and authorization. `401` and `403` indicate access failures, not unsupported cycle reads.
 
 ### Provider discovery in unreleased source
 

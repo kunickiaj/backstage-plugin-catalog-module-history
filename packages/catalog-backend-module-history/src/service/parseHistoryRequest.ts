@@ -8,9 +8,12 @@ import type { Request } from 'express';
 import {
   DEFAULT_HISTORY_PAGE_LIMIT,
   MAX_HISTORY_PAGE_LIMIT,
+  isHistoryMutationType,
   isHistoryOperation,
   isHistorySource,
   type HistoryChangeFeedRequest,
+  type HistoryCycleDetailRequest,
+  type HistoryCycleListRequest,
   type HistoryEntitySearchRequest,
   type HistoryEntityTimelineRequest,
   type HistoryEntityVersionRequest,
@@ -50,6 +53,18 @@ const ENTITY_QUERY_KEYS = [
   'cursor',
 ];
 const KIND_QUERY_KEYS = ['prefix', 'limit', 'cursor'];
+const CYCLE_QUERY_KEYS = [
+  'source',
+  'provider',
+  'op',
+  'mutationType',
+  'startedAfter',
+  'startedBefore',
+  'finishedAfter',
+  'finishedBefore',
+  'limit',
+  'cursor',
+];
 
 function timestamp(value: string | undefined): string | undefined {
   if (value === undefined) {
@@ -90,7 +105,9 @@ function queryValues(
     | 'changes'
     | 'providers'
     | 'entities'
-    | 'kinds',
+    | 'kinds'
+    | 'cycles'
+    | 'cycle',
 ) {
   const allowed = new Set(endpoint === 'version' ? [] : COMMON_QUERY_KEYS);
   if (endpoint === 'providers') {
@@ -100,6 +117,11 @@ function queryValues(
   if (endpoint === 'entities' || endpoint === 'kinds') {
     allowed.clear();
     const keys = endpoint === 'entities' ? ENTITY_QUERY_KEYS : KIND_QUERY_KEYS;
+    keys.forEach(key => allowed.add(key));
+  }
+  if (endpoint === 'cycles' || endpoint === 'cycle') {
+    allowed.clear();
+    const keys = endpoint === 'cycles' ? CYCLE_QUERY_KEYS : ['limit', 'cursor'];
     keys.forEach(key => allowed.add(key));
   }
   if (endpoint === 'history' || endpoint === 'changes') {
@@ -262,6 +284,83 @@ export function parseHistoryKindSearchRequest(
     limit: pageLimit(values.limit),
     cursor: values.cursor,
   };
+}
+
+export function parseHistoryCycleListRequest(
+  req: Request,
+): HistoryCycleListRequest {
+  const values = queryValues(req, 'cycles');
+  const { source, op, mutationType } = values;
+  if (source !== undefined && !isHistorySource(source)) {
+    throw new InputError('Invalid history source');
+  }
+  if (op !== undefined && !isHistoryOperation(op)) {
+    throw new InputError('Invalid history operation');
+  }
+  if (mutationType !== undefined && !isHistoryMutationType(mutationType)) {
+    throw new InputError('Invalid history mutation type');
+  }
+  const [startedAfter, startedBefore] = timestampRange(values, 'started');
+  const [finishedAfter, finishedBefore] = timestampRange(values, 'finished');
+  return {
+    source,
+    provider: values.provider,
+    op,
+    mutationType,
+    startedAfter,
+    startedBefore,
+    finishedAfter,
+    finishedBefore,
+    limit: pageLimit(values.limit),
+    cursor: values.cursor,
+  };
+}
+
+export function parseHistoryCycleDetailRequest(
+  req: Request,
+): HistoryCycleDetailRequest {
+  const values = queryValues(req, 'cycle');
+  const { cycleId } = req.params;
+  if (
+    typeof cycleId !== 'string' ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      cycleId,
+    )
+  ) {
+    throw new InputError('Invalid history cycle id');
+  }
+  return {
+    cycleId: cycleId.toLowerCase(),
+    limit: pageLimit(values.limit),
+    cursor: values.cursor,
+  };
+}
+
+function timestampRange(
+  values: Record<string, string>,
+  prefix: 'started' | 'finished',
+): [string | undefined, string | undefined] {
+  const after = timestamp(values[`${prefix}After`]);
+  const before = timestamp(values[`${prefix}Before`]);
+  if (after && before && timestampIsLater(after, before)) {
+    throw new InputError(
+      `${prefix}After must not be later than ${prefix}Before`,
+    );
+  }
+  return [after, before];
+}
+
+function timestampIsLater(after: string, before: string): boolean {
+  const difference = Date.parse(after) - Date.parse(before);
+  if (difference !== 0) return difference > 0;
+  // Date.parse discards sub-millisecond precision; compare the remaining
+  // fraction when both instants land in the same millisecond.
+  const afterFraction = /\.(\d+)/.exec(after)?.[1] ?? '';
+  const beforeFraction = /\.(\d+)/.exec(before)?.[1] ?? '';
+  const precision = Math.max(afterFraction.length, beforeFraction.length);
+  return (
+    afterFraction.padEnd(precision, '0') > beforeFraction.padEnd(precision, '0')
+  );
 }
 
 function changeFilters(values: Record<string, string>) {

@@ -22,6 +22,12 @@ The `@kunickiaj/backstage-plugin-catalog-backend-module-history` default export 
 
 For compatibility, the default factory still honors the deprecated `catalog.history.database` override. Prefer a custom service factory for new dedicated-storage setups.
 
+## Cycle-read capability in the unreleased source
+
+The cycle endpoints additionally use the optional `listCycles` and `getCycle` query methods. A custom store that supports older history routes but omits either method continues to serve those routes; the corresponding cycle route returns `501` after the normal user authentication and `catalog-history.read` authorization. It does not change `401` or `403` handling.
+
+`listCycles` returns recorded cycle headers and `getCycle` returns one header with a page of retained change metadata. Cycle counts are values recorded for the capture run, so they can exceed the retained rows returned by a detail page. The default Postgres implementation runs one query for a cycle list and two for a cycle detail: it loads the header first and does not query changes when the header is absent.
+
 ## Statement timeouts
 
 Current source adds a 10-second PostgreSQL `statement_timeout` for each history-read SQL statement made through the default store. The setting is available after the next release; it does not apply to capture writes, schema setup, pool acquisition, application-side mapping, transaction cleanup, or the whole HTTP request. A timed-out read follows the existing sanitized backend-error path, which currently returns `500`, not a new timeout status.
@@ -33,7 +39,7 @@ catalog:
       queryTimeoutMs: 10000
 ```
 
-A disconnected HTTP client does not immediately cancel its SQL; the statement can continue until its database deadline. Exact event detail runs two SELECTs, each with its own limit rather than one shared request budget.
+A disconnected HTTP client does not immediately cancel its SQL; the statement can continue until its database deadline. Exact event detail and cycle detail each run two SELECTs, each with its own limit rather than one shared request budget.
 
 `queryTimeoutMs` must be an integer from `0` through `2147483647`. Set it to `0` to disable the plugin limit; an existing database `statement_timeout` still applies, and a lower positive database limit wins over the configured value.
 

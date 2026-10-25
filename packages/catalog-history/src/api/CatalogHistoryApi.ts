@@ -2,6 +2,10 @@ import { createApiRef } from '@backstage/core-plugin-api';
 import type {
   HistoryChangeFeedRequest,
   HistoryChangeFeedResponse,
+  HistoryCycleListRequest,
+  HistoryCycleListResponse,
+  HistoryCycleDetailRequest,
+  HistoryCycleDetailResponse,
   HistoryEntityTimelineRequest,
   HistoryEntityTimelineResponse,
   HistoryEntityVersionRequest,
@@ -16,6 +20,14 @@ import type {
 
 /** Read recorded events and their exact snapshots. @public */
 export interface CatalogHistoryApi {
+  /** Optional reads of recorded cycles, including cycles without entity changes. */
+  listCycles?(
+    request: HistoryCycleListRequest,
+  ): Promise<HistoryCycleListResponse>;
+  /** Optional cycle metadata and paginated retained changes; not live state. */
+  getCycle?(
+    request: HistoryCycleDetailRequest,
+  ): Promise<HistoryCycleDetailResponse>;
   /** Optional retained-provider discovery; absent APIs keep exact-name input. */
   getProviders?(
     request: HistoryProviderSearchRequest,

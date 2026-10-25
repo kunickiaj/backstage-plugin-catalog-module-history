@@ -7,6 +7,10 @@ import {
 import type {
   HistoryChangeFeedRequest,
   HistoryChangeFeedResponse,
+  HistoryCycleDetailRequest,
+  HistoryCycleDetailResponse,
+  HistoryCycleListRequest,
+  HistoryCycleListResponse,
   HistoryEntitySearchRequest,
   HistoryEntitySearchResponse,
   HistoryEntityTimelineRequest,
@@ -29,6 +33,36 @@ export interface CatalogHistoryClientOptions {
 /** Catalog history HTTP client. @public */
 export class CatalogHistoryClient implements CatalogHistoryApi {
   constructor(private readonly options: CatalogHistoryClientOptions) {}
+
+  async listCycles(
+    request: HistoryCycleListRequest,
+  ): Promise<HistoryCycleListResponse> {
+    const query = this.cyclePageQuery(request);
+    (
+      [
+        'source',
+        'provider',
+        'op',
+        'mutationType',
+        'startedAfter',
+        'startedBefore',
+        'finishedAfter',
+        'finishedBefore',
+      ] as const
+    ).forEach(key => {
+      if (request[key] !== undefined) query.set(key, request[key]);
+    });
+    return this.fetch(`/history/cycles?${query}`);
+  }
+
+  async getCycle(
+    request: HistoryCycleDetailRequest,
+  ): Promise<HistoryCycleDetailResponse> {
+    const query = this.cyclePageQuery(request);
+    return this.fetch(
+      `/history/cycles/${encodeURIComponent(request.cycleId)}?${query}`,
+    );
+  }
 
   async getEntities(
     request: HistoryEntitySearchRequest,
@@ -175,6 +209,21 @@ export class CatalogHistoryClient implements CatalogHistoryApi {
       request.entityRef,
       `/versions/${encodeURIComponent(request.id)}`,
     );
+  }
+
+  private cyclePageQuery(request: {
+    limit?: number;
+    cursor?: string;
+  }): URLSearchParams {
+    const limit = request.limit ?? DEFAULT_HISTORY_PAGE_LIMIT;
+    if (!Number.isInteger(limit) || limit < 1) {
+      throw new Error('History page size must be a positive integer.');
+    }
+    const query = new URLSearchParams({
+      limit: String(Math.min(limit, MAX_HISTORY_PAGE_LIMIT)),
+    });
+    if (request.cursor !== undefined) query.set('cursor', request.cursor);
+    return query;
   }
 
   private async get<T>(entityRef: string, suffix: string): Promise<T> {

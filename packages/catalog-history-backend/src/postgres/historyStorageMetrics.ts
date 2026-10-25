@@ -16,7 +16,9 @@ export type QueryOperation =
   | 'detail'
   | 'providers'
   | 'entities'
-  | 'kinds';
+  | 'kinds'
+  | 'cycles'
+  | 'cycle_detail';
 type StorageOperation =
   | 'record_cycle'
   | 'load_current_etags'
