@@ -146,6 +146,16 @@ Each control handles compatibility independently. Missing `getEntities` or `getK
 
 The entity-scoped History tab does not show or call these global discovery controls. Existing provider selections preserve their original case and whitespace through Entity and Kind changes.
 
+### Recording cycle navigation in unreleased source
+
+Choose an inspector's **Cycle ID** to open its **Recording cycle**, meaning one recorded capture run or batch. The view shows the saved provider, capture source, mutation type, start/finish times, and recorded totals. **Changed entities** lists retained event metadata across the cycle; choose a row by pointer or keyboard to inspect that row's exact entity reference and event ID. It fetches a snapshot only after selection.
+
+**Load more changes** follows the cycle's opaque change cursor. A failed later page keeps the header and loaded rows, and Retry repeats the failed page. Recorded totals do not become page totals. An empty change page says that no retained changed events are available; it does not imply that the capture run recorded no activity. Refresh restarts the page and clears inspector selection. Old results from a different cycle, API instance, or refresh are ignored.
+
+Links resolve through the plugin's public history route, so hosts can override the page mount. Direct `?cycleId=…` URLs work on that page. A missing ID shows an error without making a request. **Back to catalog history** removes only `cycleId`; the existing filter form stays mounted but hidden in cycle mode, preserving its values and exact selections. It does not load the global event feed while viewing a cycle. Browser Back also works.
+
+An API without optional `getCycle`, or an unresolved public history route, keeps the cycle ID as plain text. Missing event cycle context shows **Not recorded**. A `501` cycle response shows unsupported-cycle guidance; `404` shows an unavailable-cycle message without guessing whether the row or route is absent. Access failures remain sign-in or permission messages, and other failures offer Retry. The pre-deletion saved snapshot links to its own cycle, preserving that record's source and provider.
+
 ## SDK: retained entity and Kind discovery
 
 Unreleased source adds optional `getEntities` and `getKinds` methods to
@@ -192,8 +202,8 @@ const cycle = await api.getCycle?.({
 ```
 
 `listCycles` and `getCycle` are also optional. They return recorded cycle
-metadata and a retained change page, respectively; the packaged UI does not add
-a cycle view. The client URI-encodes cycle IDs and filter values, uses the same
+metadata and a retained change page, respectively. The client URI-encodes
+cycle IDs and filter values, uses the same
 authenticated fetch API, and has no fallback or cache.
 
 ## Access and unavailable history
@@ -219,7 +229,7 @@ This NFS- and BUI-only package exports:
 - `EntityCatalogHistoryContent` for composing the tab in an NFS extension;
 - `catalogHistoryApiRef` and `CatalogHistoryClient` for API integration or tests.
 
-It also exports the plugin's API and entity-content blueprints for NFS composition. The default plugin automatically registers the standalone page. There is no cycle, stats, facets, as-of, or arbitrary version-comparison view.
+It also exports the plugin's API and entity-content blueprints for NFS composition. The default plugin automatically registers the standalone page. There are no statistics, facets, as-of, or arbitrary version-comparison views.
 
 Current source also exposes optional `CatalogHistoryApi.getProviders(request)` and the corresponding `CatalogHistoryClient` method for [retained-provider discovery](../../README.md#provider-discovery-in-unreleased-source). Custom APIs can omit it. It returns server-matched names for suggestions; consumers still apply a selected full name through the existing exact `provider` filter. HTTP `404` and `501` identify unavailable discovery, while `401` and `403` are authentication/access errors. The HTTP client forwards failures without caching; the provider picker handles compatibility fallback.
 

@@ -3,7 +3,7 @@ import '@testing-library/jest-dom';
 import {
   act,
   fireEvent,
-  render,
+  render as renderComponent,
   screen,
   waitFor,
   within,
@@ -24,6 +24,11 @@ import {
 import { catalogHistoryPlugin } from '../plugin';
 import { parseEntityRef } from '@backstage/catalog-model';
 import { CatalogHistoryPage } from './CatalogHistoryPage';
+import { MemoryRouter, useNavigate } from 'react-router-dom';
+
+function render(ui: Parameters<typeof renderComponent>[0]) {
+  return renderComponent(ui, { wrapper: MemoryRouter });
+}
 
 const componentRef = 'component:default/example';
 const deletedRef = 'group:teams/retired-team';
@@ -73,6 +78,51 @@ function setup() {
 
 describe('CatalogHistoryPage', () => {
   afterEach(() => jest.useRealTimers());
+
+  it('returns through native router history without requesting a global feed while the cycle is active', async () => {
+    // Arrange
+    const { api } = setup();
+    api.getCycle = jest.fn().mockResolvedValue({
+      cycle: {
+        cycleId: 'direct-cycle',
+        source: 'processing',
+        provider: 'recorded-provider',
+        mutationType: 'delta',
+        startedAt: '2026-10-23T12:00:00.000Z',
+        finishedAt: '2026-10-23T12:00:01.000Z',
+        counts: { inserted: 0, updated: 0, deleted: 0, unchanged: 2 },
+      },
+      changes: { items: [] },
+    });
+    function BrowserBack() {
+      const navigate = useNavigate();
+      return <button onClick={() => navigate(-1)}>Browser Back</button>;
+    }
+    renderComponent(
+      <MemoryRouter
+        initialEntries={[
+          '/catalog-history?keep=1',
+          '/catalog-history?keep=1&cycleId=direct-cycle',
+        ]}
+      >
+        <TestApiProvider apis={[[catalogHistoryApiRef, api]]}>
+          <BrowserBack />
+          <CatalogHistoryPage />
+        </TestApiProvider>
+      </MemoryRouter>,
+    );
+    await screen.findByRole('region', { name: 'Recorded cycle metadata' });
+    expect(api.getChangeFeed).not.toHaveBeenCalled();
+    // Act
+    fireEvent.click(screen.getByRole('button', { name: 'Browser Back' }));
+    // Assert
+    await screen.findByText('No recorded events match these filters.');
+    expect(api.getChangeFeed).toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByRole('heading', { name: 'Recording cycle' }),
+    ).not.toBeInTheDocument();
+    expect(api.getEntityVersion).not.toHaveBeenCalled();
+  });
 
   it('queries literal entity prefixes in applied scope without applying drafts or reading snapshots', async () => {
     // Arrange: the discovered deletion is absent from the loaded event page.
