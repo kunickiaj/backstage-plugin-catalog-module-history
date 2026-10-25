@@ -97,7 +97,13 @@ export interface HistoryChangeFilter {
   entityRef?: string;
   /** Entity kind, e.g. `Component`. */
   kind?: string;
-  /** Owner entity ref, e.g. `group:default/platform`. */
+  /**
+   * Exact match on the recorded `spec.owner` string, as written in the entity
+   * (`platform` and `group:default/platform` are different values). Delete rows
+   * store no owner and never match. Supported only by direct Node
+   * `HistoryQueryService` entity timeline and version queries; the HTTP API,
+   * frontend client, and change feed reject it.
+   */
   owner?: string;
   source?: HistorySource;
   provider?: string;
