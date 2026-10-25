@@ -77,6 +77,11 @@ describe('ensureSchema', () => {
     db = await databases.init('POSTGRES_16');
   });
 
+  afterEach(async () => {
+    // Release each case's pool before parallel suites need these connections.
+    await db?.destroy();
+  });
+
   it('creates both history tables', async () => {
     await ensureSchema(db);
 

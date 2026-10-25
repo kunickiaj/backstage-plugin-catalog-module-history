@@ -192,6 +192,16 @@ The detail route accepts no query parameters. Invalid, nonpositive, or out-of-ra
 
 Unreleased source populates saved-field summaries on the default Postgres entity timeline and selected-event detail. Owner, relations, status, and orphan flags compare the immediately preceding saved event from the same entity, source, and provider, even when that event falls outside the current page or filters. A flag is omitted if either recorded value or the comparison is unavailable; known unchanged values produce `false`. Inserts, deletes, and updates without a comparable predecessor have empty summaries. Arrays are compared as whole, order-sensitive values, not graph semantics. The global feed, version lists, and nested predecessor summaries still return `{}`. The default Postgres query implementation in published `0.2.0` returns empty summaries.
 
+### Provider discovery in unreleased source
+
+`GET /api/catalog/history/providers` returns `{ items: string[], nextCursor? }` with distinct provider names from retained entity-history rows, including deletion records. It does not list current provider registrations or names represented only by empty recording cycles. This route uses the same user authentication and `catalog-history.read` permission as other history reads.
+
+Search with an optional `prefix`. Matching is case-insensitive using PostgreSQL `LOWER`, but the prefix is literal: `%`, `_`, and backslash are ordinary characters, not wildcards. Prefix whitespace is preserved; omitted or empty prefix lists the first names in scope. Names retain their stored spelling, case variants remain separate, and pages sort using PostgreSQL `C` collation. This is not fuzzy or accent-insensitive search.
+
+Optional `source`, `entityRef`, `kind`, `op`, `changedAfter`, and `changedBefore` filters apply before name pagination. Do not pass the currently selected exact `provider`, or `owner`; both are unsupported here. `limit` defaults to 25 and is capped at 100. Forward the same prefix and context filters with the returned cursor; changing only the limit is allowed. Provider-search cursors are not timeline cursors, and pages reflect live retained data rather than a snapshot. Only this endpoint permits an empty `prefix`; other empty, unknown, and repeated parameters remain errors.
+
+The existing `provider` filter on history requests remains exact. Use a discovered full name unchanged when applying it. The optional `getProviders` query/API capability supports discovery without changing existing list responses. A custom store without the method returns `501` after authorization; an older backend without the route returns `404`. The client propagates these statuses and does not treat `401` or `403` as unsupported capability.
+
 ## Add the frontend History tab and page in `0.2.0`
 
 `packages/catalog-history` contains the `@kunickiaj/backstage-plugin-catalog-history` NFS frontend package. It is published at `0.2.0` with the other four public packages; install the exact published version for host E2E work.

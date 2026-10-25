@@ -13,12 +13,24 @@ import {
   type HistoryChangeFeedRequest,
   type HistoryEntityTimelineRequest,
   type HistoryEntityVersionRequest,
+  type HistoryProviderSearchRequest,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 
 const validators = makeValidator();
 const COMMON_QUERY_KEYS = [
   'source',
   'provider',
+  'changedAfter',
+  'changedBefore',
+  'limit',
+  'cursor',
+];
+const PROVIDER_QUERY_KEYS = [
+  'prefix',
+  'source',
+  'entityRef',
+  'kind',
+  'op',
   'changedAfter',
   'changedBefore',
   'limit',
@@ -57,9 +69,13 @@ function pageLimit(value: string | undefined): number {
 
 function queryValues(
   req: Request,
-  endpoint: 'history' | 'versions' | 'version' | 'changes',
+  endpoint: 'history' | 'versions' | 'version' | 'changes' | 'providers',
 ) {
   const allowed = new Set(endpoint === 'version' ? [] : COMMON_QUERY_KEYS);
+  if (endpoint === 'providers') {
+    allowed.clear();
+    PROVIDER_QUERY_KEYS.forEach(key => allowed.add(key));
+  }
   if (endpoint === 'history' || endpoint === 'changes') {
     allowed.add('op');
   }
@@ -75,7 +91,12 @@ function queryValues(
     queryStart === -1 ? '' : req.originalUrl.slice(queryStart + 1),
   );
   for (const [key, value] of query) {
-    if (!allowed.has(key) || Object.hasOwn(values, key) || !value) {
+    const emptyPrefix = endpoint === 'providers' && key === 'prefix';
+    if (
+      !allowed.has(key) ||
+      Object.hasOwn(values, key) ||
+      (!value && !emptyPrefix)
+    ) {
       throw new InputError(
         'Unknown, repeated, or empty history query parameter',
       );
@@ -150,6 +171,41 @@ export function parseHistoryChangeFeedRequest(
     ...changeFilters(values),
     entityRef: ref,
     kind: values.kind,
+  };
+}
+
+export function parseHistoryProviderSearchRequest(
+  req: Request,
+): HistoryProviderSearchRequest {
+  const values = queryValues(req, 'providers');
+  if (values.kind !== undefined && !validators.isValidKind(values.kind)) {
+    throw new InputError('Invalid history entity kind');
+  }
+  let ref: string | undefined;
+  if (values.entityRef !== undefined) {
+    try {
+      ref = validatedEntityRef(
+        parseEntityRef(values.entityRef, {
+          defaultKind: 'Component',
+          defaultNamespace: 'default',
+        }),
+      );
+    } catch {
+      throw new InputError('Invalid history entity reference');
+    }
+  }
+  const { source, op, changedAfter, changedBefore, limit, cursor } =
+    changeFilters(values);
+  return {
+    prefix: values.prefix,
+    source,
+    entityRef: ref,
+    kind: values.kind,
+    op,
+    changedAfter,
+    changedBefore,
+    limit,
+    cursor,
   };
 }
 

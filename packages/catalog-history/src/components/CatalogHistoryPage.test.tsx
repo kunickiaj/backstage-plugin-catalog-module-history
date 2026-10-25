@@ -45,7 +45,9 @@ function deferred<T>() {
 }
 
 function setup() {
-  const api: jest.Mocked<Required<CatalogHistoryApi>> = {
+  const api: jest.Mocked<
+    CatalogHistoryApi & Required<Pick<CatalogHistoryApi, 'getChangeFeed'>>
+  > = {
     getChangeFeed: jest.fn().mockResolvedValue({ items: [] }),
     getEntityTimeline: jest.fn(),
     getEntityVersion: jest.fn(),

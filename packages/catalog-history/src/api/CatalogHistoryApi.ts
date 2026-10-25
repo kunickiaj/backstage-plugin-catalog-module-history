@@ -6,10 +6,16 @@ import type {
   HistoryEntityTimelineResponse,
   HistoryEntityVersionRequest,
   HistoryEntityVersionResponse,
+  HistoryProviderSearchRequest,
+  HistoryProviderSearchResponse,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 
 /** Read recorded events and their exact snapshots. @public */
 export interface CatalogHistoryApi {
+  /** Optional retained-provider discovery; absent APIs keep exact-name input. */
+  getProviders?(
+    request: HistoryProviderSearchRequest,
+  ): Promise<HistoryProviderSearchResponse>;
   getChangeFeed?(
     request: HistoryChangeFeedRequest,
   ): Promise<HistoryChangeFeedResponse>;

@@ -9,7 +9,12 @@ import type { CycleInput } from '@kunickiaj/backstage-plugin-catalog-history-nod
 type Source = 'provider' | 'processing' | 'reconciler' | 'all' | 'unknown';
 type Component = 'store' | 'query';
 type Outcome = 'success' | 'error';
-export type QueryOperation = 'timeline' | 'feed' | 'versions' | 'detail';
+export type QueryOperation =
+  | 'timeline'
+  | 'feed'
+  | 'versions'
+  | 'detail'
+  | 'providers';
 type StorageOperation =
   | 'record_cycle'
   | 'load_current_etags'

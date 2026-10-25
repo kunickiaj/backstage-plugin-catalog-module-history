@@ -21,10 +21,17 @@ import type {
   HistoryEntityVersionsResponse,
   HistoryJsonObject,
   HistoryOperation,
+  HistoryProviderSearchRequest,
+  HistoryProviderSearchResponse,
   HistorySource,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import { ensureSchema } from './ensureSchema';
 import { diffSnapshots, summarizeSnapshotFields } from './diffSnapshots';
+import {
+  decodeProviderSearchCursor,
+  encodeProviderSearchCursor,
+  providerSearchScope,
+} from './providerSearchCursor';
 import {
   normalizeQueryTimeoutMs,
   withHistoryQueryTimeout,
@@ -323,7 +330,7 @@ export class PostgresHistoryQueryService {
     const rows = await this.read('timeline', db =>
       withTimelinePredecessors(
         db,
-        this.applyEntityFilters(
+        this.applyEntityFilters<HistoryEntityRow>(
           db<HistoryEntityRow>('catalog_history_entities'),
           request,
         )
@@ -331,7 +338,7 @@ export class PostgresHistoryQueryService {
           .orderBy('changed_at', 'desc')
           .orderBy('id', 'desc')
           .limit(limit + 1)
-          .select('*'),
+          .select<HistoryEntityRow[]>('*'),
       ),
     );
 
@@ -394,6 +401,60 @@ export class PostgresHistoryQueryService {
       items: rows.slice(0, limit).map(rowToChange),
       nextCursor:
         rows.length > limit ? encodeCursor(rows[limit - 1]) : undefined,
+    };
+  }
+
+  async getProviders(
+    request: HistoryProviderSearchRequest,
+  ): Promise<HistoryProviderSearchResponse> {
+    await this.ensureReady();
+    const limit = normalizeLimit(request.limit);
+    const scope = providerSearchScope(request);
+    this.validateReadRequest({
+      changedAfter: request.changedAfter,
+      changedBefore: request.changedBefore,
+    });
+    const lastName = decodeProviderSearchCursor(request.cursor, scope);
+    const rows = await this.read('providers', db => {
+      // Project only supported filters; extra runtime properties must not turn
+      // discovery into an exact-provider or owner-filtered history query.
+      const query = this.applyChangeFilters(
+        db<HistoryEntityRow>('catalog_history_entities'),
+        {
+          source: request.source,
+          op: request.op,
+          changedAfter: request.changedAfter,
+          changedBefore: request.changedBefore,
+        },
+      );
+      if (request.entityRef !== undefined) {
+        query.where('entity_ref', request.entityRef);
+      }
+      if (request.kind !== undefined) {
+        query.whereRaw('LOWER(??) = LOWER(?)', ['kind', request.kind]);
+      }
+      // PostgreSQL LOWER uses the server locale, not accent-insensitive or
+      // universal Unicode full folding. Measure the folded prefix in SQL.
+      query.whereRaw(
+        'LEFT(LOWER(provider), char_length(LOWER(?::text))) = LOWER(?::text)',
+        [request.prefix ?? '', request.prefix ?? ''],
+      );
+      if (lastName !== undefined) {
+        query.whereRaw('provider COLLATE "C" > ?', [lastName]);
+      }
+      return query
+        .distinct<{ provider: string }[]>(
+          db.raw('provider COLLATE "C" AS provider'),
+        )
+        .orderByRaw('provider COLLATE "C" ASC')
+        .limit(limit + 1);
+    });
+    return {
+      items: rows.slice(0, limit).map(row => row.provider),
+      nextCursor:
+        rows.length > limit
+          ? encodeProviderSearchCursor(rows[limit - 1].provider, scope)
+          : undefined,
     };
   }
 

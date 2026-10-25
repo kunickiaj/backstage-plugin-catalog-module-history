@@ -19,6 +19,7 @@ import { catalogHistoryReadPermission } from '@kunickiaj/backstage-plugin-catalo
 import type { HistoryStore } from '@kunickiaj/backstage-plugin-catalog-history-node';
 import {
   parseHistoryChangeFeedRequest,
+  parseHistoryProviderSearchRequest,
   parseHistoryRequest,
   parseHistoryVersionRequest,
 } from './parseHistoryRequest';
@@ -73,12 +74,24 @@ async function retrieve<T>(
 }
 
 /**
- * Creates authenticated timeline and version routes relative to /api/catalog.
+ * Creates authenticated history read routes relative to /api/catalog.
  * Access grants all retained history, independent of catalog visibility.
  * @public
  */
 export function createHistoryRouter(options: HistoryRouterOptions): Router {
   const router = PromiseRouter();
+  router.get('/history/providers', async (req, res) => {
+    await authorize(req, options);
+    const getProviders = options.query.getProviders?.bind(options.query);
+    if (!getProviders) {
+      throw new NotImplementedError(
+        'This history store does not support provider discovery. Use an exact provider name or configure a store with provider-discovery support.',
+      );
+    }
+    const request = parseHistoryProviderSearchRequest(req);
+    const result = await retrieve(() => getProviders(request), options);
+    res.json(result);
+  });
   router.get('/history/changes', async (req, res) => {
     await authorize(req, options);
     const getChangeFeed = options.query.getChangeFeed?.bind(options.query);
