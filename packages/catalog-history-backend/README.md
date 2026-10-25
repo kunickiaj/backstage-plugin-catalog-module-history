@@ -114,9 +114,18 @@ history. See the [entity-discovery evaluation](../../docs/entity-discovery-evalu
 for the measured fixture shapes and limits; its results are not an operator or
 production performance guarantee.
 
-## Metrics (current source)
+## Metrics in the unreleased source
 
-The release after `0.2.0` adds optional storage metrics to the default factory through Backstage's `metricsServiceRef`. Applications configure the OpenTelemetry SDK and exporter at the backend root; custom `HistoryStore` implementations are not instrumented automatically. See the workspace [observability guide](../../docs/observability.md) for setup, instrument names, labels, and manual-store use.
+The source after `0.2.0` creates four optional OpenTelemetry instruments through Backstage's `metricsServiceRef`:
+
+- `catalog.history.capture.operation.duration`
+- `catalog.history.storage.operation.duration`
+- `catalog.history.query.operation.duration`
+- `catalog.history.capture.last_success.timestamp`
+
+The default factory wires the Postgres store automatically. Custom `HistoryStore` implementations and manually constructed stores without a metrics service keep their existing no-op behavior.
+
+Storage duration includes the store method's mapping, schema work, pool wait, transaction handling, and database work; it is not a pure PostgreSQL server timer. Histogram `count` supports operation and error rates without separate counters. Configure the SDK and exporter at the backend root. The workspace [observability guide](../../docs/observability.md) lists the exact names, labels, bucket advice, and manual-store wiring.
 
 ## Migration bookkeeping in `0.2.0`
 

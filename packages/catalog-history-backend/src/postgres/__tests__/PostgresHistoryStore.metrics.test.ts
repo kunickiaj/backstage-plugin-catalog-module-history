@@ -16,16 +16,9 @@ jest.mock('../ensureSchema', () => {
 
 jest.setTimeout(30000);
 
-const storageOperations = 'catalog.history.storage.operations';
 const storageDuration = 'catalog.history.storage.operation.duration';
-const persistence = 'catalog.history.storage.persistence.duration';
-const captureWindow = 'catalog.history.capture.window.duration';
 const lastSuccess = 'catalog.history.capture.last_success.timestamp';
-const queryOperations = 'catalog.history.query.operations';
 const queryDuration = 'catalog.history.query.operation.duration';
-const initializations = 'catalog.history.schema.initializations';
-const initializationDuration = 'catalog.history.schema.initialization.duration';
-const initialized = 'catalog.history.schema.initialized';
 const entityRef = 'user:default/private-person';
 const methods = ['timeline', 'feed', 'versions', 'detail'] as const;
 
@@ -93,9 +86,10 @@ describe('PostgresHistoryStore metrics', () => {
     jest.restoreAllMocks();
     await store?.shutdown();
     await db?.destroy();
+    await fixture?.destroy();
   });
 
-  it('creates the literal instruments and collects passive schema state without SQL', async () => {
+  it('creates only the three instruments and collects passively without SQL', async () => {
     // Arrange: construction and collection must not initialize the database.
     const sql = jest.fn();
     db.on('query', sql);
@@ -110,39 +104,31 @@ describe('PostgresHistoryStore metrics', () => {
     const after = await journal.collect();
     // Assert: fixed names, units, and labels are independent of production constants.
     expect(journal.instruments).toEqual([
-      { name: storageOperations, kind: 'counter', unit: '{operation}' },
-      { name: storageDuration, kind: 'histogram', unit: 's' },
-      { name: persistence, kind: 'histogram', unit: 's' },
-      { name: captureWindow, kind: 'histogram', unit: 's' },
+      {
+        name: storageDuration,
+        kind: 'histogram',
+        unit: 's',
+        advice: {
+          explicitBucketBoundaries: [0.001, 0.01, 0.1, 1, 5, 10, 30, 60, 300],
+        },
+      },
       { name: lastSuccess, kind: 'gauge', unit: 's' },
-      { name: queryOperations, kind: 'counter', unit: '{operation}' },
-      { name: queryDuration, kind: 'histogram', unit: 's' },
-      { name: initializations, kind: 'counter', unit: '{initialization}' },
-      { name: initializationDuration, kind: 'histogram', unit: 's' },
-      { name: initialized, kind: 'gauge', unit: '1' },
+      {
+        name: queryDuration,
+        kind: 'histogram',
+        unit: 's',
+        advice: {
+          explicitBucketBoundaries: [
+            0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10,
+          ],
+        },
+      },
     ]);
-    expect(before).toEqual([
-      { name: initialized, value: 0, attributes: { component: 'store' } },
-      { name: initialized, value: 0, attributes: { component: 'query' } },
-    ]);
+    expect(before).toEqual([]);
     expect(queriesBeforeCollection).toBe(0);
     expect(sql).toHaveBeenCalledTimes(queriesAfterInitialization);
-    expect(after).toEqual([
-      { name: initialized, value: 1, attributes: { component: 'store' } },
-      { name: initialized, value: 1, attributes: { component: 'query' } },
-    ]);
-    expect(journal.values(initializations)).toEqual([
-      {
-        name: initializations,
-        value: 1,
-        attributes: { component: 'store', outcome: 'success' },
-      },
-      {
-        name: initializations,
-        value: 1,
-        attributes: { component: 'query', outcome: 'success' },
-      },
-    ]);
+    expect(after).toEqual([]);
+    expect(journal.points).toEqual([]);
   });
 
   it('records committed captures and empty heartbeats without changing persisted times', async () => {
@@ -163,14 +149,10 @@ describe('PostgresHistoryStore metrics', () => {
     expect(persistedCycle.started_at).toEqual(input.startedAt);
     expect(persistedCycle.finished_at).toEqual(input.finishedAt);
     expect(persistedEntity.changed_at).toEqual(input.finishedAt);
-    expect(journal.values(captureWindow).map(point => point.value)).toEqual([
-      37, 37,
-    ]);
-    expect(journal.values(persistence)).toHaveLength(2);
-    expect(journal.values(storageOperations)).toEqual(
-      [1, 1].map(value => ({
-        name: storageOperations,
-        value,
+    expect(journal.values(storageDuration)).toEqual(
+      [0, 1].map(() => ({
+        name: storageDuration,
+        value: expect.any(Number),
         attributes: {
           operation: 'record_cycle',
           source: 'provider',
@@ -195,17 +177,14 @@ describe('PostgresHistoryStore metrics', () => {
     expect(
       await db('catalog_history_cycles').count('* as n').first(),
     ).toMatchObject({ n: '2' });
-    for (const point of [
-      ...journal.values(persistence),
-      ...journal.values(storageDuration),
-    ]) {
+    for (const point of journal.values(storageDuration)) {
       expect(Number.isFinite(point.value)).toBe(true);
       expect(point.value).toBeGreaterThanOrEqual(0);
     }
   });
 
   it.each(['store', 'query'] as const)(
-    'records failed %s initialization, retries once, and does not count cached awaits',
+    'retries failed %s initialization and shares cached awaits without metrics',
     async component => {
       // Arrange: inject one schema failure; the retry initializes real PostgreSQL.
       const error = new Error('private-initialization-error');
@@ -215,33 +194,11 @@ describe('PostgresHistoryStore metrics', () => {
       const subject = component === 'store' ? store : store.query;
       // Act / Assert
       await expect(subject.ensureReady()).rejects.toBe(error);
-      expect(
-        (await journal.collect()).filter(
-          point =>
-            point.name === initialized &&
-            point.attributes.component === component,
-        ),
-      ).toEqual([{ name: initialized, value: 0, attributes: { component } }]);
       await Promise.all([subject.ensureReady(), subject.ensureReady()]);
       await subject.ensureReady();
       expect(ensure).toHaveBeenCalledTimes(2);
-      expect(journal.values(initializations)).toEqual(
-        ['error', 'success'].map(outcome => ({
-          name: initializations,
-          value: 1,
-          attributes: { component, outcome },
-        })),
-      );
-      expect(
-        (await journal.collect()).filter(
-          point =>
-            point.name === initialized &&
-            point.attributes.component === component,
-        ),
-      ).toEqual([{ name: initialized, value: 1, attributes: { component } }]);
-      expect(
-        journal.values(initializationDuration).map(point => point.attributes),
-      ).toEqual(journal.values(initializations).map(point => point.attributes));
+      expect(journal.points).toEqual([]);
+      expect(await journal.collect()).toEqual([]);
     },
   );
 
@@ -280,13 +237,7 @@ describe('PostgresHistoryStore metrics', () => {
       await db('catalog_history_entities').where({ cycle_id: input.cycleId }),
     ).toEqual([]);
     expect(
-      journal.values(persistence).map(point => point.attributes.outcome),
-    ).toEqual(['success', 'error']);
-    expect(
-      journal.values(storageOperations).map(point => point.attributes.outcome),
-    ).toEqual(['success', 'error']);
-    expect(
-      journal.values(captureWindow).map(point => point.attributes.outcome),
+      journal.values(storageDuration).map(point => point.attributes.outcome),
     ).toEqual(['success', 'error']);
     await db.raw(
       'alter table catalog_history_entities drop constraint metrics_commit_unique',
@@ -297,7 +248,7 @@ describe('PostgresHistoryStore metrics', () => {
     ).toHaveLength(2);
   });
 
-  it('does not report top-level persistence or last success for a caller-owned transaction that rolls back', async () => {
+  it('does not report last success for a caller-owned transaction that rolls back', async () => {
     // Arrange: schema creation must survive the caller's rollback.
     await store.ensureReady();
     jest.spyOn(Date, 'now').mockReturnValue(1800000000000);
@@ -307,12 +258,10 @@ describe('PostgresHistoryStore metrics', () => {
     let nestedStore: PostgresHistoryStore | undefined;
     const snapshots: Array<{
       phase: string;
-      persistence: unknown[];
       lastSuccess: unknown[];
     }> = [];
     const collectSignals = async (phase: string) => ({
       phase,
-      persistence: nestedJournal.values(persistence),
       lastSuccess: (await nestedJournal.collect()).filter(
         point => point.name === lastSuccess,
       ),
@@ -349,9 +298,95 @@ describe('PostgresHistoryStore metrics', () => {
       await db('catalog_history_entities').where({ cycle_id: input.cycleId }),
     ).toEqual([]);
     expect(snapshots).toEqual([
-      { phase: 'outer pending', persistence: [], lastSuccess: [] },
-      { phase: 'outer rolled back', persistence: [], lastSuccess: [] },
+      { phase: 'outer pending', lastSuccess: [] },
+      { phase: 'outer rolled back', lastSuccess: [] },
     ]);
+  });
+
+  it('does not infer the caller-owned outer commit from a successful savepoint', async () => {
+    // Arrange: initialize outside the transaction so only capture writes are nested.
+    await store.ensureReady();
+    const nestedJournal = metricsJournal();
+    const input = cycle();
+    let nestedStore: PostgresHistoryStore | undefined;
+    let pending: unknown[] = [];
+    // Act
+    try {
+      await db.transaction(async outer => {
+        nestedStore = new PostgresHistoryStore(outer, {
+          metrics: nestedJournal.metrics,
+        });
+        await nestedStore.recordCycle(input);
+        pending = await nestedJournal.collect();
+      });
+      // Assert: the row committed, but the store owns no outer acknowledgment.
+      expect(
+        await db('catalog_history_entities').where({ cycle_id: input.cycleId }),
+      ).toHaveLength(1);
+      expect(pending).toEqual([]);
+      expect(await nestedJournal.collect()).toEqual([]);
+      expect(
+        nestedJournal.values(storageDuration).map(point => point.attributes),
+      ).toEqual([
+        { operation: 'record_cycle', source: 'provider', outcome: 'success' },
+      ]);
+    } finally {
+      await nestedStore?.shutdown();
+    }
+  });
+
+  it('does not advance last success on a late-chunk error or a failed retry', async () => {
+    // Arrange: fail only the second entity chunk, after the first has executed.
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1800000000000);
+    await store.recordCycle(cycle());
+    const before = await journal.collect();
+    now.mockReturnValue(1900000000000);
+    const input = cycle();
+    input.inserts = Array.from({ length: 1001 }, (_, index) => ({
+      ...input.inserts[0],
+      entityRef: `user:default/chunk-${index}`,
+      name: `chunk-${index}`,
+    }));
+    await db.raw(
+      "alter table catalog_history_entities add constraint metrics_late_chunk check (entity_ref <> 'user:default/chunk-1000')",
+    );
+    const completedChunks = jest.fn();
+    db.on('query-response', (_response, query) => {
+      if (/insert into "catalog_history_entities"/.test(query.sql))
+        completedChunks();
+    });
+    // Act / Assert: failed retries must leave both durable state and the gauge unchanged.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await expect(store.recordCycle(input)).rejects.toMatchObject({
+        code: '23514',
+        constraint: 'metrics_late_chunk',
+      });
+      expect(
+        await db('catalog_history_entities').where({ cycle_id: input.cycleId }),
+      ).toEqual([]);
+      expect(
+        await db('catalog_history_cycles').where({ cycle_id: input.cycleId }),
+      ).toEqual([]);
+      expect(await journal.collect()).toEqual(before);
+    }
+    expect(completedChunks).toHaveBeenCalledTimes(2);
+    await db.raw(
+      'alter table catalog_history_entities drop constraint metrics_late_chunk',
+    );
+    await store.recordCycle(input);
+    expect(
+      await db('catalog_history_entities').where({ cycle_id: input.cycleId }),
+    ).toHaveLength(1001);
+    expect(await journal.collect()).toEqual([
+      {
+        name: lastSuccess,
+        value: 1900000000,
+        attributes: { source: 'provider' },
+      },
+    ]);
+    expect(
+      journal.values(storageDuration).map(point => point.attributes.outcome),
+    ).toEqual(['success', 'error', 'error', 'success']);
   });
 
   it('times the whole storage method and transaction through commit ACK, but only the query SQL phase', async () => {
@@ -395,10 +430,8 @@ describe('PostgresHistoryStore metrics', () => {
     });
     // Act
     await store.recordCycle(input);
-    // Assert: persistence includes mapping, transaction acquisition/control, and commit ACK.
-    expect(journal.values(persistence)[0].value).toBe(9);
+    // Assert: the whole method includes preparation, mapping, and commit ACK.
     expect(journal.values(storageDuration)[0].value).toBe(10);
-    expect(journal.values(captureWindow)[0].value).toBe(37);
 
     // Arrange: query preparation and response mapping lie outside the SQL timer.
     clock = 0;
@@ -428,6 +461,7 @@ describe('PostgresHistoryStore metrics', () => {
     const prototype = Object.getPrototypeOf(db.client);
     const original = prototype.query;
     const duringCommit: unknown[] = [];
+    const commits = jest.fn();
     jest.spyOn(prototype, 'query').mockImplementation(async function query(
       this: Knex.Client,
       ...args: unknown[]
@@ -437,14 +471,17 @@ describe('PostgresHistoryStore metrics', () => {
         string | { sql: string },
       ];
       const sql = typeof statement === 'string' ? statement : statement.sql;
-      if (/^COMMIT/i.test(sql)) duringCommit.push(...(await journal.collect()));
+      if (/^COMMIT/i.test(sql)) {
+        commits();
+        duringCommit.push(...(await journal.collect()));
+      }
       return original.call(this, connection, statement);
     });
     // Act
     await store.recordCycle(cycle());
     const after = await journal.collect();
     // Assert
-    expect(duringCommit).not.toEqual([]);
+    expect(commits).toHaveBeenCalledTimes(1);
     expect(duringCommit).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ name: lastSuccess })]),
     );
@@ -497,28 +534,17 @@ describe('PostgresHistoryStore metrics', () => {
       expect(all.has(entityRef)).toBe(
         source === undefined || source === 'provider',
       );
-      expect(journal.values(storageOperations).slice(1)).toEqual(
+      expect(journal.values(storageDuration).slice(1)).toEqual(
         [
           ['load_current_etags', 'success'],
           ['load_all_current_etags', 'success'],
           ['load_current_etags', 'error'],
           ['load_all_current_etags', 'error'],
         ].map(([operation, outcome]) => ({
-          name: storageOperations,
-          value: 1,
+          name: storageDuration,
+          value: expect.any(Number),
           attributes: { operation, source: label, outcome },
         })),
-      );
-      expect(
-        journal
-          .values(storageDuration)
-          .slice(1)
-          .map(point => point.attributes),
-      ).toEqual(
-        journal
-          .values(storageOperations)
-          .slice(1)
-          .map(point => point.attributes),
       );
     },
   );
@@ -566,16 +592,13 @@ describe('PostgresHistoryStore metrics', () => {
       }
       // Assert: no provider, entity, SQL, payload, or error labels escape.
       expect(result).toBeDefined();
-      expect(journal.values(queryOperations)).toEqual(
+      expect(journal.values(queryDuration)).toEqual(
         ['success', 'error', 'timeout'].map(outcome => ({
-          name: queryOperations,
-          value: 1,
+          name: queryDuration,
+          value: expect.any(Number),
           attributes: { operation: method, outcome },
         })),
       );
-      expect(
-        journal.values(queryDuration).map(point => point.attributes),
-      ).toEqual(journal.values(queryOperations).map(point => point.attributes));
       for (const point of journal.values(queryDuration)) {
         expect(Number.isFinite(point.value)).toBe(true);
         expect(point.value).toBeGreaterThanOrEqual(0);
@@ -602,10 +625,10 @@ describe('PostgresHistoryStore metrics', () => {
     await expect(
       store.query.getEntityTimeline({ entityRef, limit: -1 }),
     ).rejects.toThrow();
-    expect(journal.values(queryOperations)).toEqual([
+    expect(journal.values(queryDuration)).toEqual([
       {
-        name: queryOperations,
-        value: 1,
+        name: queryDuration,
+        value: expect.any(Number),
         attributes: { operation: 'detail', outcome: 'not_found' },
       },
     ]);
@@ -613,10 +636,9 @@ describe('PostgresHistoryStore metrics', () => {
 
   it.each([
     'create',
-    'add',
+    'gauge_create',
     'record',
     'callback',
-    'second_callback',
     'observe',
     'remove',
   ] as const)(
@@ -662,12 +684,11 @@ describe('PostgresHistoryStore metrics', () => {
       expect(broken.removed).toHaveLength(
         {
           create: 0,
-          add: 2,
-          record: 2,
+          gauge_create: 0,
+          record: 1,
           callback: 1,
-          second_callback: 2,
-          observe: 2,
-          remove: 2,
+          observe: 1,
+          remove: 1,
         }[failure],
       );
       db.removeListener('query-error', onError);
@@ -688,7 +709,7 @@ describe('PostgresHistoryStore metrics', () => {
     await store.shutdown();
     // Assert
     expect(flush).toHaveBeenCalledTimes(1);
-    expect(journal.removed).toHaveLength(2);
+    expect(journal.removed).toHaveLength(1);
     expect(await journal.collect()).toEqual([]);
   });
 
@@ -709,8 +730,8 @@ describe('PostgresHistoryStore metrics', () => {
     await expect(subject.shutdown()).rejects.toBe(error);
     expect(flush).toHaveBeenCalledTimes(1);
     expect(destroy).not.toHaveBeenCalled();
-    // This journal also belongs to the beforeEach store, so only the subject's two callbacks were removed.
-    expect(journal.removed).toHaveLength(2);
+    // This journal also belongs to the beforeEach store; only this subject was closed.
+    expect(journal.removed).toHaveLength(1);
   });
 });
 
@@ -735,7 +756,7 @@ describe('PostgresHistoryStore constructor metrics validation', () => {
       expect(first).toBe(expected);
       expect(second).toBe(expected);
       expect(destroy).toHaveBeenCalledTimes(1);
-      expect(journal.removed).toHaveLength(2);
+      expect(journal.removed).toHaveLength(1);
       expect(await journal.collect()).toEqual([]);
     },
   );

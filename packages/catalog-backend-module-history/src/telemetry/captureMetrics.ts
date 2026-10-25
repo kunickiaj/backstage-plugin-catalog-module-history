@@ -7,7 +7,6 @@ type Operation =
   | 'processing_entity'
   | 'processing_flush'
   | 'reconcile';
-type Phase = 'fetch' | 'baseline' | 'prepare' | 'forward' | 'record';
 type Outcome = 'success' | 'error';
 type Stop = (outcome: Outcome) => void;
 
@@ -26,51 +25,34 @@ export function createCaptureMetrics(source: Source, metrics?: MetricsService) {
   if (!metrics) {
     return {
       startOperation: (_operation: Operation): Stop => noopStop,
-      startPhase: (_phase: Phase): Stop => noopStop,
     };
   }
 
-  const operations = isolated(() =>
-    metrics.createCounter('catalog.history.capture.operations', {
-      unit: '{operation}',
-    }),
-  );
   const operationDuration = isolated(() =>
     metrics.createHistogram('catalog.history.capture.operation.duration', {
       unit: 's',
-    }),
-  );
-  const phases = isolated(() =>
-    metrics.createCounter('catalog.history.capture.phases', {
-      unit: '{phase}',
-    }),
-  );
-  const phaseDuration = isolated(() =>
-    metrics.createHistogram('catalog.history.capture.phase.duration', {
-      unit: 's',
+      advice: {
+        explicitBucketBoundaries: [
+          0.0001, 0.001, 0.01, 0.1, 1, 5, 10, 30, 60, 300, 600,
+        ],
+      },
     }),
   );
 
-  function start(label: { operation: Operation } | { phase: Phase }): Stop {
+  function startOperation(operation: Operation): Stop {
     const started = performance.now();
     let finished = false;
     return outcome => {
       if (finished) return;
       finished = true;
       const duration = (performance.now() - started) / 1_000;
-      const attributes = { source, ...label, outcome };
-      if ('operation' in label) {
-        isolated(() => operations?.add(1, attributes));
-        isolated(() => operationDuration?.record(duration, attributes));
-      } else {
-        isolated(() => phases?.add(1, attributes));
-        isolated(() => phaseDuration?.record(duration, attributes));
-      }
+      isolated(() =>
+        operationDuration?.record(duration, { source, operation, outcome }),
+      );
     };
   }
 
   return {
-    startOperation: (operation: Operation): Stop => start({ operation }),
-    startPhase: (phase: Phase): Stop => start({ phase }),
+    startOperation,
   };
 }

@@ -406,6 +406,17 @@ backend.add(catalogModuleHistory);
 backend.add(myHistoryStoreServiceFactory);
 ```
 
+## Metrics in the unreleased source
+
+The unreleased source after `0.2.0` creates four optional OpenTelemetry instruments through Backstage's `MetricsService`:
+
+- `catalog.history.capture.operation.duration`
+- `catalog.history.storage.operation.duration`
+- `catalog.history.query.operation.duration`
+- `catalog.history.capture.last_success.timestamp`
+
+The default Postgres store and module-created processing and reconciliation use metrics automatically. Provider wrappers need the injected `metricsServiceRef`; custom stores and manual calls keep their existing no-op behavior when no metrics service is supplied. Histogram `count` supports operation and error rates without separate counters. Configure export at the backend root and see the [observability guide](docs/observability.md) for labels, bucket advice, wiring, and alert guidance.
+
 ## Query the history directly
 
 The module owns two tables in Postgres:

@@ -10,8 +10,15 @@ export type Measurement = {
 };
 
 // Test-local SDK journal: no exporter, registry, clock, or network dependency.
-export function metricsJournal(failure?: 'create' | 'add' | 'record') {
+export type MetricsFailure =
+  | 'create'
+  | 'record'
+  | 'createGetter'
+  | 'recordGetter';
+
+export function metricsJournal(failure?: MetricsFailure) {
   const measurements: Measurement[] = [];
+  const attempts: MetricsFailure[] = [];
   const metrics: jest.Mocked<MetricsService> = {
     createCounter: jest.fn(),
     createHistogram: jest.fn(),
@@ -22,19 +29,25 @@ export function metricsJournal(failure?: 'create' | 'add' | 'record') {
     createObservableGauge: jest.fn(),
   };
   const fail = (stage: typeof failure) => {
-    if (failure === stage) throw new Error(`SDK ${stage} failed`);
+    if (failure === stage && stage) {
+      attempts.push(stage);
+      throw new Error(`SDK ${stage} failed`);
+    }
   };
   metrics.createCounter.mockImplementation((name, _options) => {
-    fail('create');
     return {
       add: (value, attributes) => {
-        fail('add');
         measurements.push({ name, value, attributes });
       },
     };
   });
   metrics.createHistogram.mockImplementation((name, _options) => {
     fail('create');
+    if (failure === 'recordGetter') {
+      return Object.defineProperty({}, 'record', {
+        get: () => fail('recordGetter'),
+      }) as ReturnType<MetricsService['createHistogram']>;
+    }
     return {
       record: (value, attributes) => {
         fail('record');
@@ -42,19 +55,23 @@ export function metricsJournal(failure?: 'create' | 'add' | 'record') {
       },
     };
   });
-  return { metrics, measurements };
+  if (failure === 'createGetter') {
+    Object.defineProperty(metrics, 'createHistogram', {
+      get: () => fail('createGetter'),
+    });
+  }
+  return { metrics, measurements, attempts };
 }
 
 export function outcomes(
   measurements: Measurement[],
   source: string,
-  label: { operation: string } | { phase: string },
+  label: { operation: string },
 ) {
-  const name = 'operation' in label ? 'operations' : 'phases';
   return measurements
     .filter(
       entry =>
-        entry.name === `catalog.history.capture.${name}` &&
+        entry.name === 'catalog.history.capture.operation.duration' &&
         entry.attributes?.source === source &&
         Object.entries(label).every(
           ([key, value]) => entry.attributes?.[key] === value,

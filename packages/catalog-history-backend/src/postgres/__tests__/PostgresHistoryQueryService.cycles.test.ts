@@ -713,7 +713,7 @@ describe('PostgresHistoryQueryService cycle ledger reads', () => {
     // Assert: detail reports each independently executed database read.
     expect(
       journal
-        .values('catalog.history.query.operations')
+        .values('catalog.history.query.operation.duration')
         .map(point => point.attributes),
     ).toEqual([
       { operation: 'cycles', outcome: 'success' },
