@@ -323,6 +323,44 @@ export interface HistoryChangeFeedRequest
 export type HistoryChangeFeedResponse = HistoryPage<HistoryCycleChange>;
 
 /**
+ * Discover provider names represented by retained entity-history rows.
+ *
+ * Context filters apply before distinct-name pagination. This is separate from
+ * the exact `provider` filter on history requests and does not enumerate live
+ * provider registrations or providers represented only by empty cycles.
+ *
+ * @public
+ */
+export interface HistoryProviderSearchRequest
+  extends
+    HistoryPageOptions,
+    Pick<
+      HistoryChangeFilter,
+      'entityRef' | 'kind' | 'source' | 'op' | 'changedAfter' | 'changedBefore'
+    > {
+  /**
+   * Case-insensitive literal prefix, using PostgreSQL LOWER matching.
+   * Omitted or empty lists the first names in scope. Whitespace is preserved;
+   * percent, underscore and backslash have no wildcard meaning.
+   */
+  prefix?: string;
+  /** Discovery does not accept the currently selected exact provider filter. */
+  provider?: never;
+  /** Owner filtering is not part of provider discovery. */
+  owner?: never;
+  /** Opaque provider-search cursor bound to the prefix and context filters. */
+  cursor?: HistoryPageCursor;
+}
+
+/**
+ * Original provider names, distinct and ascending under PostgreSQL C collation.
+ * Case variants remain separate names. Pagination is live, not a snapshot.
+ *
+ * @public
+ */
+export type HistoryProviderSearchResponse = HistoryPage<string>;
+
+/**
  * Distinct persisted version of one entity.
  *
  * @public

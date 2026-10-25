@@ -75,6 +75,11 @@ describe('PostgresHistoryQueryService', () => {
     service = new PostgresHistoryQueryService(db);
   });
 
+  afterEach(async () => {
+    // Release each case's pool before parallel suites need these connections.
+    await db?.destroy();
+  });
+
   it('returns an entity timeline in newest-first order with cursor pagination', async () => {
     for (const [index, at] of [
       '2026-07-07T00:00:00Z',

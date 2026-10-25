@@ -44,6 +44,8 @@ export type {
   HistoryCycleDetailResponse,
   HistoryChangeFeedRequest,
   HistoryChangeFeedResponse,
+  HistoryProviderSearchRequest,
+  HistoryProviderSearchResponse,
   HistoryEntityVersion,
   HistoryEntityVersionRequest,
   HistoryEntityVersionResponse,

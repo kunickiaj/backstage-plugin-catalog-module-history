@@ -11,6 +11,8 @@ import type {
   HistoryEntityTimelineResponse,
   HistoryEntityVersionRequest,
   HistoryEntityVersionResponse,
+  HistoryProviderSearchRequest,
+  HistoryProviderSearchResponse,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import { CatalogHistoryApi, CatalogHistoryApiError } from './CatalogHistoryApi';
 
@@ -23,6 +25,37 @@ export interface CatalogHistoryClientOptions {
 /** Catalog history HTTP client. @public */
 export class CatalogHistoryClient implements CatalogHistoryApi {
   constructor(private readonly options: CatalogHistoryClientOptions) {}
+
+  async getProviders(
+    request: HistoryProviderSearchRequest,
+  ): Promise<HistoryProviderSearchResponse> {
+    const limit = request.limit ?? DEFAULT_HISTORY_PAGE_LIMIT;
+    if (!Number.isInteger(limit) || limit < 1) {
+      throw new Error('History page size must be a positive integer.');
+    }
+    const query = new URLSearchParams({
+      limit: String(Math.min(limit, MAX_HISTORY_PAGE_LIMIT)),
+    });
+    (
+      ['source', 'op', 'changedAfter', 'changedBefore', 'cursor'] as const
+    ).forEach(key => {
+      if (request[key] !== undefined) query.set(key, request[key]);
+    });
+    if (request.prefix) query.set('prefix', request.prefix);
+    if (request.entityRef !== undefined) {
+      query.set(
+        'entityRef',
+        stringifyEntityRef(
+          parseEntityRef(request.entityRef, {
+            defaultKind: 'Component',
+            defaultNamespace: 'default',
+          }),
+        ),
+      );
+    }
+    if (request.kind !== undefined) query.set('kind', request.kind.trim());
+    return this.fetch(`/history/providers?${query}`);
+  }
 
   async getChangeFeed(
     request: HistoryChangeFeedRequest,

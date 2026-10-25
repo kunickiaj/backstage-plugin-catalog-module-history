@@ -19,6 +19,8 @@ import type {
   HistoryFacetsRequest,
   HistoryStatsRequest,
   HistoryStatsResponse,
+  HistoryProviderSearchRequest,
+  HistoryProviderSearchResponse,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 
 /**
@@ -62,6 +64,11 @@ export interface HistoryQueryService {
   getChangeFeed(
     request: HistoryChangeFeedRequest,
   ): Promise<HistoryChangeFeedResponse>;
+
+  /** Optional discovery of retained provider names; history filters remain exact. */
+  getProviders?(
+    request: HistoryProviderSearchRequest,
+  ): Promise<HistoryProviderSearchResponse>;
 
   getFacets(request: HistoryFacetsRequest): Promise<HistoryFacetsResponse>;
 

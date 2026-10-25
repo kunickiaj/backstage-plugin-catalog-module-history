@@ -55,6 +55,14 @@ A supplied flag is `true` for different known saved values and `false` for equal
 
 The metadata-only global feed, version lists, and nested `previousVersion.summary` keep empty summaries. Custom query implementations may also leave summaries unavailable. Timeline enrichment stays within one paged SQL statement; exact detail keeps its existing two statements. The returned page size limits predecessor payloads, not the amount of database work.
 
+## Provider discovery (unreleased source)
+
+The default store adds optional `getProviders` discovery over retained entity-history rows. It returns original provider-name strings, with literal case-insensitive prefix matching and deterministic `C`-collated name pagination. All supplied entity, kind, source, operation, and time filters apply before distinct-name selection. Existing history `provider` matching remains exact.
+
+The capability is optional on `HistoryStore.query`; custom stores do not need it to initialize or serve existing routes. The catalog module exposes it through the authenticated provider route described in the [workspace API guide](../../README.md#provider-discovery-in-unreleased-source). Unsupported custom queries return `501` only after the existing read authorization succeeds.
+
+Discovery uses the normal per-statement read limit and fixed `providers` query-metric operation. A small returned name page can still scan or sort retained history; no new index or count query is added, and the page limit is not a database-work bound.
+
 ## Metrics (current source)
 
 The release after `0.2.0` adds optional storage metrics to the default factory through Backstage's `metricsServiceRef`. Applications configure the OpenTelemetry SDK and exporter at the backend root; custom `HistoryStore` implementations are not instrumented automatically. See the workspace [observability guide](../../docs/observability.md) for setup, instrument names, labels, and manual-store use.
