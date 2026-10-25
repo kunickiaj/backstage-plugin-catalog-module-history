@@ -19,6 +19,7 @@ const historyMigrationNames = [
   initialMigration,
   sourceMigration,
   globalFeedMigration,
+  '20261025000000_entity_discovery_name_index.js',
 ];
 const catalogMigrationsDir = resolvePackagePath(
   '@backstage/plugin-catalog-backend',
@@ -136,7 +137,11 @@ describe('ensureSchema', () => {
   it('drops the source and stitched fields when their migration is rolled back', async () => {
     // Arrange: the ordering index follows the source and stitched fields.
     await ensureSchema(db);
-    // Act: roll back the index first, then the source migration.
+    // Act: roll back both indexes first, then the source migration.
+    await db.migrate.down({
+      directory: migrationsDir,
+      tableName: historyLedger,
+    });
     await db.migrate.down({
       directory: migrationsDir,
       tableName: historyLedger,

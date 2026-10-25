@@ -202,6 +202,70 @@ Optional `source`, `entityRef`, `kind`, `op`, `changedAfter`, and `changedBefore
 
 The existing `provider` filter on history requests remains exact. Use a discovered full name unchanged when applying it. The optional `getProviders` query/API capability supports discovery without changing existing list responses. A custom store without the method returns `501` after authorization; an older backend without the route returns `404`. The client propagates these statuses and does not treat `401` or `403` as unsupported capability.
 
+### Entity and Kind discovery in unreleased source
+
+`GET /api/catalog/history/entities` discovers identities from retained history.
+It accepts optional `prefix`, `kind`, `source`, `provider`, `op`, `changedAfter`,
+`changedBefore`, `limit`, and `cursor` parameters. For example:
+
+```sh
+curl 'https://backstage.example.com/api/catalog/history/entities?prefix=pay&kind=Component&source=provider&limit=25'
+```
+
+It returns a shared page whose items contain only identity metadata:
+
+```json
+{
+  "items": [
+    {
+      "entityRef": "component:default/payment-api",
+      "kind": "Component",
+      "namespace": "default",
+      "name": "payment-api"
+    }
+  ],
+  "nextCursor": "..."
+}
+```
+
+Filters select history rows before the service chooses the latest matching row
+for each canonical entity reference, ordered by native `changed_at` and `id`.
+The selected row supplies all four fields. Results include delete-only and
+otherwise retained identities; they do not fetch live catalog data, infer a
+current/deleted state, or return snapshots. `entityRef` and `owner` are not
+accepted, so an already selected reference cannot narrow discovery.
+
+Name prefixes are case-insensitive PostgreSQL `LOWER` matches using `C`
+collation for comparison and ordering; case folding uses the database locale.
+They are literal prefixes: `%`, `_`, and backslash are ordinary
+characters; matching is not fuzzy, substring, whole-reference, or
+accent-insensitive. Prefix whitespace is preserved and there is no new name
+length limit. Omit `prefix`, or pass it empty, to receive the first identities
+in scope. Other empty, unknown, and repeated parameters return `400`.
+
+Results sort by folded name and then canonical reference, both with `C`
+collation. Cursors are opaque, bind the prefix and all scope filters, and do
+not bind the limit; changing only `limit` is allowed. Pages read live retained
+data, not a consistent snapshot.
+
+`GET /api/catalog/history/kinds` returns `{ items: string[], nextCursor? }`.
+It accepts only optional `prefix`, `limit`, and `cursor`; it is unscoped by
+entity, source, provider, operation, time, or owner filters. It lists all
+retained kinds, including custom kinds represented only by deletes. Case
+variants collapse into one item: the stored spelling that is smallest under
+`C` collation. Kinds sort by their folded `C`-collated value. Its opaque cursor
+binds the prefix, not an entity or event cursor. These choices do not include
+event counts or current-kind status.
+
+Both endpoints default to 25 choices per page and cap `limit` at 100. Follow
+`nextCursor` to reach later choices; a short page limit does not limit how much
+retained history PostgreSQL may scan or sort.
+
+Both routes require authenticated access and the existing `catalog-history.read`
+authorization. A custom store that omits `getEntities` or `getKinds` returns
+`501` only after that authorization; a backend without the route returns
+`404`. `401` and `403` are access failures, not unsupported discovery.
+
 ## Add the frontend History tab and page in `0.2.0`
 
 `packages/catalog-history` contains the `@kunickiaj/backstage-plugin-catalog-history` NFS frontend package. It is published at `0.2.0` with the other four public packages; install the exact published version for host E2E work.

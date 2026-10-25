@@ -14,7 +14,9 @@ export type QueryOperation =
   | 'feed'
   | 'versions'
   | 'detail'
-  | 'providers';
+  | 'providers'
+  | 'entities'
+  | 'kinds';
 type StorageOperation =
   | 'record_cycle'
   | 'load_current_etags'

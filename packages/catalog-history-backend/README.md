@@ -63,6 +63,45 @@ The capability is optional on `HistoryStore.query`; custom stores do not need it
 
 Discovery uses the normal per-statement read limit and fixed `providers` query-metric operation. A small returned name page can still scan or sort retained history; no new index or count query is added, and the page limit is not a database-work bound.
 
+## Entity and Kind discovery (unreleased source)
+
+The default store implements optional `HistoryStore.query.getEntities` and
+`getKinds`. `getEntities` makes one paged SELECT and returns retained identity
+metadata (`entityRef`, `kind`, `namespace`, and `name`) from the latest matching
+row for each canonical reference. It applies entity-search filters before that
+deduplication, includes delete-only identities, and does not query the live
+catalog or fetch a snapshot per result. `getKinds` makes one paged SELECT over
+all retained kinds; it is not a filtered facet or event-count query.
+
+Both methods use the normal per-statement read timeout and fixed query-metric
+operations, `entities` and `kinds`. The page lookahead (`limit + 1`) detects a
+next cursor; it does not bound database work. Schema setup runs before the
+query-phase timer, so `catalog.history.query.operation.duration` measures the
+query SQL phase rather than schema initialization.
+
+## Entity-discovery name index (unreleased source)
+
+Migration `20261025000000_entity_discovery_name_index.js` adds
+`catalog_history_entities_name_prefix_idx` on
+`(left(lower(name), 128) COLLATE "C") text_pattern_ops`, then runs `ANALYZE
+catalog_history_entities`. The bounded expression keeps previously valid wide
+names writable. Discovery still rechecks the complete folded name prefix, so
+the index does not truncate a reader's prefix or a stored name.
+
+This is a regular transactional index build during `ensureSchema`, not a
+concurrent build. PostgreSQL reads can continue, but history writes to
+`catalog_history_entities` wait until the migration commits. The read-query
+timeout does not cover schema bootstrap, index build, or `ANALYZE`. Back up the
+database, test the upgrade against representative retained history, and use an
+operator-controlled maintenance window before upgrading a large installation.
+No automated precreation or online-index path is provided.
+
+The index helps selective literal name prefixes. Empty searches, broad name
+prefixes, late pages, and Kind enumeration can still scan or sort retained
+history. See the [entity-discovery evaluation](../../docs/entity-discovery-evaluation.md)
+for the measured fixture shapes and limits; its results are not an operator or
+production performance guarantee.
+
 ## Metrics (current source)
 
 The release after `0.2.0` adds optional storage metrics to the default factory through Backstage's `metricsServiceRef`. Applications configure the OpenTelemetry SDK and exporter at the backend root; custom `HistoryStore` implementations are not instrumented automatically. See the workspace [observability guide](../../docs/observability.md) for setup, instrument names, labels, and manual-store use.

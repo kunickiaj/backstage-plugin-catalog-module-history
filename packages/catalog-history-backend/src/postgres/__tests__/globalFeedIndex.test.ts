@@ -12,6 +12,7 @@ const migrationNames = [
   '20260512000000_initial.js',
   '20260705000000_source_and_stitched_fields.js',
   '20261023000000_global_feed_ordering_index.js',
+  '20261025000000_entity_discovery_name_index.js',
 ];
 const indexName = 'catalog_history_entities_changed_at_id_idx';
 const cycleId = '00000000-0000-4000-8000-000000000001';
@@ -148,7 +149,12 @@ describe('global feed ordering index', () => {
     expect(upgradedLedger.map(row => row.name)).toEqual(migrationNames);
     expect(await db(ledger).orderBy('id')).toEqual(upgradedLedger);
     expect(
-      (await indexes(db)).filter(index => index.indexname !== indexName),
+      (await indexes(db)).filter(
+        index =>
+          ![indexName, 'catalog_history_entities_name_prefix_idx'].includes(
+            index.indexname,
+          ),
+      ),
     ).toEqual(oldIndexes);
     expect(
       (await indexes(db)).filter(index => index.indexname === indexName),
@@ -164,10 +170,16 @@ describe('global feed ordering index', () => {
     await seedHistory(db);
     const before = await historyData(db);
     const beforeIndexes = await indexes(db);
-    const previousLedger = (await db(ledger).orderBy('id')).slice(0, 2);
+    const previousLedger = (await db(ledger).orderBy('id')).filter(
+      row => row.name !== migrationNames[2],
+    );
 
     // Act
-    await db.migrate.down({ directory: migrationsDir, tableName: ledger });
+    await db.migrate.down({
+      directory: migrationsDir,
+      tableName: ledger,
+      name: migrationNames[2],
+    });
     const rolledBackIndexes = await indexes(db);
     const rolledBackData = await historyData(db);
     const rolledBackLedger = await db(ledger).orderBy('id');
@@ -181,7 +193,7 @@ describe('global feed ordering index', () => {
     expect(rolledBackLedger).toEqual(previousLedger);
     expect(await historyData(db)).toEqual(before);
     expect(await indexes(db)).toEqual(beforeIndexes);
-    expect(await db(ledger).orderBy('id').pluck('name')).toEqual(
+    expect(await db(ledger).orderBy('name').pluck('name')).toEqual(
       migrationNames,
     );
   });

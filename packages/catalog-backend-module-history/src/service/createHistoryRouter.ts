@@ -19,6 +19,8 @@ import { catalogHistoryReadPermission } from '@kunickiaj/backstage-plugin-catalo
 import type { HistoryStore } from '@kunickiaj/backstage-plugin-catalog-history-node';
 import {
   parseHistoryChangeFeedRequest,
+  parseHistoryEntitySearchRequest,
+  parseHistoryKindSearchRequest,
   parseHistoryProviderSearchRequest,
   parseHistoryRequest,
   parseHistoryVersionRequest,
@@ -80,6 +82,30 @@ async function retrieve<T>(
  */
 export function createHistoryRouter(options: HistoryRouterOptions): Router {
   const router = PromiseRouter();
+  router.get('/history/entities', async (req, res) => {
+    await authorize(req, options);
+    const getEntities = options.query.getEntities?.bind(options.query);
+    if (!getEntities) {
+      throw new NotImplementedError(
+        'This history store does not support entity discovery.',
+      );
+    }
+    const request = parseHistoryEntitySearchRequest(req);
+    const result = await retrieve(() => getEntities(request), options);
+    res.json(result);
+  });
+  router.get('/history/kinds', async (req, res) => {
+    await authorize(req, options);
+    const getKinds = options.query.getKinds?.bind(options.query);
+    if (!getKinds) {
+      throw new NotImplementedError(
+        'This history store does not support kind discovery.',
+      );
+    }
+    const request = parseHistoryKindSearchRequest(req);
+    const result = await retrieve(() => getKinds(request), options);
+    res.json(result);
+  });
   router.get('/history/providers', async (req, res) => {
     await authorize(req, options);
     const getProviders = options.query.getProviders?.bind(options.query);
