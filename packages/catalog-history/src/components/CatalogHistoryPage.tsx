@@ -22,7 +22,12 @@ export function CatalogHistoryPage() {
         show when each capture source recorded a change, not when the upstream
         system changed.
       </p>
-      <HistoryFilters scope="all" onApply={setFilters} />
+      <HistoryFilters
+        scope="all"
+        onApply={setFilters}
+        api={api}
+        appliedFilters={filters}
+      />
       <HistoryTimeline
         key={JSON.stringify(request)}
         scope="all"

@@ -1,6 +1,13 @@
 /** @jsxRuntime automatic */
 import '@testing-library/jest-dom';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { TestApiProvider, renderTestApp } from '@backstage/frontend-test-utils';
 import type {
   HistoryEntityVersionResponse,
@@ -64,6 +71,139 @@ function setup() {
 
 describe('CatalogHistoryPage', () => {
   afterEach(() => jest.useRealTimers());
+
+  it('uses applied global scope for provider discovery and retains the exact selection while editing another prefix', async () => {
+    // Arrange
+    const { api, mount } = setup();
+    const selected = ' Original Provider ';
+    api.getProviders = jest.fn().mockResolvedValue({ items: [selected] });
+    mount();
+    await screen.findByText('No recorded events match these filters.');
+    fireEvent.change(
+      screen.getByRole('textbox', { name: 'Entity reference' }),
+      { target: { value: 'Example' } },
+    );
+    fireEvent.change(screen.getByRole('textbox', { name: 'Kind' }), {
+      target: { value: ' Component ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Source$/ }));
+    fireEvent.click(screen.getByRole('option', { name: 'provider' }));
+    fireEvent.click(screen.getByRole('button', { name: /Operation$/ }));
+    fireEvent.click(screen.getByRole('option', { name: 'update' }));
+    const after = '2026-10-01T12:00';
+    const before = '2026-10-24T12:00';
+    fireEvent.change(screen.getByLabelText('Recorded after (local time)'), {
+      target: { value: after },
+    });
+    fireEvent.change(screen.getByLabelText('Recorded before (local time)'), {
+      target: { value: before },
+    });
+    const scope = {
+      entityRef: componentRef,
+      kind: 'Component',
+      source: 'provider',
+      op: 'update',
+      changedAfter: new Date(after).toISOString(),
+      changedBefore: new Date(before).toISOString(),
+    };
+    const input = screen.getByRole('combobox', { name: 'Provider' });
+    fireEvent.focus(input);
+    fireEvent.keyDown(input, { key: 'ArrowDown', code: 'ArrowDown' });
+    fireEvent.click(
+      await screen.findByRole('option', { name: 'Original Provider' }),
+    );
+    await waitFor(() =>
+      expect(api.getChangeFeed).toHaveBeenLastCalledWith({
+        ...scope,
+        provider: selected,
+        limit: 25,
+        cursor: undefined,
+      }),
+    );
+
+    // Act: changing source flushes other filters, never the uncommitted prefix.
+    fireEvent.change(input, { target: { value: 'not-selected' } });
+    fireEvent.click(screen.getByRole('button', { name: /Source$/ }));
+    fireEvent.click(screen.getByRole('option', { name: 'processing' }));
+    await waitFor(() =>
+      expect(api.getChangeFeed).toHaveBeenLastCalledWith({
+        ...scope,
+        source: 'processing',
+        provider: selected,
+        limit: 25,
+        cursor: undefined,
+      }),
+    );
+    // An inverted date draft must not replace the last applied scope.
+    fireEvent.change(screen.getByLabelText('Recorded before (local time)'), {
+      target: { value: '2026-09-01T12:00' },
+    });
+    fireEvent.focus(input);
+    jest.useFakeTimers();
+    fireEvent.change(input, { target: { value: 'raw%_\\' } });
+    await act(async () => jest.advanceTimersByTime(300));
+    jest.useRealTimers();
+
+    // Assert
+    expect(api.getProviders).toHaveBeenCalledWith({
+      ...scope,
+      prefix: undefined,
+      limit: 25,
+    });
+    expect(api.getProviders).toHaveBeenLastCalledWith({
+      ...scope,
+      source: 'processing',
+      prefix: 'raw%_\\',
+      limit: 25,
+    });
+    expect(api.getChangeFeed).toHaveBeenLastCalledWith({
+      ...scope,
+      source: 'processing',
+      provider: selected,
+      limit: 25,
+      cursor: undefined,
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Check history filters',
+    );
+    for (const [request] of jest.mocked(api.getProviders).mock.calls) {
+      expect(request).not.toHaveProperty('provider');
+      expect(request).not.toHaveProperty('owner');
+      expect(request).not.toHaveProperty('cursor');
+    }
+    expect(api.getEntityTimeline).not.toHaveBeenCalled();
+    expect(api.getEntityVersion).not.toHaveBeenCalled();
+  });
+
+  it('keeps legacy custom APIs on debounced exact provider filtering and cancels pending text on reset', async () => {
+    // Arrange: no discovery method is intentional for older custom APIs.
+    const { api, mount } = setup();
+    mount();
+    await screen.findByText('No recorded events match these filters.');
+    jest.useFakeTimers();
+    const input = screen.getByRole('textbox', { name: 'Provider' });
+
+    // Act
+    fireEvent.change(input, { target: { value: ' legacy-exact ' } });
+    await act(async () => jest.advanceTimersByTime(299));
+    expect(api.getChangeFeed).toHaveBeenCalledTimes(1);
+    await act(async () => jest.advanceTimersByTime(1));
+    expect(api.getChangeFeed).toHaveBeenLastCalledWith(
+      expect.objectContaining({ provider: 'legacy-exact', cursor: undefined }),
+    );
+    fireEvent.change(input, { target: { value: 'must-not-apply' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Reset filters' }));
+    await act(async () => jest.advanceTimersByTime(300));
+
+    // Assert
+    expect(screen.getByRole('textbox', { name: 'Provider' })).toHaveValue('');
+    expect(api.getChangeFeed).toHaveBeenCalledTimes(3);
+    expect(api.getChangeFeed).toHaveBeenLastCalledWith({
+      limit: 25,
+      cursor: undefined,
+    });
+    expect(api.getEntityVersion).not.toHaveBeenCalled();
+  });
 
   it('renders explicitly supplied update summaries but keeps legacy and lifecycle feed rows badge-free', async () => {
     // Arrange: the default global feed need not compute per-entity summaries.

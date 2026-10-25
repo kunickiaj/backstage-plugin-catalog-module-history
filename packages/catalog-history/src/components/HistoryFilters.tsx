@@ -13,6 +13,8 @@ import {
   isHistorySource,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import type { HistoryChangeFeedRequest } from '@kunickiaj/backstage-plugin-catalog-history-common';
+import type { CatalogHistoryApi } from '../api/CatalogHistoryApi';
+import { HistoryProviderFilter } from './HistoryProviderFilter';
 import styles from './History.module.css';
 
 export type HistoryFiltersValue = Omit<
@@ -56,7 +58,10 @@ function entityFilters(
   }
 }
 
-function parseFilters(draft: typeof empty): HistoryFiltersValue | undefined {
+function parseFilters(
+  draft: typeof empty,
+  exactProvider?: string,
+): HistoryFiltersValue | undefined {
   const after = draft.after ? new Date(draft.after) : undefined;
   const before = draft.before ? new Date(draft.before) : undefined;
   if (
@@ -71,7 +76,7 @@ function parseFilters(draft: typeof empty): HistoryFiltersValue | undefined {
   return {
     ...entityFilters(draft),
     source: isHistorySource(draft.source) ? draft.source : undefined,
-    provider: draft.provider.trim() || undefined,
+    provider: exactProvider ?? (draft.provider.trim() || undefined),
     op: isHistoryOperation(draft.op) ? draft.op : undefined,
     changedAfter: after?.toISOString(),
     changedBefore: before?.toISOString(),
@@ -81,9 +86,14 @@ function parseFilters(draft: typeof empty): HistoryFiltersValue | undefined {
 export function HistoryFilters(props: {
   onApply: (filters: HistoryFiltersValue) => void;
   scope?: 'entity' | 'all';
+  api?: CatalogHistoryApi;
+  appliedFilters?: HistoryFiltersValue;
+  entityRef?: string;
 }) {
   const [draft, setDraft] = useState(empty);
   const [error, setError] = useState('');
+  const [resetToken, setResetToken] = useState(0);
+  const exactProvider = useRef<string>();
   const timer = useRef<ReturnType<typeof setTimeout>>();
   const onApply = useRef(props.onApply);
   const applied = useRef(JSON.stringify(parseFilters(empty)));
@@ -107,7 +117,7 @@ export function HistoryFilters(props: {
       );
       return;
     }
-    const filters = parseFilters(next);
+    const filters = parseFilters(next, exactProvider.current);
     if (!filters) {
       setError(
         'Enter valid dates, with recorded after no later than recorded before.',
@@ -164,11 +174,27 @@ export function HistoryFilters(props: {
             ...HISTORY_SOURCES.map(id => ({ id, label: id })),
           ]}
         />
-        <TextField
-          className={styles.field}
-          label="Provider"
+        <HistoryProviderFilter
+          key={resetToken}
+          api={props.api}
+          context={{
+            source: props.appliedFilters?.source,
+            entityRef: props.entityRef ?? props.appliedFilters?.entityRef,
+            kind: props.appliedFilters?.kind,
+            op: props.appliedFilters?.op,
+            changedAfter: props.appliedFilters?.changedAfter,
+            changedBefore: props.appliedFilters?.changedBefore,
+          }}
+          appliedProvider={props.appliedFilters?.provider}
           value={draft.provider}
-          onChange={provider => update({ ...draft, provider }, true)}
+          onLegacyChange={provider => {
+            exactProvider.current = undefined;
+            update({ ...draft, provider }, true);
+          }}
+          onSelect={provider => {
+            exactProvider.current = provider;
+            update({ ...draft, provider: provider ?? '' });
+          }}
         />
         <Select
           className={styles.field}
@@ -217,6 +243,8 @@ export function HistoryFilters(props: {
           variant="secondary"
           onPress={() => {
             cancelPending();
+            exactProvider.current = undefined;
+            setResetToken(value => value + 1);
             setDraft(empty);
             setError('');
             applied.current = JSON.stringify(parseFilters(empty));

@@ -9,6 +9,169 @@ import {
 import type { CatalogHistoryApi } from '../src';
 
 describe('development fixture API', () => {
+  describe('provider discovery', () => {
+    it('discovers retained names outside the first event page without changing event pagination', async () => {
+      // Arrange: these static ASCII names are not a database collation oracle.
+      const api = createFixtureApi();
+      // Act
+      const first = await api.getChangeFeed!({});
+      const providers = await api.getProviders!({ prefix: 'EXAMPLE' });
+      const all = await api.getProviders!({});
+      const oversized = await api.getProviders!({ limit: 101 });
+      // Assert
+      expect(first.items).toHaveLength(5);
+      expect(first.items.map(row => row.provider)).not.toContain(
+        'example-bootstrap',
+      );
+      expect(providers.items).toEqual([
+        'example-bootstrap',
+        'example-discovery',
+      ]);
+      expect(all).toEqual({
+        items: [
+          'example-bootstrap',
+          'example-discovery',
+          'processing',
+          'reconciler',
+        ],
+        nextCursor: undefined,
+      });
+      expect(oversized).toEqual(all);
+      expect(await api.getChangeFeed!({})).toEqual(first);
+    });
+
+    it.each([
+      { context: { source: 'processing' as const }, names: ['processing'] },
+      {
+        context: {
+          entityRef: 'Example-Service',
+          kind: 'Component',
+          op: 'insert' as const,
+        },
+        names: ['example-bootstrap', 'example-discovery'],
+      },
+      {
+        context: {
+          entityRef: 'Group:Teams/Retired-Team',
+          kind: ' gRoUp ',
+          op: 'delete' as const,
+        },
+        names: ['example-discovery'],
+      },
+      {
+        context: {
+          kind: 'API',
+          changedAfter: '2026-10-14T14:00:00.000Z',
+          changedBefore: '2026-10-14T14:00:00.000Z',
+        },
+        names: ['example-discovery'],
+      },
+    ])(
+      'scopes retained names before deduplication: $context',
+      async ({ context, names }) => {
+        // Arrange
+        const api = createFixtureApi();
+        // Act
+        const matching = await api.getProviders!(context);
+        const excluded = await api.getProviders!({
+          ...context,
+          prefix: 'no-such-provider',
+        });
+        // Assert
+        expect(matching.items).toEqual(names);
+        expect(excluded.items).toEqual([]);
+      },
+    );
+
+    it.each(['%', '_', '\\', ' example', 'discovery', 'EXAMPLE '])(
+      'treats prefix %j literally without trimming or substring matching',
+      async prefix => {
+        // Arrange
+        const api = createFixtureApi();
+        // Act
+        const result = await api.getProviders!({ prefix });
+        // Assert
+        expect(result).toEqual({ items: [], nextCursor: undefined });
+      },
+    );
+
+    it.each([0, -1, 1.5, Number.NaN])(
+      'rejects invalid provider limit %s',
+      async limit => {
+        // Arrange
+        const api = createFixtureApi();
+        // Act
+        const result = api.getProviders!({ limit });
+        // Assert
+        await expect(result).rejects.toMatchObject({ status: 400 });
+      },
+    );
+
+    it('pages distinct names with an opaque cursor and permits a new page size', async () => {
+      // Arrange
+      const api = createFixtureApi();
+      // Act
+      const first = await api.getProviders!({ limit: 1 });
+      const second = await api.getProviders!({
+        limit: 1,
+        cursor: first.nextCursor,
+      });
+      const rest = await api.getProviders!({
+        limit: 100,
+        cursor: second.nextCursor,
+      });
+      // Assert
+      expect(first.items).toEqual(['example-bootstrap']);
+      expect(first.nextCursor).toEqual(expect.any(String));
+      expect(second.items).toEqual(['example-discovery']);
+      expect(rest).toEqual({
+        items: ['processing', 'reconciler'],
+        nextCursor: undefined,
+      });
+    });
+
+    it.each([
+      { prefix: 'example' },
+      { source: 'provider' as const },
+      { entityRef: previewEntityRef },
+      { kind: 'Component' },
+      { op: 'insert' as const },
+      { changedAfter: '2026-10-01T00:00:00.000Z' },
+      { changedBefore: '2026-10-20T00:00:00.000Z' },
+    ])(
+      'rejects reuse of a provider cursor with changed context $context',
+      async context => {
+        // Arrange
+        const api = createFixtureApi();
+        const first = await api.getProviders!({ limit: 1 });
+        // Act
+        const result = api.getProviders!({
+          ...context,
+          cursor: first.nextCursor,
+        });
+        // Assert
+        await expect(result).rejects.toMatchObject({ status: 400 });
+      },
+    );
+
+    it('rejects event cursors for provider discovery and provider cursors for event reads', async () => {
+      // Arrange
+      const api = createFixtureApi();
+      const events = await api.getChangeFeed!({ limit: 1 });
+      const providers = await api.getProviders!({ limit: 1 });
+      // Act / Assert: attach rejection handlers before starting the next read.
+      await expect(
+        api.getProviders!({ cursor: events.nextCursor }),
+      ).rejects.toMatchObject({ status: 400 });
+      await expect(
+        api.getChangeFeed!({ cursor: providers.nextCursor }),
+      ).rejects.toMatchObject({ status: 400 });
+      await expect(
+        api.getProviders!({ cursor: 'unknown' }),
+      ).rejects.toMatchObject({ status: 400 });
+    });
+  });
+
   it('pages every cross-entity event once, exposing identity but not snapshots', async () => {
     // Arrange
     const api = createFixtureApi() as Required<CatalogHistoryApi>;

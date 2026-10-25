@@ -29,7 +29,12 @@ function EntityHistory({ entityRef }: { entityRef: string }) {
         Events show when each capture source recorded a change, not when the
         upstream system changed.
       </p>
-      <HistoryFilters onApply={setFilters} />
+      <HistoryFilters
+        onApply={setFilters}
+        api={api}
+        appliedFilters={filters}
+        entityRef={entityRef}
+      />
       <HistoryTimeline
         key={JSON.stringify(request)}
         api={api}
