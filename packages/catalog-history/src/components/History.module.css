@@ -293,6 +293,73 @@
   line-height: 1.6;
 }
 
+.snapshot {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.snapshotSection {
+  min-width: 0;
+  border-top: 1px solid var(--bui-border-1);
+  padding-top: var(--bui-space-4);
+  margin-top: var(--bui-space-4);
+  font-size: var(--bui-font-size-3);
+  line-height: 1.5;
+}
+
+.snapshotSection h4 {
+  margin: 0;
+}
+
+.snapshotFields {
+  display: grid;
+  gap: var(--bui-space-3);
+  margin: var(--bui-space-3) 0 0;
+}
+
+.snapshotFields > div,
+.snapshotFields dd {
+  min-width: 0;
+}
+
+.snapshotFields dt {
+  color: var(--bui-fg-secondary);
+  font-size: var(--bui-font-size-2);
+}
+
+.snapshotFields dd {
+  margin: var(--bui-space-1) 0 0;
+  white-space: pre-wrap;
+}
+
+.snapshotList,
+.snapshotRecords {
+  padding-left: var(--bui-space-5);
+  margin: 0;
+}
+
+.snapshotRecords > li {
+  min-width: 0;
+  margin-top: var(--bui-space-4);
+}
+
+.snapshotJson {
+  margin-top: var(--bui-space-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.snapshotJson:focus-visible {
+  outline: 2px solid var(--bui-border-info);
+  outline-offset: 2px;
+}
+
+.snapshotScalar {
+  font-family: var(--bui-font-monospace);
+  font-size: var(--bui-font-size-2);
+  white-space: pre-wrap;
+}
+
 @media (max-width: 1200px) {
   .filterFields {
     grid-template-columns: repeat(3, minmax(0, 1fr));
