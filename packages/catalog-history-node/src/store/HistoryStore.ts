@@ -39,6 +39,7 @@ export interface HistoryStore {
         | 'getKinds'
         | 'listCycles'
         | 'getCycle'
+        | 'getEntityAsOf'
       >
     >;
 

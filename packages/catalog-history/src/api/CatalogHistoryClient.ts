@@ -11,6 +11,8 @@ import type {
   HistoryCycleDetailResponse,
   HistoryCycleListRequest,
   HistoryCycleListResponse,
+  HistoryEntityAsOfRequest,
+  HistoryEntityAsOfResponse,
   HistoryEntitySearchRequest,
   HistoryEntitySearchResponse,
   HistoryEntityTimelineRequest,
@@ -200,6 +202,16 @@ export class CatalogHistoryClient implements CatalogHistoryApi {
       if (request[key] !== undefined) query.set(key, request[key]);
     });
     return this.get(request.entityRef, `/history?${query}`);
+  }
+
+  async getEntityAsOf(
+    request: HistoryEntityAsOfRequest,
+  ): Promise<HistoryEntityAsOfResponse> {
+    const query = new URLSearchParams({ timestamp: request.timestamp });
+    (['source', 'provider'] as const).forEach(key => {
+      if (request[key] !== undefined) query.set(key, request[key]);
+    });
+    return this.get(request.entityRef, `/as-of?${query}`);
   }
 
   async getEntityVersion(

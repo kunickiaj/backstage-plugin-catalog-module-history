@@ -188,7 +188,7 @@ Use a timeline item's `id` to inspect that event. Do not look it up by etag or u
 
 The entity list routes accept `source` (`provider`, `processing`, or `reconciler`), `provider`, `changedAfter`, `changedBefore`, `limit`, and `cursor`; the history route also accepts `op` (`insert`, `update`, or `delete`). The change-feed route accepts those filters plus `entityRef` and `kind`. `entityRef` is an exact canonical entity reference, not a partial search. `kind` is an exact, case-insensitive match and supports custom kinds. Timestamps must be ISO 8601 instants. `limit` is a positive integer, defaults to `25`, and is capped at `100`. Cursors are opaque and paginate live data, not a frozen result set. Pass `nextCursor` as `cursor` unchanged, and reset pagination after changing filters or refreshing results. Unknown, empty, or repeated query parameters, invalid values, and the unsupported `owner` filter return `400`.
 
-The detail route accepts no query parameters. Invalid, nonpositive, or out-of-range PostgreSQL bigint IDs return `400`; an absent row or an ID for another entity returns `404`. The API returns retained history for deleted entities and does not filter rows by current catalog visibility. An approved `catalog-history.read` permission grants access to all retained history, not only entities visible in the current catalog. An empty list is `200` with `items: []`. Errors are `401` for missing authentication, `403` for a rejected permission decision, and `500` for a sanitized backend failure. Stats, facets, as-of, and arbitrary diff routes are not available yet.
+The detail route accepts no query parameters. Invalid, nonpositive, or out-of-range PostgreSQL bigint IDs return `400`; an absent row or an ID for another entity returns `404`. The API returns retained history for deleted entities and does not filter rows by current catalog visibility. An approved `catalog-history.read` permission grants access to all retained history, not only entities visible in the current catalog. An empty list is `200` with `items: []`. Errors are `401` for missing authentication, `403` for a rejected permission decision, and `500` for a sanitized backend failure. Stats, facets, and arbitrary diff routes are not available yet.
 
 Unreleased source populates saved-field summaries on the default Postgres entity timeline and selected-event detail. Owner, relations, status, and orphan flags compare the immediately preceding saved event from the same entity, source, and provider, even when that event falls outside the current page or filters. A flag is omitted if either recorded value or the comparison is unavailable; known unchanged values produce `false`. Inserts, deletes, and updates without a comparable predecessor have empty summaries. Arrays are compared as whole, order-sensitive values, not graph semantics. The global feed, version lists, and nested predecessor summaries still return `{}`. The default Postgres query implementation in published `0.2.0` returns empty summaries.
 
@@ -243,6 +243,23 @@ The list sorts by stored start time and then UUID, newest first. Changed rows so
 `counts` are totals recorded when the cycle ran: `inserted`, `updated`, `deleted`, and `unchanged`. They are not a count of the current catalog, the current page, or the retained rows. If older entity rows are removed, the recorded counts stay unchanged. An existing cycle with no retained changes returns `200` with `changes.items: []`; this does not mean the cycle recorded no activity. An unknown cycle returns `404`. Cycle change rows are metadata only; use the exact entity-version route to retrieve a snapshot or an event's full details.
 
 Cycle routes require the same user authentication and `catalog-history.read` authorization as the other history routes. An older backend has no route (`404`); a custom store without the relevant query capability returns `501` after authentication and authorization. `401` and `403` indicate access failures, not unsupported cycle reads.
+
+### Read a retained observation as of a time in the unreleased source
+
+`GET /api/catalog/history/entities/:kind/:namespace/:name/as-of` returns the latest retained physical row for the canonical entity at or before `timestamp`. Its only query parameters are required `timestamp` and optional exact `source` and `provider`; `timestamp` must be an ISO 8601 instant with a valid calendar date.
+
+```sh
+curl -H 'Authorization: Bearer <TOKEN>' \
+  'https://backstage.example.com/api/catalog/history/entities/Component/default/payment-api/as-of?timestamp=2026-10-24T12%3A00%3A00.123456Z&source=provider&provider=example-provider'
+```
+
+The request timestamp is returned unchanged as `asOf`; it can retain microseconds and an offset. Response `changedAt` values use the existing JavaScript Date precision, such as `2026-10-24T12:00:00.123Z`. When a row has a snapshot, the response includes it both as `version.snapshot` and as top-level `snapshot`. A selected delete row has no snapshot and does not fall back to an earlier live row.
+
+Without `source`, the lookup can select the latest matching observation from any retained capture layer. It does not query the current catalog or construct a past served-catalog state: provider, processing, and reconciler snapshots each describe their own recorded layer and are not interchangeable. The database compares its native timestamp precision and breaks ties by descending bigint row ID.
+
+If no eligible retained row exists—for example, the entity is unknown, the requested time precedes the first row, or retention removed earlier rows—the response is `200` with `{ entityRef, asOf }` and omits `version` and `snapshot`. It means no eligible retained observation, not proof that the entity never existed. Empty, repeated, unknown, or cycle-related query parameters return `400`; the endpoint does not accept pagination, operation, owner, changed-range, or cycle parameters.
+
+The route requires the same authentication and `catalog-history.read` authorization as other history reads. A custom store without `getEntityAsOf` returns `501` only after authorization; an older backend without the route returns `404`. `401` and `403` are access failures.
 
 ### Provider discovery in unreleased source
 

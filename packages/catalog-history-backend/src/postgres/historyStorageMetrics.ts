@@ -13,6 +13,7 @@ export type QueryOperation =
   | 'timeline'
   | 'feed'
   | 'versions'
+  | 'as_of'
   | 'detail'
   | 'providers'
   | 'entities'

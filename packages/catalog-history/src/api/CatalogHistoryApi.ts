@@ -6,6 +6,8 @@ import type {
   HistoryCycleListResponse,
   HistoryCycleDetailRequest,
   HistoryCycleDetailResponse,
+  HistoryEntityAsOfRequest,
+  HistoryEntityAsOfResponse,
   HistoryEntityTimelineRequest,
   HistoryEntityTimelineResponse,
   HistoryEntityVersionRequest,
@@ -20,6 +22,10 @@ import type {
 
 /** Read recorded events and their exact snapshots. @public */
 export interface CatalogHistoryApi {
+  /** Optional latest retained observation at or before the requested timestamp. */
+  getEntityAsOf?(
+    request: HistoryEntityAsOfRequest,
+  ): Promise<HistoryEntityAsOfResponse>;
   /** Optional reads of recorded cycles, including cycles without entity changes. */
   listCycles?(
     request: HistoryCycleListRequest,

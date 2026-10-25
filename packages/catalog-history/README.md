@@ -206,6 +206,30 @@ metadata and a retained change page, respectively. The client URI-encodes
 cycle IDs and filter values, uses the same
 authenticated fetch API, and has no fallback or cache.
 
+### As-of SDK method in unreleased source
+
+`getEntityAsOf` is optional for custom API implementations. It reads one
+retained observation at or before the requested timestamp:
+
+```ts
+const result = await api.getEntityAsOf?.({
+  entityRef: 'component:default/payment-api',
+  timestamp: '2026-10-24T12:00:00.123456Z',
+  source: 'provider',
+  provider: 'example-provider',
+});
+```
+
+The client URI-encodes the entity path and sends only `timestamp`, `source`,
+and `provider`. It preserves the requested timestamp and provider string,
+including provider case and whitespace, and returns server JSON unchanged.
+HTTP failures propagate by status without caching or automatic fallback.
+A successful result can omit
+`version` and `snapshot` when no eligible retained observation exists; a
+selected delete has a version but no snapshot. An older backend without the
+route returns `404`; a custom store without the method returns `501` after
+authorization. `401`/`403` remain access failures.
+
 ## Access and unavailable history
 
 The backend requires an authenticated user. When the Backstage permission framework is enabled, the policy must explicitly allow `catalog-history.read`; otherwise the tab reports an access error.
