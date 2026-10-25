@@ -8,16 +8,20 @@ import type {
 type Point = { name: string; value: number; attributes: MetricAttributes };
 type Failure =
   | 'create'
-  | 'add'
+  | 'gauge_create'
   | 'record'
   | 'callback'
-  | 'second_callback'
   | 'remove'
   | 'observe';
 
 // A local SDK boundary fake: no exporter, global provider, timers, or network.
 export function metricsJournal(failure?: Failure) {
-  const instruments: Array<{ name: string; unit?: string; kind: string }> = [];
+  const instruments: Array<{
+    name: string;
+    unit?: string;
+    kind: string;
+    advice?: MetricOptions['advice'];
+  }> = [];
   const points: Point[] = [];
   const callbacks = new Map<unknown, () => Promise<void>>();
   const removed: unknown[] = [];
@@ -31,7 +35,12 @@ export function metricsJournal(failure?: Failure) {
     kind: string,
   ) => {
     fail('create');
-    instruments.push({ name, unit: opts?.unit, kind });
+    instruments.push({
+      name,
+      unit: opts?.unit,
+      kind,
+      ...(opts?.advice && { advice: opts.advice }),
+    });
   };
   const write = (
     name: string,
@@ -44,7 +53,6 @@ export function metricsJournal(failure?: Failure) {
     create(name, opts, 'counter');
     return {
       add(value, attributes) {
-        fail('add');
         write(name, value, attributes);
       },
     };
@@ -62,6 +70,7 @@ export function metricsJournal(failure?: Failure) {
     name: string,
     opts?: MetricOptions,
   ) {
+    fail('gauge_create');
     create(name, opts, 'gauge');
     return {
       addCallback(callback: MetricsServiceObservableCallback<A>) {
@@ -75,8 +84,6 @@ export function metricsJournal(failure?: Failure) {
         });
         // Simulate an SDK which registers the callback and then throws.
         fail('callback');
-        if (failure === 'second_callback' && callbacks.size === 2)
-          throw sdkError;
       },
       removeCallback(callback: MetricsServiceObservableCallback<A>) {
         removed.push(callback);

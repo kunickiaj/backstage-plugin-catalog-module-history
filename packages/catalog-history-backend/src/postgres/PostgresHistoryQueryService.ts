@@ -448,12 +448,10 @@ export class PostgresHistoryQueryService {
   }
 
   async ensureReady(): Promise<void> {
-    this.schemaReady ??= this.metrics
-      .schema('query', () => ensureSchema(this.db))
-      .catch(error => {
-        this.schemaReady = undefined;
-        throw error;
-      });
+    this.schemaReady ??= ensureSchema(this.db).catch(error => {
+      this.schemaReady = undefined;
+      throw error;
+    });
     await this.schemaReady;
   }
 

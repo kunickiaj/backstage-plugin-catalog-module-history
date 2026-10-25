@@ -538,7 +538,7 @@ describe('PostgresHistoryQueryService provider discovery', () => {
       expect(page.nextCursor).toEqual(expect.any(String));
       expect(
         journal
-          .values('catalog.history.query.operations')
+          .values('catalog.history.query.operation.duration')
           .map(point => point.attributes),
       ).toEqual([{ operation: 'providers', outcome: 'success' }]);
       expect(JSON.stringify(journal.points)).not.toContain(prefix);
@@ -549,7 +549,7 @@ describe('PostgresHistoryQueryService provider discovery', () => {
     }
   });
 
-  it.each(['create', 'add', 'record'] as const)(
+  it.each(['create', 'gauge_create', 'record'] as const)(
     'isolates metrics SDK %s failures from discovery',
     async failure => {
       // Arrange
@@ -613,7 +613,7 @@ describe('PostgresHistoryQueryService provider discovery', () => {
       expect(await db('pg_locks').where({ pid, granted: false })).toEqual([]);
       expect(
         journal
-          .values('catalog.history.query.operations')
+          .values('catalog.history.query.operation.duration')
           .map(point => point.attributes),
       ).toEqual([{ operation: 'providers', outcome: 'timeout' }]);
     } finally {

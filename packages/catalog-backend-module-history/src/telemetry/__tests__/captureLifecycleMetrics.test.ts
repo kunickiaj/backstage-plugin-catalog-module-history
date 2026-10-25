@@ -11,6 +11,7 @@ import { HistoryRecordingCatalogProcessor } from '../../processor/HistoryRecordi
 import { reconcile } from '../../reconciler/reconcile';
 import { entityToRow } from '../../mapping/entityToRow';
 import { metricsJournal, outcomes } from './metricsJournal';
+import type { MetricsFailure } from './metricsJournal';
 
 const marker = 'unique-private-provider-ref-payload-error';
 
@@ -46,7 +47,7 @@ async function providerHarness(
     enabled?: boolean;
     convertFullToDelta?: boolean;
     forceFullEvery?: { seconds: number };
-    failure?: 'create' | 'add' | 'record';
+    failure?: MetricsFailure;
   } = {},
 ) {
   const journal = metricsJournal(options.failure);
@@ -70,10 +71,7 @@ async function providerHarness(
   return { ...journal, store, wrapped, connection, inner };
 }
 
-function processorHarness(
-  failure?: 'create' | 'add' | 'record',
-  maxBatchSize = 500,
-) {
+function processorHarness(failure?: MetricsFailure, maxBatchSize = 500) {
   const journal = metricsJournal(failure);
   const store = new InMemoryHistoryStore();
   const processor = new HistoryRecordingCatalogProcessor({
@@ -155,11 +153,7 @@ describe('provider capture metrics', () => {
           operation: 'provider_mutation',
         }),
       ).toEqual(['success']);
-      for (const phase of ['forward', 'baseline', 'prepare', 'record']) {
-        expect(outcomes(h.measurements, 'provider', { phase })).toEqual([
-          'success',
-        ]);
-      }
+      expect(h.measurements).toHaveLength(1);
       expect(JSON.stringify(h.measurements)).not.toContain(marker);
     },
   );
@@ -179,9 +173,6 @@ describe('provider capture metrics', () => {
     await expect(result).rejects.toBe(error);
     expect(baseline).not.toHaveBeenCalled();
     expect(record).not.toHaveBeenCalled();
-    expect(outcomes(h.measurements, 'provider', { phase: 'forward' })).toEqual([
-      'error',
-    ]);
     expect(
       outcomes(h.measurements, 'provider', { operation: 'provider_mutation' }),
     ).toEqual(['error']);
@@ -210,9 +201,6 @@ describe('provider capture metrics', () => {
       await expect(result).resolves.toBeUndefined();
       expect(h.connection.applyMutation).toHaveBeenCalledTimes(1);
       expect(record).toHaveBeenCalledTimes(phase === 'record' ? 1 : 0);
-      expect(outcomes(h.measurements, 'provider', { phase })).toEqual([
-        'error',
-      ]);
       expect(
         outcomes(h.measurements, 'provider', {
           operation: 'provider_mutation',
@@ -241,12 +229,6 @@ describe('provider capture metrics', () => {
     expect(h.connection.applyMutation).toHaveBeenCalledTimes(1);
     expect(h.connection.applyMutation.mock.calls[0][0]).toBe(mutation);
     expect(record).not.toHaveBeenCalled();
-    expect(outcomes(h.measurements, 'provider', { phase: 'baseline' })).toEqual(
-      ['error'],
-    );
-    expect(outcomes(h.measurements, 'provider', { phase: 'forward' })).toEqual([
-      'success',
-    ]);
     expect(
       outcomes(h.measurements, 'provider', { operation: 'provider_mutation' }),
     ).toEqual(['error']);
@@ -266,7 +248,7 @@ describe('provider capture metrics', () => {
     expect(h.measurements).toEqual([]);
   });
 
-  it.each(['create', 'add', 'record'] as const)(
+  it.each(['create', 'record', 'createGetter', 'recordGetter'] as const)(
     'does not repeat work or change forward error identity when SDK %s throws',
     async failure => {
       // Arrange
@@ -290,6 +272,46 @@ describe('provider capture metrics', () => {
 describe('processor capture metrics', () => {
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());
+
+  it('emits exactly one sample per changed or unchanged post-process call before flushing', async () => {
+    // Arrange - the in-memory store adds no storage instruments to this budget.
+    const h = processorHarness();
+    const entity = user();
+    const record = jest.spyOn(h.store, 'recordCycle');
+
+    // Act
+    const first = await h.post(entity);
+    const afterFirst = [...h.measurements];
+    const second = await h.post(entity);
+    const beforeFlush = [...h.measurements];
+    await h.processor.stop();
+
+    // Assert - the former eight-emission hot path now records one histogram sample.
+    expect(first).toBe(entity);
+    expect(second).toBe(entity);
+    expect(afterFirst).toHaveLength(1);
+    expect(beforeFlush).toHaveLength(2);
+    expect(
+      outcomes(beforeFlush, 'processing', {
+        operation: 'processing_entity',
+      }),
+    ).toEqual(['success', 'success']);
+    expect(
+      beforeFlush.every(
+        m =>
+          m.name === 'catalog.history.capture.operation.duration' &&
+          Number.isFinite(m.value) &&
+          m.value >= 0,
+      ),
+    ).toBe(true);
+    expect(h.measurements).toHaveLength(3);
+    expect(record).toHaveBeenCalledTimes(1);
+    expect(h.store.cycles[0]).toMatchObject({
+      inserts: [entityToRow(entity)],
+      updates: [],
+      unchangedCount: 1,
+    });
+  });
 
   it('serializes same-entity classification behind one pending baseline seed', async () => {
     // Arrange
@@ -346,9 +368,6 @@ describe('processor capture metrics', () => {
       // Assert
       expect(result).toBe(entity);
       expect(h.store.cycles).toEqual([]);
-      expect(outcomes(h.measurements, 'processing', { phase })).toContain(
-        'error',
-      );
       expect(
         outcomes(h.measurements, 'processing', {
           operation: 'processing_entity',
@@ -393,9 +412,7 @@ describe('processor capture metrics', () => {
     expect(
       outcomes(h.measurements, 'processing', { operation: 'processing_flush' }),
     ).toEqual([]);
-    expect(outcomes(h.measurements, 'processing', { phase: 'record' })).toEqual(
-      [],
-    );
+    expect(h.measurements).toHaveLength(1);
   });
 
   it('reports a swallowed flush error separately and restores etags for recapture', async () => {
@@ -428,9 +445,6 @@ describe('processor capture metrics', () => {
     expect(
       outcomes(h.measurements, 'processing', { operation: 'processing_flush' }),
     ).toEqual(['error', 'success']);
-    expect(outcomes(h.measurements, 'processing', { phase: 'record' })).toEqual(
-      ['error', 'success'],
-    );
     expect(JSON.stringify(h.measurements)).not.toContain(marker);
   });
 
@@ -466,7 +480,7 @@ describe('processor capture metrics', () => {
     expect(jest.getTimerCount()).toBe(0);
   });
 
-  it.each(['create', 'add', 'record'] as const)(
+  it.each(['create', 'record', 'createGetter', 'recordGetter'] as const)(
     'keeps state, return identity, and failed-flush recovery when SDK %s throws',
     async failure => {
       // Arrange
@@ -538,17 +552,13 @@ describe('reconciler capture metrics', () => {
       expect(
         outcomes(h.measurements, 'reconciler', { operation: 'reconcile' }),
       ).toEqual(['success']);
-      for (const phase of ['fetch', 'baseline', 'prepare', 'record']) {
-        expect(outcomes(h.measurements, 'reconciler', { phase })).toContain(
-          'success',
-        );
-      }
+      expect(h.measurements).toHaveLength(1);
       expect(JSON.stringify(h.measurements)).not.toContain(marker);
     },
   );
 
   it.each(['fetch', 'baseline', 'prepare', 'record'] as const)(
-    'rethrows the identical %s error with matching phase and operation outcomes',
+    'rethrows the identical %s error with an error operation outcome',
     async phase => {
       // Arrange
       const h = metricsJournal();
@@ -578,9 +588,6 @@ describe('reconciler capture metrics', () => {
       // Assert
       await expect(result).rejects.toBe(error);
       expect(record).toHaveBeenCalledTimes(phase === 'record' ? 1 : 0);
-      expect(outcomes(h.measurements, 'reconciler', { phase })).toContain(
-        'error',
-      );
       expect(
         outcomes(h.measurements, 'reconciler', { operation: 'reconcile' }),
       ).toEqual(['error']);
@@ -588,7 +595,7 @@ describe('reconciler capture metrics', () => {
     },
   );
 
-  it.each(['create', 'add', 'record'] as const)(
+  it.each(['create', 'record', 'createGetter', 'recordGetter'] as const)(
     'preserves success, error identity, and work counts when SDK %s throws',
     async failure => {
       // Arrange

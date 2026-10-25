@@ -81,64 +81,36 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
       this.captureMetrics.startOperation('processing_entity');
     let operationOutcome: 'success' | 'error' = 'success';
     try {
-      const stopMapping = this.captureMetrics.startPhase('prepare');
-      let mapped = false;
-      let row: EntityRow;
-      try {
-        row = entityToRow(entity);
-        mapped = true;
-      } finally {
-        stopMapping(mapped ? 'success' : 'error');
-      }
-      const stopBaseline = this.captureMetrics.startPhase('baseline');
-      let loaded = false;
-      let etags: Map<string, string>;
-      try {
-        etags = await this.getCurrentEtags();
-        loaded = true;
-      } finally {
-        stopBaseline(loaded ? 'success' : 'error');
-      }
-      const stopPrepare = this.captureMetrics.startPhase('prepare');
-      let prepared = false;
-      try {
-        // INVARIANT: no awaits between reading the map below and writing it
-        // back (etags.set). The catalog engine calls postProcessEntity
-        // concurrently; because this read-classify-queue stretch is fully
-        // synchronous, concurrent calls for the same entityRef serialize on
-        // the microtask queue and cannot double-classify. Adding an await in
-        // between would reintroduce a TOCTOU race and duplicate rows.
-        const previousEtag = etags.get(row.entityRef);
-        const previousEtagVersion =
-          this.currentEtagVersions.get(row.entityRef) ?? 0;
+      const row = entityToRow(entity);
+      const etags = await this.getCurrentEtags();
+      // INVARIANT: no awaits between reading the map below and writing it
+      // back (etags.set). The catalog engine calls postProcessEntity
+      // concurrently; because this read-classify-queue stretch is fully
+      // synchronous, concurrent calls for the same entityRef serialize on
+      // the microtask queue and cannot double-classify. Adding an await in
+      // between would reintroduce a TOCTOU race and duplicate rows.
+      const previousEtag = etags.get(row.entityRef);
+      const previousEtagVersion =
+        this.currentEtagVersions.get(row.entityRef) ?? 0;
 
-        if (previousEtag === row.etag) {
-          this.unchangedCount += 1;
-          prepared = true;
-          return entity;
-        }
-
-        if (!this.batchOriginalEtags.has(row.entityRef)) {
-          this.batchOriginalEtags.set(row.entityRef, previousEtag);
-          this.batchOriginalEtagVersions.set(
-            row.entityRef,
-            previousEtagVersion,
-          );
-        }
-        const etagVersion = previousEtagVersion + 1;
-        if (previousEtag === undefined) {
-          this.inserts.push({ row, etagVersion });
-        } else {
-          this.updates.push({ row, etagVersion });
-        }
-        etags.set(row.entityRef, row.etag);
-        this.currentEtagVersions.set(row.entityRef, etagVersion);
-        this.ensureBatchStarted();
-        prepared = true;
-      } finally {
-        // Record only after the synchronous cache/queue transition is complete.
-        stopPrepare(prepared ? 'success' : 'error');
+      if (previousEtag === row.etag) {
+        this.unchangedCount += 1;
+        return entity;
       }
+
+      if (!this.batchOriginalEtags.has(row.entityRef)) {
+        this.batchOriginalEtags.set(row.entityRef, previousEtag);
+        this.batchOriginalEtagVersions.set(row.entityRef, previousEtagVersion);
+      }
+      const etagVersion = previousEtagVersion + 1;
+      if (previousEtag === undefined) {
+        this.inserts.push({ row, etagVersion });
+      } else {
+        this.updates.push({ row, etagVersion });
+      }
+      etags.set(row.entityRef, row.etag);
+      this.currentEtagVersions.set(row.entityRef, etagVersion);
+      this.ensureBatchStarted();
       if (this.bufferLength() >= this.maxBatchSize) {
         await this.flush();
       }
@@ -240,34 +212,19 @@ export class HistoryRecordingCatalogProcessor implements CatalogProcessor {
       this.clearFlushTimer();
 
       try {
-        const stopPrepare = this.captureMetrics.startPhase('prepare');
-        let prepared = false;
-        let cycle: Parameters<HistoryStore['recordCycle']>[0];
-        try {
-          cycle = {
-            cycleId: randomUUID(),
-            provider: PROCESSING_PROVIDER,
-            source: 'processing',
-            mutationType: 'delta',
-            startedAt,
-            finishedAt: new Date(),
-            inserts: inserts.map(queued => queued.row),
-            updates: updates.map(queued => queued.row),
-            deletes: [],
-            unchangedCount,
-          };
-          prepared = true;
-        } finally {
-          stopPrepare(prepared ? 'success' : 'error');
-        }
-        const stopRecord = this.captureMetrics.startPhase('record');
-        let recorded = false;
-        try {
-          await this.options.store.recordCycle(cycle);
-          recorded = true;
-        } finally {
-          stopRecord(recorded ? 'success' : 'error');
-        }
+        const cycle: Parameters<HistoryStore['recordCycle']>[0] = {
+          cycleId: randomUUID(),
+          provider: PROCESSING_PROVIDER,
+          source: 'processing',
+          mutationType: 'delta',
+          startedAt,
+          finishedAt: new Date(),
+          inserts: inserts.map(queued => queued.row),
+          updates: updates.map(queued => queued.row),
+          deletes: [],
+          unchangedCount,
+        };
+        await this.options.store.recordCycle(cycle);
         operationOutcome = 'success';
       } catch (error) {
         // History for this window is intentionally forfeited on store error:

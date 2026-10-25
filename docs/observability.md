@@ -1,116 +1,81 @@
 # Observability
 
-The unreleased source after `0.2.0` records storage and capture-lifecycle metrics through Backstage's built-in `MetricsService`. The default Postgres store receives the service from its factory; the default catalog module also passes it to internally created processing capture and scheduled reconciliation.
-
-The plugin creates instruments only. Configure the OpenTelemetry SDK and exporter at the backend root, following Backstage's [metrics service guide](https://backstage.io/docs/backend-system/core-services/metrics) and [OpenTelemetry setup tutorial](https://backstage.io/docs/tutorials/setup-opentelemetry). It adds no package dependency, registry, exporter configuration, endpoint, health check, or readiness check.
+The unreleased source after `0.2.0` creates four OpenTelemetry instruments through Backstage's `MetricsService`. Configure the SDK and exporter at the backend root; this package adds no exporter, endpoint, registry, dependency, health check, or readiness check. See Backstage's [metrics service guide](https://backstage.io/docs/backend-system/core-services/metrics) and [OpenTelemetry setup tutorial](https://backstage.io/docs/tutorials/setup-opentelemetry).
 
 ## Metric reference
 
-Metric names and units below are SDK instrument names. An exporter can normalize dots or add unit suffixes, so do not assume every backend exposes the same literal PromQL name.
+These are SDK instrument names and units. Exporters can add prefixes, replace dots, or add unit suffixes, so inspect exported output before writing PromQL or percentile queries.
 
-| Instrument                                       | Type and unit               | Attributes                       | Records                                                                                                                                                                                                             |
-| ------------------------------------------------ | --------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `catalog.history.storage.operations`             | Counter, `{operation}`      | `operation`, `source`, `outcome` | Store methods: `record_cycle`, `load_current_etags`, and `load_all_current_etags`.                                                                                                                                  |
-| `catalog.history.storage.operation.duration`     | Histogram, `s`              | `operation`, `source`, `outcome` | The complete store method, including lazy schema setup, pool wait, mapping, and database work.                                                                                                                      |
-| `catalog.history.storage.persistence.duration`   | Histogram, `s`              | `source`, `outcome`              | The transaction invocation through its awaited commit acknowledgement, including pool work, cycle insert, mapping, SQL, and commit.                                                                                 |
-| `catalog.history.capture.window.duration`        | Histogram, `s`              | `source`, `outcome`              | A valid nonnegative `finishedAt - startedAt` interval from the capture input.                                                                                                                                       |
-| `catalog.history.capture.last_success.timestamp` | Observable gauge, `s`       | `source`                         | Application time after a persistence transaction succeeds, including empty heartbeat cycles.                                                                                                                        |
-| `catalog.history.query.operations`               | Counter, `{operation}`      | `operation`, `outcome`           | Database query phases for `timeline`, `feed`, `versions`, `detail`, `cycles`, `cycle_detail`, as-of reads (`as_of`), provider discovery (`providers`), entity discovery (`entities`), and Kind discovery (`kinds`). |
-| `catalog.history.query.operation.duration`       | Histogram, `s`              | `operation`, `outcome`           | The query-phase wrapper, including pool, transaction control, and cleanup.                                                                                                                                          |
-| `catalog.history.schema.initializations`         | Counter, `{initialization}` | `component`, `outcome`           | Actual `ensureSchema` attempts and retries for `store` and `query`.                                                                                                                                                 |
-| `catalog.history.schema.initialization.duration` | Histogram, `s`              | `component`, `outcome`           | Duration of the same schema-initialization attempt.                                                                                                                                                                 |
-| `catalog.history.schema.initialized`             | Observable gauge, `1`       | `component`                      | `0` before an observed initialization or after a failed attempt; `1` after `ensureSchema` fulfills.                                                                                                                 |
-| `catalog.history.capture.operations`             | Counter, `{operation}`      | `source`, `operation`, `outcome` | One completed high-level provider mutation, processing observation, nonempty processing flush, or reconciliation run.                                                                                               |
-| `catalog.history.capture.operation.duration`     | Histogram, `s`              | `source`, `operation`, `outcome` | Duration of that same high-level operation.                                                                                                                                                                         |
-| `catalog.history.capture.phases`                 | Counter, `{phase}`          | `source`, `phase`, `outcome`     | One completed capture phase.                                                                                                                                                                                        |
-| `catalog.history.capture.phase.duration`         | Histogram, `s`              | `source`, `phase`, `outcome`     | Duration of that same capture phase.                                                                                                                                                                                |
+| Instrument                                       | Type and unit                              | Attributes                       | Use it to                                                                                           |
+| ------------------------------------------------ | ------------------------------------------ | -------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `catalog.history.capture.operation.duration`     | Histogram, seconds                         | `source`, `operation`, `outcome` | Find slow or failing capture work, then use logs to identify the provider or run.                   |
+| `catalog.history.storage.operation.duration`     | Histogram, seconds                         | `operation`, `source`, `outcome` | Find slow or failing history-store methods, then investigate the plugin storage path.               |
+| `catalog.history.query.operation.duration`       | Histogram, seconds                         | `operation`, `outcome`           | Find slow, failed, or timed-out read operations, then inspect logs and query plans.                 |
+| `catalog.history.capture.last_success.timestamp` | Observable gauge, seconds since Unix epoch | `source`                         | Check whether a self-owned history write has been acknowledged within its expected capture cadence. |
 
-`source` is one of `provider`, `processing`, `reconciler`, `all`, or `unknown` where applicable. The high-level instruments use only `provider`, `processing`, and `reconciler`. Persistence converts `all` to `unknown` because it is not a capture source. Storage outcomes are `success` and `error`; query metrics also classify `NotFoundError` as `not_found` and PostgreSQL cancellation (`57014`) as `timeout`.
+Histogram `count` (usually exported as `_count` for Prometheus) supports operation and error rates without separate counters. It is a count of completed instrumented operations, not an HTTP-request count. For example, cycle-list reads produce one `cycles` SQL-phase sample; cycle detail produces two `cycle_detail` SQL-phase samples. An empty successful as-of lookup is `success`, not `not_found`.
 
-Labels are finite and controlled. The plugin does not add raw provider IDs, prefixes, names, entity references, SQL, payloads, or error strings to metric attributes. Provider details remain in the existing logs.
+## Attributes and cardinality
 
-### High-level capture labels
+All attributes are finite and controlled. Metrics never contain raw provider IDs, provider prefixes or names, entity references, SQL, payloads, or error text. Use the existing logs to identify those values.
 
-High-level `operation` values are fixed:
+`source` is one of `provider`, `processing`, `reconciler`, `all`, or `unknown` on storage metrics. Capture metrics use only `provider`, `processing`, and `reconciler`.
+
+Capture `operation` is one of:
 
 - `provider_mutation`
 - `processing_entity`
 - `processing_flush`
 - `reconcile`
 
-Query `operation` also has fixed values: `timeline`, `feed`, `versions`,
-`detail`, `cycles`, `cycle_detail`, `as_of`, `providers`, `entities`, and
-`kinds`.
-`cycles` is the cycle-list operation. `cycle_detail` covers the cycle-header
-and change-page query phases separately, so one successful detail response
-produces two successful query samples. Entity and Kind discovery use one paged
-SELECT each; they add no count query or per-entity fetch. An empty successful
-`as_of` lookup is a `success`; it does not emit a separate no-rows or
-not-found metric.
+Query `operation` is one of:
 
-High-level `phase` values are fixed:
+- `timeline`, `feed`, `versions`, or `detail`
+- `cycles` or `cycle_detail`
+- `as_of`, `providers`, `entities`, or `kinds`
 
-- `fetch`
-- `baseline`
-- `prepare`
-- `forward`
-- `record`
+Query outcomes are `success`, `error`, `timeout` (PostgreSQL `57014`), and `not_found` (`NotFoundError`). Capture and storage outcomes are `success` or `error`.
 
-All high-level outcomes are `success` or `error`. They do not classify cancellation or reporting timeouts. This change does not add SQL, pool, or timeout instrumentation beyond the existing storage and query metrics.
+Four instrument names do not mean four time series. Each permitted label combination, histogram bucket, enabled capture layer, host View, and exporter can create additional series.
 
-`processing_flush` is emitted only for a nonempty buffer that is actually flushed. Its timer starts when flushing begins, so it excludes time spent waiting in the batch buffer.
+## Timings and success acknowledgement
 
-Provider and reconciler `baseline` phases time their store reads. Processing records baseline access for each observation; after its initial seed, that access can be a cached map rather than another store read.
+Capture duration measures the complete high-level operation. `processing_entity` includes unchanged observations; `processing_flush` is emitted only for a nonempty buffer that is actually flushed. Use the former's histogram count for processing activity and the latter's error count for failed persistence.
 
-### What high-level timings include
+Storage duration measures the complete store method, including mapping, schema work, pool wait, transaction handling, and database work. It is useful for locating time in the plugin's storage path; it is not a pure PostgreSQL server-execution timer. Compare it with whole-capture duration before investigating the database.
 
-`provider_mutation` includes catalog forwarding and awaited history reads, preparation, and recording. It is not a timer for storage SQL alone. If a history write fails after the catalog mutation succeeds, the wrapper fulfills as before but reports the operation as `error`.
+Query duration covers the query operation phase, including relevant pool and transaction work. It is not total HTTP latency. For a slow or timing-out operation, correlate the metric with backend logs and inspect the query plan; do not raise the default timeout without evidence.
 
-For full-to-delta conversion, a failed baseline read forwards the original full mutation, skips history recording, and reports `error`. A catalog forwarding failure still propagates unchanged and reports `forward` as `error`.
+The last-success gauge advances only after a successful, self-owned persistence transaction receives its commit acknowledgement. A caller-owned transaction uses a savepoint, so its outer commit is unknown and does not update the gauge—even if that caller later commits. Failed, rolled-back, or disposed transactions do not advance it. The observable callback only reads in-memory state; it does not probe database health or readiness. Startup diagnosis remains in existing logs; this source has no initialization metrics.
 
-`processing_entity` covers entity observation, mapping, baseline access, and the synchronous classify-and-queue flow, including unchanged entities. It can report `success` when `processing_flush` reports `error`: a failed flush is logged and its batch is forfeited without changing processor behavior. Instrumentation adds no await inside the processor's atomic classify-and-queue section.
+`source="processing"` can become old during normal quiet periods because unchanged processing observations do not flush. Do not alert on processing staleness. Instead, use `processing_entity` histogram count for activity and `processing_flush` error count for persistence failures. The gauge aggregates each source and cannot report individual-provider health.
 
-`reconcile` covers the full run: fetch, mapping and diff preparation, baseline load, and record. Its failures still propagate to the caller; the scheduled module logs them as before.
+Reconciliation can later observe current served state, but it cannot recover missed intermediate versions, actors, or event times.
 
-Phase intervals can repeat or overlap. For example, processing has separate `prepare` intervals for mapping and classification, and reconciliation has separate mapping and diff intervals. Do not add phase durations and expect the operation duration.
+## Buckets and SDK configuration
 
-`record` with `outcome="success"` means `store.recordCycle` fulfilled. It does not prove an outer caller-owned transaction committed or that retained history is a complete audit trail.
+The package supplies static histogram advice with these second-based boundaries:
 
-### Existing storage details
+| Instrument | Boundaries (seconds)                                                   |
+| ---------- | ---------------------------------------------------------------------- |
+| Capture    | `.0001`, `.001`, `.01`, `.1`, `1`, `5`, `10`, `30`, `60`, `300`, `600` |
+| Storage    | `.001`, `.01`, `.1`, `1`, `5`, `10`, `30`, `60`, `300`                 |
+| Query      | `.001`, `.005`, `.01`, `.05`, `.1`, `.5`, `1`, `5`, `10`               |
 
-Use attributes as dimensions, not as identifiers for individual catalog objects:
+This advice uses the existing metrics-service options; it is not a new configuration framework. Host OpenTelemetry Views can override advice. Keep Views and units consistent, and inspect exported bucket names and values before building percentile alerts.
 
-- `operation` has the fixed values listed in the metric table.
-- `source` reports a capture layer rather than a provider name. `all` is used for store reads without a source filter, and `unknown` covers absent or unsupported values.
-- `component` is `store` or `query`.
-- `outcome` is intentionally small. Query metrics classify only a `NotFoundError` and PostgreSQL code `57014` beyond `success` and `error`.
+## Wiring and custom storage
 
-The existing gauges retain only per-source success timestamps and per-component schema state in memory. Collection is passive: it neither opens a connection nor runs a database query.
-
-When a store receives a caller-owned Knex transaction, its nested transaction only releases a savepoint. The store omits persistence-duration and last-success signals in that case, even if the caller later commits, because it cannot observe the caller's final commit acknowledgement. Method-operation and capture-window metrics still describe the method's outcome, not that outer commit.
-
-`capture.window.duration` describes the capture input boundary from `startedAt` to `finishedAt`; it does not change the timestamp contract. Provider recording forwards the catalog mutation first and then awaits best-effort history persistence.
-
-The storage-operation histogram is the broad method timer. It includes a lazy schema check, whereas the query-operation histogram starts after the shared schema check and ends before result mapping. Use the persistence histogram when diagnosing writes, and use the capture-window histogram when comparing time reported by a capture caller.
-
-None of these values is a pure PostgreSQL server-execution measurement. Pool acquisition, transaction setup, cleanup, and application work can contribute to the relevant operation duration.
-
-## Enable capture lifecycle metrics
-
-The default catalog module supplies `metricsServiceRef` to processing capture and scheduled reconciliation automatically. The default Postgres store metrics are also automatic, even when provider lifecycle metrics are not wired.
-
-Provider wrappers are created by the host module, so add `metrics: metricsServiceRef` to that module's existing `registerInit` dependencies and pass the injected service to the wrapper. Keep its existing catalog, logger, config, and history-store dependencies.
+The default Postgres store gets metrics from its factory. The default catalog module supplies metrics automatically to internally created processing capture and scheduled reconciliation. Provider wrappers use manual dependency injection: add `metricsServiceRef` to the wrapper module's existing `registerInit` dependencies and pass the injected `metrics` value to `HistoryRecordingEntityProvider`.
 
 ```ts
 import { metricsServiceRef } from '@backstage/backend-plugin-api/alpha';
 
-// In the existing registerInit deps:
 deps: {
-  // Keep the existing catalog, logger, config, and historyStore entries.
+  // Keep the existing dependencies.
   metrics: metricsServiceRef,
 },
 
-// In the existing init callback and provider wrapper:
 new HistoryRecordingEntityProvider({
   inner,
   store: historyStore,
@@ -119,38 +84,18 @@ new HistoryRecordingEntityProvider({
 });
 ```
 
-This uses normal Backstage dependency injection; it does not fetch a global meter. The installed `@backstage/backend-plugin-api` `1.11.0` alpha surface provides `metricsServiceRef`, and the standard `createBackend()` in `@backstage/backend-defaults` `0.18.1` registers its factory.
-
-Manual provider wrappers, processors, and `reconcile` calls accept an optional metrics service. A standalone CLI or manual reconciliation call without one is not high-level instrumented; its existing logs and domain behavior remain unchanged. There is no implicit global meter or `HistoryStore` telemetry interface.
-
-Custom `HistoryStore` implementations are not instrumented automatically.
-
-Metrics SDK failures are isolated. They cannot mask a domain result, replace an error, or rewrite capture timestamps.
-
-## Operational examples
-
-**A catalog mutation succeeds but capture reports an error.** A provider may forward its mutation to the catalog, then fail to record history. Treat an `error` sample on `catalog.history.capture.operations` with `source="provider"` and `operation="provider_mutation"` as a possible history gap, then use the existing provider logs to identify the provider. A later full refresh can recover current state, but not the intermediate versions that were missed.
-
-**A processor flush is failing.** Check `processing_flush` errors separately from `processing_entity`. The processor can continue returning entities while a failed nonempty batch is logged and dropped; the reconciler can later capture current served state.
-
-**A source appears stalled.** Alert on an old `catalog.history.capture.last_success.timestamp` for a source expected to refresh regularly, then correlate high-level `error` outcomes and existing logs. This aggregate cannot identify a provider or prove every provider succeeded.
-
-**Investigate a slow history page.** Compare `catalog.history.query.operation.duration` by `operation` and `outcome`, then correlate failures and timeouts with existing backend logs. The duration covers the database operation phase, not request validation, authorization, JSON mapping, or total HTTP latency.
-
-**Watch schema retries during startup.** A rising `catalog.history.schema.initializations` count with `outcome="error"` means the store or query layer attempted schema setup and failed. `catalog.history.schema.initialized` remains `0` until a later attempt completes; it is not a connection or database-health check.
-
-Do not use these metrics as a complete availability signal or audit-completeness proof. They do not provide a storage/schema active probe, public health status, provider identity, or a guarantee that all catalog capture was recorded.
-
-## Custom storage
-
-The default `historyStoreServiceFactory` injects `metricsServiceRef` from the installed `@backstage/backend-plugin-api` `1.11.0` alpha surface. When constructing the Postgres store yourself, metrics are optional:
+A manually constructed Postgres store records storage and query metrics when you pass the same service:
 
 ```ts
-import { PostgresHistoryStore } from '@kunickiaj/backstage-plugin-catalog-history-storage-node';
-
-const store = new PostgresHistoryStore(db, { metrics });
+const historyStore = new PostgresHistoryStore(db, { metrics });
 ```
 
-Obtain `metrics` through normal Backstage service injection. Do not create a separate metrics registry for this store.
+Manual provider wrappers, custom stores, and standalone CLI calls can omit metrics and use the existing no-op behavior. Custom `HistoryStore` implementations are not instrumented automatically. Metric-SDK failures are isolated and do not change domain results, errors, or capture timestamps.
 
-Observable callbacks only read in-memory metric state and do not query the database. Store shutdown removes their callbacks; removal is idempotent.
+## Operator examples
+
+- **Provider capture errors or latency:** filter capture duration by `source="provider"` and `operation="provider_mutation"`, then identify the provider in logs. A successful catalog mutation can still have a failed history write.
+- **Processing persistence failure:** compare `processing_entity` activity with `processing_flush` errors. A failed nonempty flush is logged and dropped without changing processor behavior.
+- **Slow storage:** compare storage-method duration with capture duration. If storage dominates, investigate mapping, schema work, pool wait, transaction handling, and SQL in the plugin storage path.
+- **Slow history reads:** filter query duration by `operation` and `outcome`; investigate logs and plans for errors or `timeout` results.
+- **Freshness:** alert on an old last-success timestamp only for provider or reconciler sources with a known expected cadence. It records an acknowledged self-owned history persistence, not full provider health or audit completeness.

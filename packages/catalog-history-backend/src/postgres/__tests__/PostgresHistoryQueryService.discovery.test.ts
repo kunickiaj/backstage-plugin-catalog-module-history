@@ -702,7 +702,7 @@ describe('PostgresHistoryQueryService retained entity and kind discovery', () =>
     await expect(result).rejects.toBeInstanceOf(InputError);
   });
 
-  it.each(['create', 'add', 'record'] as const)(
+  it.each(['create', 'gauge_create', 'record'] as const)(
     'isolates metrics SDK %s failures from both discovery routes',
     async failure => {
       // Arrange
@@ -772,7 +772,7 @@ describe('PostgresHistoryQueryService retained entity and kind discovery', () =>
         expect(page.items).toHaveLength(1);
         expect(
           journal
-            .values('catalog.history.query.operations')
+            .values('catalog.history.query.operation.duration')
             .map(point => point.attributes),
         ).toEqual([{ operation, outcome: 'success' }]);
         expect(JSON.stringify(journal.points)).not.toContain(prefix);
@@ -833,7 +833,7 @@ describe('PostgresHistoryQueryService retained entity and kind discovery', () =>
         expect(await db('pg_locks').where({ pid, granted: false })).toEqual([]);
         expect(
           journal
-            .values('catalog.history.query.operations')
+            .values('catalog.history.query.operation.duration')
             .map(point => point.attributes),
         ).toEqual([{ operation, outcome: 'timeout' }]);
       } finally {

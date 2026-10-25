@@ -43,85 +43,45 @@ export async function reconcile(opts: ReconcileOptions): Promise<void> {
   try {
     const startedAt = new Date();
 
-    const stopFetch = captureMetrics.startPhase('fetch');
-    let fetched = false;
-    let entities: Awaited<ReturnType<EntityFetcher['getEntities']>>;
-    try {
-      entities = await fetcher.getEntities();
-      fetched = true;
-    } finally {
-      stopFetch(fetched ? 'success' : 'error');
-    }
-    const stopMapping = captureMetrics.startPhase('prepare');
-    let mapped = false;
-    let rows: EntityRow[];
-    let incomingRefs: Set<string>;
-    try {
-      rows = entities.map(entity => entityToRow(entity));
-      incomingRefs = new Set(rows.map(r => r.entityRef));
-      mapped = true;
-    } finally {
-      stopMapping(mapped ? 'success' : 'error');
-    }
+    const entities = await fetcher.getEntities();
+    const rows = entities.map(entity => entityToRow(entity));
+    const incomingRefs = new Set(rows.map(r => r.entityRef));
 
-    const stopBaseline = captureMetrics.startPhase('baseline');
-    let loaded = false;
-    let existing: Awaited<ReturnType<HistoryStore['loadAllCurrentEtags']>>;
-    try {
-      existing = await store.loadAllCurrentEtags({ source: 'reconciler' });
-      loaded = true;
-    } finally {
-      stopBaseline(loaded ? 'success' : 'error');
-    }
+    const existing = await store.loadAllCurrentEtags({ source: 'reconciler' });
 
     const inserts: EntityRow[] = [];
     const updates: EntityRow[] = [];
     let unchangedCount = 0;
     const deletes: string[] = [];
 
-    const stopDiff = captureMetrics.startPhase('prepare');
-    let diffed = false;
-    try {
-      for (const row of rows) {
-        const prev = existing.get(row.entityRef);
-        if (prev === undefined) {
-          inserts.push(row);
-        } else if (prev.etag !== row.etag) {
-          updates.push(row);
-        } else {
-          unchangedCount++;
-        }
+    for (const row of rows) {
+      const prev = existing.get(row.entityRef);
+      if (prev === undefined) {
+        inserts.push(row);
+      } else if (prev.etag !== row.etag) {
+        updates.push(row);
+      } else {
+        unchangedCount++;
       }
-
-      for (const ref of existing.keys()) {
-        if (!incomingRefs.has(ref)) {
-          deletes.push(ref);
-        }
-      }
-      diffed = true;
-    } finally {
-      stopDiff(diffed ? 'success' : 'error');
     }
 
-    const stopRecord = captureMetrics.startPhase('record');
-    let recorded = false;
-    try {
-      await store.recordCycle({
-        cycleId: randomUUID(),
-        provider: RECONCILER_PROVIDER,
-        source: 'reconciler',
-        mutationType: 'full',
-        startedAt,
-        finishedAt: new Date(),
-        inserts,
-        updates,
-        deletes,
-        unchangedCount,
-      });
-      recorded = true;
-    } finally {
-      stopRecord(recorded ? 'success' : 'error');
+    for (const ref of existing.keys()) {
+      if (!incomingRefs.has(ref)) {
+        deletes.push(ref);
+      }
     }
+    await store.recordCycle({
+      cycleId: randomUUID(),
+      provider: RECONCILER_PROVIDER,
+      source: 'reconciler',
+      mutationType: 'full',
+      startedAt,
+      finishedAt: new Date(),
+      inserts,
+      updates,
+      deletes,
+      unchangedCount,
+    });
 
     const total = inserts.length + updates.length + deletes.length;
     if (total === 0) {

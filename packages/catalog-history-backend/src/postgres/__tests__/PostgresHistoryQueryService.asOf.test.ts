@@ -116,11 +116,11 @@ describe('PostgresHistoryQueryService as-of physical observations', () => {
       expect(result.snapshot).toBeUndefined();
       expect(
         journal.points.filter(
-          p => p.name === 'catalog.history.query.operations',
+          p => p.name === 'catalog.history.query.operation.duration',
         ),
       ).toEqual([
         expect.objectContaining({
-          value: 1,
+          value: expect.any(Number),
           attributes: { operation: 'as_of', outcome: 'success' },
         }),
       ]);
@@ -428,10 +428,7 @@ describe('PostgresHistoryQueryService as-of physical observations', () => {
       journal.points
         .filter(p => p.name.startsWith('catalog.history.query.'))
         .map(p => p.attributes),
-    ).toEqual([
-      { operation: 'as_of', outcome: 'success' },
-      { operation: 'as_of', outcome: 'success' },
-    ]);
+    ).toEqual([{ operation: 'as_of', outcome: 'success' }]);
   });
 
   it('applies the default deadline inside the successful as-of SELECT and restores it', async () => {
@@ -500,7 +497,7 @@ describe('PostgresHistoryQueryService as-of physical observations', () => {
       expect((await db.raw('select 1 as usable')).rows[0].usable).toBe(1);
       expect(
         journal.points.filter(
-          p => p.name === 'catalog.history.query.operations',
+          p => p.name === 'catalog.history.query.operation.duration',
         ),
       ).toEqual([
         expect.objectContaining({

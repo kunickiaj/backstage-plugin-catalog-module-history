@@ -230,7 +230,9 @@ describe('PostgresHistoryQueryService cycle read deadlines', () => {
         expect(
           await fixture('pg_stat_activity').where({ pid }).first('state'),
         ).toEqual({ state: 'idle' });
-        const points = journal.values('catalog.history.query.operations');
+        const points = journal.values(
+          'catalog.history.query.operation.duration',
+        );
         expect(points.map(point => point.attributes)).toEqual(
           reads.map((_, index) => ({
             operation,

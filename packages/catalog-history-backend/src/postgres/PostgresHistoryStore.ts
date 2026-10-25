@@ -144,12 +144,10 @@ export class PostgresHistoryStore implements HistoryStore {
   }
 
   async ensureReady(): Promise<void> {
-    this.schemaReady ??= this.metrics
-      .schema('store', () => ensureSchema(this.db))
-      .catch(error => {
-        this.schemaReady = undefined;
-        throw error;
-      });
+    this.schemaReady ??= ensureSchema(this.db).catch(error => {
+      this.schemaReady = undefined;
+      throw error;
+    });
     await this.schemaReady;
   }
 
@@ -250,77 +248,76 @@ export class PostgresHistoryStore implements HistoryStore {
     return this.metrics.storage(
       'record_cycle',
       () => input.source,
-      () =>
-        this.metrics.record(input, async () => {
-          await this.ensureReady();
+      async () => {
+        await this.ensureReady();
 
-          const changedAt = input.finishedAt;
+        const changedAt = input.finishedAt;
 
-          await this.metrics.persist(
-            () => input.source,
-            () =>
-              this.db.transaction(async tx => {
-                await tx('catalog_history_cycles').insert({
-                  cycle_id: input.cycleId,
-                  provider: input.provider,
-                  source: input.source,
-                  mutation_type: input.mutationType,
-                  started_at: input.startedAt,
-                  finished_at: input.finishedAt,
-                  n_added: input.inserts.length,
-                  n_modified: input.updates.length,
-                  n_removed: input.deletes.length,
-                  n_unchanged: input.unchangedCount,
-                });
+        await this.metrics.persist(
+          () => input.source,
+          () =>
+            this.db.transaction(async tx => {
+              await tx('catalog_history_cycles').insert({
+                cycle_id: input.cycleId,
+                provider: input.provider,
+                source: input.source,
+                mutation_type: input.mutationType,
+                started_at: input.startedAt,
+                finished_at: input.finishedAt,
+                n_added: input.inserts.length,
+                n_modified: input.updates.length,
+                n_removed: input.deletes.length,
+                n_unchanged: input.unchangedCount,
+              });
 
-                const entityRows: EntityInsertRow[] = [];
-                for (const row of input.inserts) {
-                  entityRows.push(
-                    buildEntityRow(
-                      row,
-                      input.cycleId,
-                      input.provider,
-                      input.source,
-                      'insert',
-                      changedAt,
-                    ),
-                  );
-                }
-                for (const row of input.updates) {
-                  entityRows.push(
-                    buildEntityRow(
-                      row,
-                      input.cycleId,
-                      input.provider,
-                      input.source,
-                      'update',
-                      changedAt,
-                    ),
-                  );
-                }
-                for (const ref of input.deletes) {
-                  entityRows.push(
-                    buildDeleteRow(
-                      ref,
-                      input.cycleId,
-                      input.provider,
-                      input.source,
-                      changedAt,
-                    ),
-                  );
-                }
+              const entityRows: EntityInsertRow[] = [];
+              for (const row of input.inserts) {
+                entityRows.push(
+                  buildEntityRow(
+                    row,
+                    input.cycleId,
+                    input.provider,
+                    input.source,
+                    'insert',
+                    changedAt,
+                  ),
+                );
+              }
+              for (const row of input.updates) {
+                entityRows.push(
+                  buildEntityRow(
+                    row,
+                    input.cycleId,
+                    input.provider,
+                    input.source,
+                    'update',
+                    changedAt,
+                  ),
+                );
+              }
+              for (const ref of input.deletes) {
+                entityRows.push(
+                  buildDeleteRow(
+                    ref,
+                    input.cycleId,
+                    input.provider,
+                    input.source,
+                    changedAt,
+                  ),
+                );
+              }
 
-                if (entityRows.length > 0) {
-                  await tx.batchInsert(
-                    'catalog_history_entities',
-                    entityRows,
-                    ENTITY_INSERT_CHUNK_SIZE,
-                  );
-                }
-              }),
-            { callerOwnedTransaction: this.db.isTransaction === true },
-          );
-        }),
+              if (entityRows.length > 0) {
+                await tx.batchInsert(
+                  'catalog_history_entities',
+                  entityRows,
+                  ENTITY_INSERT_CHUNK_SIZE,
+                );
+              }
+            }),
+          { callerOwnedTransaction: this.db.isTransaction === true },
+        );
+      },
     );
   }
 
