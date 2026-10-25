@@ -19,6 +19,8 @@ import { catalogHistoryReadPermission } from '@kunickiaj/backstage-plugin-catalo
 import type { HistoryStore } from '@kunickiaj/backstage-plugin-catalog-history-node';
 import {
   parseHistoryChangeFeedRequest,
+  parseHistoryCycleDetailRequest,
+  parseHistoryCycleListRequest,
   parseHistoryEntitySearchRequest,
   parseHistoryKindSearchRequest,
   parseHistoryProviderSearchRequest,
@@ -82,6 +84,30 @@ async function retrieve<T>(
  */
 export function createHistoryRouter(options: HistoryRouterOptions): Router {
   const router = PromiseRouter();
+  router.get('/history/cycles', async (req, res) => {
+    await authorize(req, options);
+    const listCycles = options.query.listCycles?.bind(options.query);
+    if (!listCycles) {
+      throw new NotImplementedError(
+        'This history store does not support listing cycles.',
+      );
+    }
+    const request = parseHistoryCycleListRequest(req);
+    const result = await retrieve(() => listCycles(request), options);
+    res.json(result);
+  });
+  router.get('/history/cycles/:cycleId', async (req, res) => {
+    await authorize(req, options);
+    const getCycle = options.query.getCycle?.bind(options.query);
+    if (!getCycle) {
+      throw new NotImplementedError(
+        'This history store does not support reading cycles.',
+      );
+    }
+    const request = parseHistoryCycleDetailRequest(req);
+    const result = await retrieve(() => getCycle(request), options);
+    res.json(result);
+  });
   router.get('/history/entities', async (req, res) => {
     await authorize(req, options);
     const getEntities = options.query.getEntities?.bind(options.query);

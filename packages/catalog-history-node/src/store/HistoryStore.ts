@@ -33,7 +33,12 @@ export interface HistoryStore {
     Partial<
       Pick<
         HistoryQueryService,
-        'getChangeFeed' | 'getProviders' | 'getEntities' | 'getKinds'
+        | 'getChangeFeed'
+        | 'getProviders'
+        | 'getEntities'
+        | 'getKinds'
+        | 'listCycles'
+        | 'getCycle'
       >
     >;
 

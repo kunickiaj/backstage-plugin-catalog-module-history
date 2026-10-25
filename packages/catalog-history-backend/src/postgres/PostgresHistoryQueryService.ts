@@ -9,6 +9,12 @@ import type {
   HistoryChangeFeedRequest,
   HistoryChangeFeedResponse,
   HistoryCycleChange,
+  HistoryCycle,
+  HistoryCycleListRequest,
+  HistoryCycleListResponse,
+  HistoryCycleDetailRequest,
+  HistoryCycleDetailResponse,
+  HistoryMutationType,
   HistoryEntitySearchRequest,
   HistoryEntitySearchResponse,
   HistoryEntitySnapshot,
@@ -30,6 +36,13 @@ import type {
   HistorySource,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import { ensureSchema } from './ensureSchema';
+import {
+  cycleListScope,
+  cycleChangesScope,
+  decodeCycleCursor,
+  encodeCycleCursor,
+  normalizeCycleId,
+} from './cycleCursors';
 import {
   decodeEntitySearchCursor,
   decodeKindSearchCursor,
@@ -83,6 +96,82 @@ type HistoryEntityRow = HistoryChangeRow & {
   status_items: unknown;
   orphan: boolean | null;
 };
+
+type HistoryCycleRow = {
+  cycle_id: string;
+  provider: string;
+  source: HistorySource;
+  mutation_type: HistoryMutationType;
+  started_at: Date;
+  finished_at: Date;
+  n_added: number;
+  n_modified: number;
+  n_removed: number;
+  n_unchanged: number;
+  cursor_timestamp: string;
+};
+
+const CYCLE_COLUMNS = [
+  'cycle_id',
+  'provider',
+  'source',
+  'mutation_type',
+  'started_at',
+  'finished_at',
+  'n_added',
+  'n_modified',
+  'n_removed',
+  'n_unchanged',
+];
+
+function rowToCycle(row: HistoryCycleRow): HistoryCycle {
+  return {
+    cycleId: row.cycle_id,
+    provider: row.provider,
+    source: row.source,
+    mutationType: row.mutation_type,
+    startedAt: row.started_at.toISOString(),
+    finishedAt: row.finished_at.toISOString(),
+    counts: {
+      inserted: row.n_added,
+      updated: row.n_modified,
+      deleted: row.n_removed,
+      unchanged: row.n_unchanged,
+    },
+  };
+}
+
+function applyCycleFilters(
+  db: Knex,
+  query: Knex.QueryBuilder<HistoryCycleRow, HistoryCycleRow[]>,
+  request: HistoryCycleListRequest,
+): void {
+  for (const [field, column] of [
+    ['source', 'source'],
+    ['provider', 'provider'],
+    ['mutationType', 'mutation_type'],
+  ] as const) {
+    if (request[field] !== undefined) query.where(column, request[field]);
+  }
+  for (const [field, column, comparison] of [
+    ['startedAfter', 'started_at', '>='],
+    ['startedBefore', 'started_at', '<='],
+    ['finishedAfter', 'finished_at', '>='],
+    ['finishedBefore', 'finished_at', '<='],
+  ] as const) {
+    if (request[field] !== undefined)
+      query.where(column, comparison, request[field]);
+  }
+  if (request.op !== undefined) {
+    // Ledger counts include pruned rows; only retained operations match this filter.
+    query.whereExists(
+      db('catalog_history_entities as changes')
+        .select(db.raw('1'))
+        .whereRaw('changes.cycle_id = catalog_history_cycles.cycle_id')
+        .where('changes.op', request.op),
+    );
+  }
+}
 
 type EntityDiscoveryRow = Pick<
   HistoryChangeRow,
@@ -500,6 +589,103 @@ export class PostgresHistoryQueryService {
         rows.length > limit
           ? encodeProviderSearchCursor(rows[limit - 1].provider, scope)
           : undefined,
+    };
+  }
+
+  async listCycles(
+    request: HistoryCycleListRequest,
+  ): Promise<HistoryCycleListResponse> {
+    const limit = normalizeLimit(request.limit);
+    const scope = cycleListScope(request);
+    const anchor = decodeCycleCursor(request.cursor, 'cycles', scope);
+    await this.ensureReady();
+    const rows = await this.read('cycles', db => {
+      const query = db<HistoryCycleRow>('catalog_history_cycles');
+      applyCycleFilters(db, query, request);
+      if (anchor)
+        query.whereRaw('(started_at, cycle_id) < (?::timestamptz, ?::uuid)', [
+          anchor.timestamp,
+          anchor.id,
+        ]);
+      return query
+        .select<HistoryCycleRow[]>(
+          ...CYCLE_COLUMNS,
+          db.raw('started_at::text AS cursor_timestamp'),
+        )
+        .orderBy('started_at', 'desc')
+        .orderBy('cycle_id', 'desc')
+        .limit(limit + 1);
+    });
+    const last = rows[limit - 1];
+    return {
+      items: rows.slice(0, limit).map(rowToCycle),
+      nextCursor:
+        rows.length > limit
+          ? encodeCycleCursor('cycles', scope, {
+              timestamp: last.cursor_timestamp,
+              id: last.cycle_id,
+            })
+          : undefined,
+    };
+  }
+
+  async getCycle(
+    request: HistoryCycleDetailRequest,
+  ): Promise<HistoryCycleDetailResponse> {
+    const cycleId = normalizeCycleId(request.cycleId);
+    const limit = normalizeLimit(request.limit);
+    const scope = cycleChangesScope(cycleId);
+    const anchor = decodeCycleCursor(request.cursor, 'cycle-changes', scope);
+    await this.ensureReady();
+    const cycle = await this.read('cycle_detail', async db => {
+      const row = await db<HistoryCycleRow>('catalog_history_cycles')
+        .select(...CYCLE_COLUMNS)
+        .where('cycle_id', cycleId)
+        .first();
+      if (!row) throw new NotFoundError('History cycle not found');
+      return rowToCycle(row);
+    });
+    const rows = await this.read('cycle_detail', db => {
+      const query = db<HistoryChangeRow & { cursor_timestamp: string }>(
+        'catalog_history_entities',
+      ).where('cycle_id', cycleId);
+      if (anchor)
+        query.whereRaw('(changed_at, id) < (?::timestamptz, ?::bigint)', [
+          anchor.timestamp,
+          anchor.id,
+        ]);
+      return query
+        .select<(HistoryChangeRow & { cursor_timestamp: string })[]>(
+          'id',
+          'cycle_id',
+          'entity_ref',
+          'kind',
+          'namespace',
+          'name',
+          'provider',
+          'source',
+          'op',
+          'etag',
+          'changed_at',
+          db.raw('changed_at::text AS cursor_timestamp'),
+        )
+        .orderBy('changed_at', 'desc')
+        .orderBy('id', 'desc')
+        .limit(limit + 1);
+    });
+    const last = rows[limit - 1];
+    return {
+      cycle,
+      changes: {
+        items: rows.slice(0, limit).map(rowToChange),
+        nextCursor:
+          rows.length > limit
+            ? encodeCycleCursor('cycle-changes', scope, {
+                timestamp: last.cursor_timestamp,
+                id: last.id,
+              })
+            : undefined,
+      },
     };
   }
 

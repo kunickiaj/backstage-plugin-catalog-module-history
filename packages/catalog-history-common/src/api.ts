@@ -116,7 +116,7 @@ export interface HistoryChangeFilter {
 export interface HistoryCycleFilter {
   source?: HistorySource;
   provider?: string;
-  /** Only include cycles that contain at least one change with this operation. */
+  /** Only include cycles with at least one retained entity row with this operation. */
   op?: HistoryOperation;
   mutationType?: HistoryMutationType;
   /** ISO 8601 timestamp; only include cycles starting at or after this instant. */
@@ -228,7 +228,8 @@ export interface HistoryEntityTimelineRequest
 export type HistoryEntityTimelineResponse = HistoryPage<HistoryTimelineItem>;
 
 /**
- * Aggregate counts recorded for one history cycle.
+ * Aggregate counts recorded for one history cycle, not a count of the current
+ * catalog, retained rows, or the displayed change page.
  *
  * Field names use the same verb vocabulary as {@link HistoryOperation}:
  * `insert` operations tally into `inserted`, and so on.
@@ -264,7 +265,9 @@ export interface HistoryCycle {
 }
 
 /**
- * Cycle list request options.
+ * Cycle list request options. Lists newest started cycles first, breaking ties
+ * by native UUID order. Includes cycles with no retained entity rows unless an
+ * operation filter excludes them. Cursors bind the filters, not the page limit.
  *
  * @public
  */
@@ -279,7 +282,8 @@ export interface HistoryCycleListRequest
 export type HistoryCycleListResponse = HistoryPage<HistoryCycle>;
 
 /**
- * One entity change included in a cycle detail response.
+ * One entity change included in a cycle detail response. Cycle change summaries
+ * may be empty when saved-field comparisons are unavailable.
  *
  * @public
  */
@@ -287,9 +291,11 @@ export interface HistoryCycleChange
   extends HistoryTimelineItem, HistoryEntityIdentity {}
 
 /**
- * Cycle detail request options. The cycle metadata is returned with a page of
- * changed entities; use `cursor` to fetch additional changed-entity pages for
- * large cycles.
+ * Cycle detail request options. Cycle IDs are PostgreSQL UUIDs. Metadata is
+ * returned with a page of changed entities; use `cursor` to fetch additional
+ * changed-entity pages for large cycles, ordered by stored change timestamp
+ * and row ID, newest first.
+ * Cursors bind the cycle identity, not the page limit.
  *
  * @public
  */
