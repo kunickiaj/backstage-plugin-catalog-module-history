@@ -10,6 +10,28 @@
   line-height: 1.5;
 }
 
+.cycleMetadata {
+  margin: var(--bui-space-6) 0;
+}
+
+.cycleCounts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--bui-space-4) var(--bui-space-8);
+  margin: var(--bui-space-3) 0 0;
+}
+
+.cycleCounts dt {
+  color: var(--bui-fg-secondary);
+  font-size: var(--bui-font-size-3);
+}
+
+.cycleCounts dd {
+  margin: var(--bui-space-1) 0 0;
+  font-size: var(--bui-font-size-6);
+  font-variant-numeric: tabular-nums;
+}
+
 .filters {
   margin: var(--bui-space-6) 0;
   padding: var(--bui-space-4);

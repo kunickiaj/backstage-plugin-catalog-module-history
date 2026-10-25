@@ -1,5 +1,11 @@
 import type {
   HistoryChangeFeedRequest,
+  HistoryCycle,
+  HistoryCycleChange,
+  HistoryCycleFilter,
+  HistoryCycleListRequest,
+  HistoryPage,
+  HistoryPageOptions,
   HistoryEntityIdentity,
   HistoryEntitySearchRequest,
   HistoryEntitySearchResponse,
@@ -12,6 +18,9 @@ import type {
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import {
   DEFAULT_HISTORY_PAGE_LIMIT,
+  isHistoryMutationType,
+  isHistoryOperation,
+  isHistorySource,
   MAX_HISTORY_PAGE_LIMIT,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import { CatalogHistoryApiError } from '../src';
@@ -211,9 +220,255 @@ function retainedKinds(prefix: string) {
   );
 }
 
+function fixtureCycle(rows: readonly HistoryEntityVersion[]): HistoryCycle {
+  const first = rows[0];
+  if (
+    rows.some(
+      row => row.source !== first.source || row.provider !== first.provider,
+    )
+  ) {
+    throw new Error(`Incoherent preview cycle: ${first.cycleId}`);
+  }
+  const times = rows.map(row => Date.parse(row.changedAt));
+  // These are defined mock recorded totals for a COMPLETE synthetic ledger,
+  // not a general algorithm for deriving cycle totals from retained history.
+  const counts = {
+    inserted: rows.filter(row => row.op === 'insert').length,
+    updated: rows.filter(row => row.op === 'update').length,
+    deleted: rows.filter(row => row.op === 'delete').length,
+    unchanged: 0,
+  };
+  return {
+    cycleId: first.cycleId,
+    source: first.source,
+    provider: first.provider,
+    // Explicit preview policy; old entity fixtures did not store cycle metadata.
+    mutationType: first.source === 'processing' ? 'delta' : 'full',
+    startedAt: new Date(Math.min(...times) - 1000).toISOString(),
+    finishedAt: new Date(Math.max(...times)).toISOString(),
+    counts,
+  };
+}
+
+function fixtureCycles(): HistoryCycle[] {
+  const groups = new Map<string, HistoryEntityVersion[]>();
+  crossEntityRecords.forEach(row => {
+    const group = groups.get(row.cycleId) ?? [];
+    group.push(row);
+    groups.set(row.cycleId, group);
+  });
+  return [
+    ...Array.from(groups.values(), fixtureCycle),
+    {
+      cycleId: 'preview-empty-cycle',
+      source: 'reconciler',
+      provider: 'reconciler',
+      mutationType: 'full',
+      startedAt: '2026-10-16T12:00:00.000Z',
+      finishedAt: '2026-10-16T12:00:01.000Z',
+      counts: { inserted: 0, updated: 0, deleted: 0, unchanged: 10 },
+    },
+  ];
+}
+
+// Construct before any request filters or paging; no new entity events are added.
+const cycleLedger = fixtureCycles();
+
+function cycleLimit(request: HistoryPageOptions): number {
+  const limit =
+    request.limit === undefined ? DEFAULT_HISTORY_PAGE_LIMIT : request.limit;
+  if (!Number.isInteger(limit) || limit < 1) {
+    throw new CatalogHistoryApiError(400);
+  }
+  return Math.min(limit, MAX_HISTORY_PAGE_LIMIT);
+}
+
+function cycleContext(request: HistoryCycleListRequest): HistoryCycleFilter {
+  const context = {
+    source: request.source,
+    provider: request.provider,
+    op: request.op,
+    mutationType: request.mutationType,
+    startedAfter: request.startedAfter,
+    startedBefore: request.startedBefore,
+    finishedAfter: request.finishedAfter,
+    finishedBefore: request.finishedBefore,
+  };
+  const dates = [
+    context.startedAfter,
+    context.startedBefore,
+    context.finishedAfter,
+    context.finishedBefore,
+  ];
+  if (
+    Object.values(context).some(
+      value => value !== undefined && typeof value !== 'string',
+    ) ||
+    (context.source !== undefined && !isHistorySource(context.source)) ||
+    (context.op !== undefined && !isHistoryOperation(context.op)) ||
+    (context.mutationType !== undefined &&
+      !isHistoryMutationType(context.mutationType)) ||
+    dates.some(
+      value => value !== undefined && !Number.isFinite(Date.parse(value)),
+    )
+  ) {
+    throw new CatalogHistoryApiError(400);
+  }
+  return context;
+}
+
+function cycleMatches(
+  cycle: HistoryCycle,
+  context: HistoryCycleFilter,
+): boolean {
+  return (
+    (context.source === undefined || cycle.source === context.source) &&
+    (context.provider === undefined || cycle.provider === context.provider) &&
+    (context.mutationType === undefined ||
+      cycle.mutationType === context.mutationType) &&
+    (context.op === undefined ||
+      crossEntityRecords.some(
+        row => row.cycleId === cycle.cycleId && row.op === context.op,
+      )) &&
+    (context.startedAfter === undefined ||
+      Date.parse(cycle.startedAt) >= Date.parse(context.startedAfter)) &&
+    (context.startedBefore === undefined ||
+      Date.parse(cycle.startedAt) <= Date.parse(context.startedBefore)) &&
+    (context.finishedAfter === undefined ||
+      Date.parse(cycle.finishedAt) >= Date.parse(context.finishedAfter)) &&
+    (context.finishedBefore === undefined ||
+      Date.parse(cycle.finishedAt) <= Date.parse(context.finishedBefore))
+  );
+}
+
+type CycleEndpoint = 'cycles' | 'cycle-changes';
+
+function cycleCursorAfter(
+  cursor: string | undefined,
+  endpoint: CycleEndpoint,
+  scope: string,
+): string[] | undefined {
+  if (cursor === undefined) return undefined;
+  const prefix = `preview-${endpoint}:`;
+  try {
+    if (typeof cursor !== 'string' || !cursor.startsWith(prefix)) {
+      throw new CatalogHistoryApiError(400);
+    }
+    const decoded: unknown = JSON.parse(
+      decodeURIComponent(cursor.slice(prefix.length)),
+    );
+    if (typeof decoded !== 'object' || decoded === null) {
+      throw new CatalogHistoryApiError(400);
+    }
+    const value = decoded as Record<string, unknown>;
+    if (
+      value.version !== 1 ||
+      value.type !== endpoint ||
+      value.scope !== scope ||
+      !Array.isArray(value.anchor) ||
+      value.anchor.length !== 2 ||
+      !value.anchor.every(
+        (part: unknown) => typeof part === 'string' && part.length > 0,
+      )
+    ) {
+      throw new CatalogHistoryApiError(400);
+    }
+    return value.anchor;
+  } catch {
+    throw new CatalogHistoryApiError(400);
+  }
+}
+
+function cyclePage<T>(
+  rows: T[],
+  request: HistoryPageOptions,
+  endpoint: CycleEndpoint,
+  scope: string,
+  anchor: (item: T) => string[],
+): HistoryPage<T> {
+  const limit = cycleLimit(request);
+  const after = cycleCursorAfter(request.cursor, endpoint, scope);
+  const index =
+    after === undefined
+      ? -1
+      : rows.findIndex(item =>
+          anchor(item).every((part, i) => part === after[i]),
+        );
+  if (after !== undefined && index === -1) {
+    throw new CatalogHistoryApiError(400);
+  }
+  const lookahead = rows.slice(index + 1, index + 1 + limit + 1);
+  const items = lookahead.slice(0, limit);
+  const nextCursor =
+    lookahead.length > limit
+      ? `preview-${endpoint}:${encodeURIComponent(
+          JSON.stringify({
+            version: 1,
+            type: endpoint,
+            scope,
+            anchor: anchor(items[items.length - 1]),
+          }),
+        )}`
+      : undefined;
+  return { items, nextCursor };
+}
+
+function cycleChange(row: HistoryEntityVersion): HistoryCycleChange {
+  const { snapshot: _snapshot, ...metadata } = row;
+  return { ...metadata, ...identity(row), summary: {} };
+}
+
 /** In-memory preview only: no network, credentials, or production client changes. */
 export function createFixtureApi(): CatalogHistoryApi {
   return {
+    async listCycles(request) {
+      const context = cycleContext(request);
+      const scope = JSON.stringify({
+        ...context,
+        sort: 'startedAt-desc,id-desc',
+      });
+      // Binary opaque-ID ties apply only to these static fixtures, not PG UUIDs.
+      const rows = cycleLedger
+        .filter(cycle => cycleMatches(cycle, context))
+        .map(cycle => ({ ...cycle, counts: { ...cycle.counts } }))
+        .sort(
+          (a, b) =>
+            Date.parse(b.startedAt) - Date.parse(a.startedAt) ||
+            compareBinary(b.cycleId, a.cycleId),
+        );
+      return cyclePage(rows, request, 'cycles', scope, cycle => [
+        cycle.startedAt,
+        cycle.cycleId,
+      ]);
+    },
+    async getCycle(request) {
+      if (typeof request.cycleId !== 'string' || request.cycleId.length === 0) {
+        throw new CatalogHistoryApiError(400);
+      }
+      cycleLimit(request);
+      const scope = JSON.stringify({
+        cycleId: request.cycleId,
+        sort: 'changedAt-desc,id-desc',
+      });
+      cycleCursorAfter(request.cursor, 'cycle-changes', scope);
+      const cycle = cycleLedger.find(item => item.cycleId === request.cycleId);
+      if (cycle === undefined) throw new CatalogHistoryApiError(404);
+      const rows = crossEntityRecords
+        .filter(row => row.cycleId === request.cycleId)
+        .map(cycleChange)
+        .sort(
+          (a, b) =>
+            Date.parse(b.changedAt) - Date.parse(a.changedAt) ||
+            compareBinary(b.id, a.id),
+        );
+      return {
+        cycle: { ...cycle, counts: { ...cycle.counts } },
+        changes: cyclePage(rows, request, 'cycle-changes', scope, row => [
+          row.changedAt,
+          row.id,
+        ]),
+      };
+    },
     async getEntities(
       request: HistoryEntitySearchRequest,
     ): Promise<HistoryEntitySearchResponse> {

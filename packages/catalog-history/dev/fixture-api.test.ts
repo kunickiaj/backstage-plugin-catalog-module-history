@@ -7,6 +7,257 @@ import {
   previewRecords,
 } from './fixtures';
 import type { CatalogHistoryApi } from '../src';
+import type {
+  HistoryCycle,
+  HistoryCycleListRequest,
+} from '@kunickiaj/backstage-plugin-catalog-history-common';
+
+describe('development recording cycles', () => {
+  it('pages the complete synthetic ledger without changing existing entity events', async () => {
+    // Arrange
+    const api = createFixtureApi();
+    const cycles: HistoryCycle[] = [];
+    let cursor: string | undefined;
+    // Act
+    do {
+      const page = await api.listCycles!({ limit: 1, cursor });
+      expect(page.items).toHaveLength(1);
+      cycles.push(...page.items);
+      cursor = page.nextCursor;
+    } while (cursor);
+    // Assert: one explicit heartbeat, no invented changed events.
+    expect(cycles).toHaveLength(
+      new Set(crossEntityRecords.map(row => row.cycleId)).size + 1,
+    );
+    expect(new Set(cycles.map(cycle => cycle.cycleId)).size).toBe(
+      cycles.length,
+    );
+    expect(cycles.map(cycle => cycle.startedAt)).toEqual(
+      cycles
+        .map(cycle => cycle.startedAt)
+        .sort()
+        .reverse(),
+    );
+    for (const cycle of cycles) {
+      const detail = await api.getCycle!({ cycleId: cycle.cycleId, limit: 1 });
+      expect(detail.cycle).toEqual(cycle);
+      const rows = crossEntityRecords.filter(
+        row => row.cycleId === cycle.cycleId,
+      );
+      expect(detail.changes.items).toHaveLength(rows.length);
+      expect(detail.changes.nextCursor).toBeUndefined();
+      for (const row of detail.changes.items) {
+        expect(row).not.toHaveProperty('snapshot');
+        expect(row.summary).toEqual({});
+        expect(row.source).toBe(cycle.source);
+        expect(row.provider).toBe(cycle.provider);
+        expect(
+          await api.getEntityVersion!({ entityRef: row.entityRef, id: row.id }),
+        ).toEqual(expect.objectContaining({ cycleId: cycle.cycleId }));
+      }
+    }
+    for (const cycle of cycles.filter(
+      item => item.cycleId !== 'preview-empty-cycle',
+    )) {
+      const rows = crossEntityRecords.filter(
+        row => row.cycleId === cycle.cycleId,
+      );
+      expect(cycle.counts).toEqual({
+        inserted: rows.filter(row => row.op === 'insert').length,
+        updated: rows.filter(row => row.op === 'update').length,
+        deleted: rows.filter(row => row.op === 'delete').length,
+        unchanged: 0,
+      });
+      expect(cycle.mutationType).toBe(
+        cycle.source === 'processing' ? 'delta' : 'full',
+      );
+    }
+    expect((await api.getChangeFeed!({})).items).toHaveLength(5);
+  });
+
+  it('includes the unchanged heartbeat without an operation filter and returns an empty detail page', async () => {
+    // Arrange
+    const api = createFixtureApi();
+    // Act
+    const page = await api.listCycles!({
+      source: 'reconciler',
+      provider: 'reconciler',
+      mutationType: 'full',
+      startedAfter: '2026-10-16T12:00:00.000Z',
+      startedBefore: '2026-10-16T12:00:00.000Z',
+      finishedAfter: '2026-10-16T12:00:01.000Z',
+      finishedBefore: '2026-10-16T12:00:01.000Z',
+    });
+    const detail = await api.getCycle!({ cycleId: 'preview-empty-cycle' });
+    const withOperation = await api.listCycles!({
+      source: 'reconciler',
+      op: 'update',
+    });
+    // Assert
+    expect(page.items).toEqual([detail.cycle]);
+    expect(detail.cycle.counts).toEqual({
+      inserted: 0,
+      updated: 0,
+      deleted: 0,
+      unchanged: 10,
+    });
+    expect(detail.changes).toEqual({ items: [], nextCursor: undefined });
+    expect(withOperation.items.map(cycle => cycle.cycleId)).not.toContain(
+      'preview-empty-cycle',
+    );
+    expect((await api.listCycles!({ provider: ' reconciler ' })).items).toEqual(
+      [],
+    );
+  });
+
+  it('filters source, provider, mutation, operation and inclusive run dates without changing totals', async () => {
+    // Arrange
+    const api = createFixtureApi();
+    const cycles = (await api.listCycles!({ limit: 100 })).items;
+    // Act / Assert
+    for (const cycle of cycles.filter(
+      item => item.cycleId !== 'preview-empty-cycle',
+    )) {
+      const row = crossEntityRecords.find(
+        item => item.cycleId === cycle.cycleId,
+      )!;
+      const matching = await api.listCycles!({
+        source: cycle.source,
+        provider: cycle.provider,
+        mutationType: cycle.mutationType,
+        op: row.op,
+        startedAfter: cycle.startedAt,
+        startedBefore: cycle.startedAt,
+        finishedAfter: cycle.finishedAt,
+        finishedBefore: cycle.finishedAt,
+      });
+      expect(matching.items).toContainEqual(cycle);
+      expect(
+        (
+          await api.listCycles!({
+            startedAfter: new Date(
+              Date.parse(cycle.startedAt) + 1,
+            ).toISOString(),
+          })
+        ).items,
+      ).not.toContainEqual(cycle);
+      expect(
+        (
+          await api.listCycles!({
+            finishedBefore: new Date(
+              Date.parse(cycle.finishedAt) - 1,
+            ).toISOString(),
+          })
+        ).items,
+      ).not.toContainEqual(cycle);
+    }
+  });
+
+  it('binds list cursors to raw filters and endpoint, but not page size', async () => {
+    // Arrange
+    const api = createFixtureApi();
+    const first = await api.listCycles!({ limit: 1 });
+    // Act
+    const tail = await api.listCycles!({
+      limit: 100,
+      cursor: first.nextCursor,
+    });
+    // Assert
+    expect(tail.nextCursor).toBeUndefined();
+    expect(tail.items.map(cycle => cycle.cycleId)).not.toContain(
+      first.items[0].cycleId,
+    );
+    await expect(
+      api.listCycles!({ provider: '', cursor: first.nextCursor }),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      api.getCycle!({
+        cycleId: first.items[0].cycleId,
+        cursor: first.nextCursor,
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('accepts valid detail tail anchors and rejects wrong cycle, endpoint and malformed anchors', async () => {
+    // Arrange: ordinary preview cycles intentionally have only one changed row.
+    const api = createFixtureApi();
+    const row = crossEntityRecords[0];
+    const payload = {
+      version: 1,
+      type: 'cycle-changes',
+      scope: JSON.stringify({
+        cycleId: row.cycleId,
+        sort: 'changedAt-desc,id-desc',
+      }),
+      anchor: [row.changedAt, row.id],
+    };
+    const cursor = `preview-cycle-changes:${encodeURIComponent(JSON.stringify(payload))}`;
+    // Act
+    const tail = await api.getCycle!({ cycleId: row.cycleId, cursor });
+    // Assert
+    expect(tail.changes).toEqual({ items: [], nextCursor: undefined });
+    expect(tail.cycle).toEqual(
+      (await api.getCycle!({ cycleId: row.cycleId })).cycle,
+    );
+    await expect(
+      api.getCycle!({ cycleId: 'preview-empty-cycle', cursor }),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(api.listCycles!({ cursor })).rejects.toMatchObject({
+      status: 400,
+    });
+    for (const bad of [
+      'garbage',
+      'preview-cycle-changes:%',
+      `preview-cycle-changes:${encodeURIComponent(JSON.stringify({ ...payload, anchor: ['missing', 'missing'] }))}`,
+    ]) {
+      await expect(
+        api.getCycle!({ cycleId: row.cycleId, cursor: bad }),
+      ).rejects.toMatchObject({ status: 400 });
+    }
+  });
+
+  it.each([0, -1, 1.5, NaN, Infinity])(
+    'rejects invalid cycle page limit %s',
+    async limit => {
+      // Arrange
+      const api = createFixtureApi();
+      // Act / Assert
+      await expect(api.listCycles!({ limit })).rejects.toMatchObject({
+        status: 400,
+      });
+      await expect(
+        api.getCycle!({ cycleId: crossEntityRecords[0].cycleId, limit }),
+      ).rejects.toMatchObject({ status: 400 });
+    },
+  );
+
+  it.each([
+    { source: 'invalid' },
+    { mutationType: 'invalid' },
+    { op: 'invalid' },
+    { startedAfter: 'invalid' },
+    { finishedBefore: 'invalid' },
+  ])('rejects invalid cycle filters %j', async request => {
+    // Arrange
+    const api = createFixtureApi();
+    // Act / Assert
+    await expect(
+      api.listCycles!(request as HistoryCycleListRequest),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('distinguishes an absent cycle from a missing cycle ID', async () => {
+    // Arrange
+    const api = createFixtureApi();
+    // Act / Assert
+    await expect(
+      api.getCycle!({ cycleId: 'unknown-preview-cycle' }),
+    ).rejects.toMatchObject({ status: 404 });
+    await expect(api.getCycle!({ cycleId: '' })).rejects.toMatchObject({
+      status: 400,
+    });
+  });
+});
 
 describe('development fixture API', () => {
   describe('entity and kind discovery', () => {

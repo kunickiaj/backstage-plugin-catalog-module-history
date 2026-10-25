@@ -1,9 +1,16 @@
 /** @jsxRuntime automatic */
 import type { HistoryTimelineItem } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import { RecordedTime } from './RecordedTime';
+import { HistoryCycleLink } from './HistoryCycleLink';
 import styles from './History.module.css';
 
-export function HistoryProvenance({ event }: { event: HistoryTimelineItem }) {
+export function HistoryProvenance({
+  event,
+  cycleNavigationAvailable,
+}: {
+  event: HistoryTimelineItem;
+  cycleNavigationAvailable?: boolean;
+}) {
   return (
     <dl className={styles.provenance}>
       <dt>Entity</dt>
@@ -21,9 +28,29 @@ export function HistoryProvenance({ event }: { event: HistoryTimelineItem }) {
       <dt>Event ID</dt>
       <dd>{event.id}</dd>
       <dt>Cycle ID</dt>
-      <dd>{event.cycleId}</dd>
+      <dd>
+        {event.cycleId?.trim() ? (
+          <CycleId
+            cycleId={event.cycleId}
+            available={cycleNavigationAvailable}
+          />
+        ) : (
+          'Not recorded'
+        )}
+      </dd>
       <dt>ETag</dt>
       <dd>{event.etag ?? 'Not recorded'}</dd>
     </dl>
   );
+}
+
+function CycleId({
+  cycleId,
+  available,
+}: {
+  cycleId: string;
+  available?: boolean;
+}) {
+  if (!available) return <>{cycleId}</>;
+  return <HistoryCycleLink cycleId={cycleId} />;
 }
