@@ -124,6 +124,16 @@ Update rows can show **Owner changed**, **Relations changed**, **Status changed*
 
 The default Postgres backend supplies summaries for the entity timeline and current event detail. Its global feed and version lists still return empty summaries; older and custom APIs can also omit them. The UI does not fetch each event or compare loaded rows to fill those gaps. Badge comparisons describe known fields in adjacent saved events from the same source and provider, not the original upstream mutation.
 
+### Provider suggestions in unreleased source
+
+Open **Provider** to discover names represented in retained history for the applied filters. Suggestions come from the server across retained rows, not only the loaded event page or current provider registrations. Names from deleted entities can still appear. With no unfinished search, opening the picker shows the first names in scope, even when a provider is already selected.
+
+Typing searches by a case-insensitive literal prefix after 300 ms; `%`, `_`, and backslash are ordinary characters. This is not fuzzy or substring matching. Choose a returned full name to apply the existing exact provider filter. Its case and whitespace remain unchanged, including when other filters are applied. While editing, the previous provider stays applied and is identified below the field; clearing removes it. Only the first 25 suggestions are shown. **Type more to narrow** means more matching names exist, not that the current suggestions are the complete set.
+
+Missing optional `getProviders` support or a `404`/`501` discovery response switches to **Exact provider name; suggestions unavailable.** That textbox retains the original exact-entry debounce behavior. A successful empty search is supported discovery with no matches, not a reason to switch modes. `401`/`403` remain access errors, and other failures show a retry action. Reset clears the editor and pending work; stale responses after typing, context changes, API replacement, or unmount are ignored. Ignoring a response does not cancel its server SQL.
+
+Stored empty provider names are displayed but cannot be selected because the existing history API rejects an empty `provider` parameter. Nonempty whitespace names have escaped labels for readability and retain their original value when selected.
+
 ## Access and unavailable history
 
 The backend requires an authenticated user. When the Backstage permission framework is enabled, the policy must explicitly allow `catalog-history.read`; otherwise the tab reports an access error.
@@ -149,7 +159,7 @@ This NFS- and BUI-only package exports:
 
 It also exports the plugin's API and entity-content blueprints for NFS composition. The default plugin automatically registers the standalone page. There is no cycle, stats, facets, as-of, or arbitrary version-comparison view.
 
-Current source also exposes optional `CatalogHistoryApi.getProviders(request)` and the corresponding `CatalogHistoryClient` method for [retained-provider discovery](../../README.md#provider-discovery-in-unreleased-source). Custom APIs can omit it. It returns server-matched names for suggestions; consumers still apply a selected full name through the existing exact `provider` filter. HTTP `404` and `501` identify unavailable discovery, while `401` and `403` are authentication/access errors. The client forwards failures without caching or automatic fallback.
+Current source also exposes optional `CatalogHistoryApi.getProviders(request)` and the corresponding `CatalogHistoryClient` method for [retained-provider discovery](../../README.md#provider-discovery-in-unreleased-source). Custom APIs can omit it. It returns server-matched names for suggestions; consumers still apply a selected full name through the existing exact `provider` filter. HTTP `404` and `501` identify unavailable discovery, while `401` and `403` are authentication/access errors. The HTTP client forwards failures without caching; the provider picker handles compatibility fallback.
 
 For API configuration, permissions, routes, and retention behavior, read the [workspace README](../../README.md#read-history-over-http-in-020).
 

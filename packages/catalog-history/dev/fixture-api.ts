@@ -2,6 +2,12 @@ import type {
   HistoryChangeFeedRequest,
   HistoryEntityVersion,
   HistoryEntityVersionResponse,
+  HistoryProviderSearchRequest,
+  HistoryProviderSearchResponse,
+} from '@kunickiaj/backstage-plugin-catalog-history-common';
+import {
+  DEFAULT_HISTORY_PAGE_LIMIT,
+  MAX_HISTORY_PAGE_LIMIT,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import { CatalogHistoryApiError } from '../src';
 import type { CatalogHistoryApi } from '../src';
@@ -35,9 +41,99 @@ function matches(row: HistoryEntityVersion, request: HistoryChangeFeedRequest) {
   );
 }
 
+const providerCursorPrefix = 'preview-providers:';
+
+function providerCursorAfter(cursor: string | undefined, scope: string) {
+  if (cursor === undefined) return undefined;
+  try {
+    if (
+      typeof cursor !== 'string' ||
+      !cursor.startsWith(providerCursorPrefix)
+    ) {
+      throw new CatalogHistoryApiError(400);
+    }
+    const value: unknown = JSON.parse(
+      decodeURIComponent(cursor.slice(providerCursorPrefix.length)),
+    );
+    if (
+      typeof value !== 'object' ||
+      value === null ||
+      !('version' in value) ||
+      value.version !== 1 ||
+      !('lastName' in value) ||
+      typeof value.lastName !== 'string' ||
+      !('scope' in value) ||
+      value.scope !== scope
+    ) {
+      throw new CatalogHistoryApiError(400);
+    }
+    return value.lastName;
+  } catch {
+    throw new CatalogHistoryApiError(400);
+  }
+}
+
 /** In-memory preview only: no network, credentials, or production client changes. */
 export function createFixtureApi(): CatalogHistoryApi {
   return {
+    async getProviders(
+      request: HistoryProviderSearchRequest,
+    ): Promise<HistoryProviderSearchResponse> {
+      try {
+        const limit =
+          request.limit === undefined
+            ? DEFAULT_HISTORY_PAGE_LIMIT
+            : request.limit;
+        if (
+          !Number.isInteger(limit) ||
+          limit < 1 ||
+          (request.prefix !== undefined && typeof request.prefix !== 'string')
+        ) {
+          throw new CatalogHistoryApiError(400);
+        }
+        // Pick fields explicitly: discovery ignores exact provider and owner filters.
+        const context: HistoryChangeFeedRequest = {
+          source: request.source,
+          entityRef: request.entityRef,
+          kind: request.kind,
+          op: request.op,
+          changedAfter: request.changedAfter,
+          changedBefore: request.changedBefore,
+        };
+        const prefix = request.prefix ?? '';
+        const scope = JSON.stringify({ prefix, ...context });
+        const after = providerCursorAfter(request.cursor, scope);
+        // Binary ordering matches C ordering for these static ASCII fixture names.
+        const names = Array.from(
+          new Set(
+            crossEntityRecords
+              .filter(row => matches(row, context))
+              .map(row => row.provider),
+          ),
+        )
+          .filter(
+            name =>
+              name.toLowerCase().startsWith(prefix.toLowerCase()) &&
+              (after === undefined || name > after),
+          )
+          .sort();
+        const items = names.slice(0, Math.min(limit, MAX_HISTORY_PAGE_LIMIT));
+        const nextCursor =
+          names.length > items.length
+            ? providerCursorPrefix +
+              encodeURIComponent(
+                JSON.stringify({
+                  version: 1,
+                  lastName: items[items.length - 1],
+                  scope,
+                }),
+              )
+            : undefined;
+        return { items, nextCursor };
+      } catch {
+        throw new CatalogHistoryApiError(400);
+      }
+    },
     getChangeFeed(request) {
       const limit = request.limit ?? 25;
       if (!Number.isInteger(limit) || limit < 1)

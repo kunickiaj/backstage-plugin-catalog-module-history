@@ -82,6 +82,158 @@ function setup() {
 }
 
 describe('EntityCatalogHistoryContent', () => {
+  it('discovers providers in applied entity scope and commits only a returned exact name before paging events', async () => {
+    // Arrange: discovery must not depend on the providers in loaded rows.
+    const { api, mount } = setup();
+    const name = ' MiXeD%_\\ Provider ';
+    api.getProviders = jest
+      .fn()
+      .mockResolvedValue({ items: [name], nextCursor: 'metadata-only' });
+    api.getEntityTimeline.mockImplementation(async request => {
+      let id = request.provider ? 'match' : 'initial';
+      if (request.cursor) id = 'older-match';
+      return {
+        items: [event(id, { provider: request.provider ?? 'loaded-only' })],
+        nextCursor: request.cursor ? undefined : 'events-only',
+      };
+    });
+    api.getEntityVersion.mockResolvedValue(event('match', { provider: name }));
+    mount();
+    await screen.findByRole('row', { name: /^Event initial,/ });
+    fireEvent.click(screen.getByRole('button', { name: /Source$/ }));
+    fireEvent.click(screen.getByRole('option', { name: 'provider' }));
+    fireEvent.click(screen.getByRole('button', { name: /Operation$/ }));
+    fireEvent.click(screen.getByRole('option', { name: 'update' }));
+    const after = '2026-10-01T12:00';
+    fireEvent.change(screen.getByLabelText('Recorded after (local time)'), {
+      target: { value: after },
+    });
+    const scope = {
+      entityRef,
+      source: 'provider',
+      op: 'update',
+      changedAfter: new Date(after).toISOString(),
+    };
+    const input = screen.getByRole('combobox', { name: 'Provider' });
+
+    // Act: a literal prefix fetches metadata, not history or details.
+    fireEvent.focus(input);
+    await waitFor(() =>
+      expect(api.getProviders).toHaveBeenCalledWith({
+        ...scope,
+        prefix: undefined,
+        limit: 25,
+      }),
+    );
+    const historyCalls = api.getEntityTimeline.mock.calls.length;
+    jest.useFakeTimers();
+    fireEvent.change(input, { target: { value: ' MiX' } });
+    await act(async () => jest.advanceTimersByTime(299));
+    expect(api.getProviders).toHaveBeenCalledTimes(1);
+    await act(async () => jest.advanceTimersByTime(1));
+    jest.useRealTimers();
+    expect(api.getProviders).toHaveBeenLastCalledWith({
+      ...scope,
+      prefix: ' MiX',
+      limit: 25,
+    });
+    expect(api.getEntityTimeline).toHaveBeenCalledTimes(historyCalls);
+    expect(api.getEntityVersion).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: 'ArrowDown', code: 'ArrowDown' });
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+    const row = await screen.findByRole('row', { name: /^Event match,/ });
+
+    // Assert: preserve raw equality, reset row pagination, and retain exact-ID inspection.
+    expect(api.getEntityTimeline).toHaveBeenLastCalledWith({
+      ...scope,
+      provider: name,
+      limit: 25,
+      cursor: undefined,
+    });
+    expect(
+      screen.queryByRole('row', { name: /^Event initial,/ }),
+    ).not.toBeInTheDocument();
+    act(() => row.focus());
+    fireEvent.keyDown(row, { key: 'Enter', code: 'Enter' });
+    fireEvent.keyUp(row, { key: 'Enter', code: 'Enter' });
+    await screen.findByText('cycle-match');
+    expect(api.getEntityVersion).toHaveBeenCalledWith({
+      entityRef,
+      id: 'match',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Load older' }));
+    await screen.findByRole('row', { name: /^Event older-match,/ });
+    expect(api.getEntityTimeline).toHaveBeenLastCalledWith({
+      ...scope,
+      provider: name,
+      limit: 25,
+      cursor: 'events-only',
+    });
+    expect(api.getProviders).toHaveBeenCalledTimes(2);
+    for (const [request] of jest.mocked(api.getProviders).mock.calls) {
+      expect(request).not.toHaveProperty('provider');
+      expect(request).not.toHaveProperty('cursor');
+      expect(request).not.toHaveProperty('owner');
+    }
+  });
+
+  it('resets provider search and ignores a pending metadata response from the old filter editor', async () => {
+    // Arrange
+    const { api, mount } = setup();
+    const pending = deferred<{ items: string[] }>();
+    api.getProviders = jest
+      .fn()
+      .mockResolvedValueOnce({ items: ['selected-provider'] })
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValue({ items: ['fresh-provider'] });
+    mount();
+    await screen.findByText('No recorded events match these filters.');
+    fireEvent.focus(screen.getByRole('combobox', { name: 'Provider' }));
+    const input = screen.getByRole('combobox', { name: 'Provider' });
+    fireEvent.keyDown(input, { key: 'ArrowDown', code: 'ArrowDown' });
+    fireEvent.click(
+      await screen.findByRole('option', { name: 'selected-provider' }),
+    );
+    await waitFor(() =>
+      expect(api.getEntityTimeline).toHaveBeenLastCalledWith(
+        expect.objectContaining({ provider: 'selected-provider' }),
+      ),
+    );
+    jest.useFakeTimers();
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'stale-prefix' } });
+    await act(async () => jest.advanceTimersByTime(300));
+    jest.useRealTimers();
+    expect(api.getProviders).toHaveBeenLastCalledWith(
+      expect.objectContaining({ prefix: 'stale-prefix' }),
+    );
+
+    // Act
+    fireEvent.click(screen.getByRole('button', { name: 'Reset filters' }));
+    await act(async () => pending.resolve({ items: ['stale-provider'] }));
+    const resetInput = screen.getByRole('combobox', { name: 'Provider' });
+    fireEvent.focus(resetInput);
+    fireEvent.keyDown(resetInput, { key: 'ArrowDown', code: 'ArrowDown' });
+
+    // Assert
+    await screen.findByRole('option', { name: 'fresh-provider' });
+    expect(resetInput).toHaveValue('');
+    expect(
+      screen.queryByRole('option', { name: 'stale-provider' }),
+    ).not.toBeInTheDocument();
+    expect(api.getEntityTimeline).toHaveBeenLastCalledWith({
+      entityRef,
+      limit: 25,
+      cursor: undefined,
+    });
+    expect(api.getProviders).toHaveBeenLastCalledWith({
+      entityRef,
+      prefix: undefined,
+      limit: 25,
+    });
+    expect(api.getEntityVersion).not.toHaveBeenCalled();
+  });
+
   it('uses each server row summary across pages without fetching details or inferring baseline gaps', async () => {
     // Arrange: page boundaries and adjacent rows are not summary baselines.
     const { api, mount } = setup();

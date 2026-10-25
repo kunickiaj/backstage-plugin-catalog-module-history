@@ -2,6 +2,8 @@
 import '@testing-library/jest-dom';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { HistoryFilters } from './HistoryFilters';
+import type { HistoryProviderSearchResponse } from '@kunickiaj/backstage-plugin-catalog-history-common';
+import { CatalogHistoryApiError } from '../api/CatalogHistoryApi';
 
 const dateError =
   'Enter valid dates, with recorded after no later than recorded before.';
@@ -348,5 +350,261 @@ describe('HistoryFilters', () => {
       changedAfter: undefined,
       changedBefore: undefined,
     });
+  });
+});
+
+describe('HistoryFilters provider discovery', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  function client(
+    getProviders = jest.fn().mockResolvedValue({ items: [' Raw%_\\ Name '] }),
+  ) {
+    return {
+      getProviders,
+      getEntityTimeline: jest.fn(),
+      getEntityVersion: jest.fn(),
+    };
+  }
+
+  async function advance(milliseconds = 300) {
+    await act(async () => {
+      jest.advanceTimersByTime(milliseconds);
+    });
+  }
+
+  async function select(name = ' Raw%_\\ Name ') {
+    const input = screen.getByRole('combobox', { name: 'Provider' });
+    fireEvent.focus(input);
+    await advance(0);
+    fireEvent.keyDown(input, { key: 'ArrowDown', code: 'ArrowDown' });
+    fireEvent.click(screen.getByRole('option', { name: name.trim() }));
+  }
+
+  it.each([
+    {
+      label: 'Source',
+      option: 'processing',
+      expected: { source: 'processing' },
+    },
+    { label: 'Operation', option: 'delete', expected: { op: 'delete' } },
+  ])(
+    'flushes the raw chosen name, never an unfinished prefix, when $label changes',
+    async ({ label, option, expected }) => {
+      // Arrange
+      const onApply = jest.fn();
+      render(<HistoryFilters api={client()} onApply={onApply} />);
+      await select();
+      expect(onApply).toHaveBeenLastCalledWith(
+        expect.objectContaining({ provider: ' Raw%_\\ Name ' }),
+      );
+      fireEvent.change(screen.getByRole('combobox', { name: 'Provider' }), {
+        target: { value: 'unfinished-prefix' },
+      });
+      await advance();
+      expect(onApply).toHaveBeenCalledTimes(1);
+      // Act
+      fireEvent.click(
+        screen.getByRole('button', { name: new RegExp(`${label}$`) }),
+      );
+      fireEvent.click(screen.getByRole('option', { name: option }));
+      // Assert
+      expect(onApply).toHaveBeenCalledTimes(2);
+      expect(onApply).toHaveBeenLastCalledWith(
+        expect.objectContaining({ provider: ' Raw%_\\ Name ', ...expected }),
+      );
+      await advance();
+      expect(onApply).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('preserves raw selection through date flushing and clears only on explicit empty input', async () => {
+    // Arrange
+    const onApply = jest.fn();
+    render(<HistoryFilters api={client()} onApply={onApply} />);
+    await select();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Provider' }), {
+      target: { value: 'unfinished' },
+    });
+    // Act
+    fireEvent.change(screen.getByLabelText('Recorded after (local time)'), {
+      target: { value: '2026-10-23T12:00' },
+    });
+    // Assert
+    expect(onApply).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        provider: ' Raw%_\\ Name ',
+        changedAfter: new Date('2026-10-23T12:00').toISOString(),
+      }),
+    );
+    fireEvent.change(screen.getByRole('combobox', { name: 'Provider' }), {
+      target: { value: '' },
+    });
+    expect(onApply).toHaveBeenLastCalledWith(
+      expect.objectContaining({ provider: undefined }),
+    );
+  });
+
+  it('uses applied context rather than invalid date/entity drafts for provider discovery', async () => {
+    // Arrange
+    const api = client();
+    const onApply = jest.fn();
+    const appliedFilters = {
+      source: 'processing' as const,
+      provider: 'already-exact',
+      kind: 'Component',
+      op: 'delete' as const,
+      entityRef: 'component:default/applied',
+      changedAfter: '2026-10-01T00:00:00.000Z',
+    };
+    render(
+      <HistoryFilters
+        scope="all"
+        api={api}
+        appliedFilters={appliedFilters}
+        entityRef="component:default/fixed"
+        onApply={onApply}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Recorded after (local time)'), {
+      target: { value: '2026-10-24T12:00' },
+    });
+    fireEvent.change(screen.getByLabelText('Recorded before (local time)'), {
+      target: { value: '2026-10-23T12:00' },
+    });
+    fireEvent.change(
+      screen.getByRole('textbox', { name: 'Entity reference' }),
+      { target: { value: 'invalid ref' } },
+    );
+    // Act
+    fireEvent.focus(screen.getByRole('combobox', { name: 'Provider' }));
+    await advance(0);
+    // Assert
+    expect(api.getProviders).toHaveBeenLastCalledWith({
+      source: 'processing',
+      entityRef: 'component:default/fixed',
+      kind: 'Component',
+      op: 'delete',
+      changedAfter: appliedFilters.changedAfter,
+      prefix: undefined,
+      limit: 25,
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Enter a valid entity reference and kind',
+    );
+    expect(screen.getByText(/Current provider filter:/)).toHaveTextContent(
+      'already-exact',
+    );
+  });
+
+  it('retains atomic validation when a known provider is chosen during a reversed date range', async () => {
+    // Arrange
+    const onApply = jest.fn();
+    render(<HistoryFilters api={client()} onApply={onApply} />);
+    fireEvent.change(screen.getByLabelText('Recorded after (local time)'), {
+      target: { value: '2026-10-24T12:00' },
+    });
+    fireEvent.change(screen.getByLabelText('Recorded before (local time)'), {
+      target: { value: '2026-10-23T12:00' },
+    });
+    // Act
+    await select();
+    // Assert
+    expect(onApply).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('alert')).toHaveTextContent(dateError);
+    fireEvent.change(screen.getByLabelText('Recorded before (local time)'), {
+      target: { value: '2026-10-25T12:00' },
+    });
+    expect(onApply).toHaveBeenLastCalledWith(
+      expect.objectContaining({ provider: ' Raw%_\\ Name ' }),
+    );
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('restores exact trimmed 300ms typing after an unsupported response without auto-applying the prefix', async () => {
+    // Arrange
+    const api = client(
+      jest.fn().mockRejectedValue(new CatalogHistoryApiError(501)),
+    );
+    const onApply = jest.fn();
+    render(<HistoryFilters api={api} onApply={onApply} />);
+    fireEvent.focus(screen.getByRole('combobox', { name: 'Provider' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Provider' }), {
+      target: { value: 'unfinished' },
+    });
+    await advance();
+    expect(onApply).not.toHaveBeenCalled();
+    // Act
+    fireEvent.change(screen.getByRole('textbox', { name: 'Provider' }), {
+      target: { value: ' exact name ' },
+    });
+    await advance(299);
+    expect(onApply).not.toHaveBeenCalled();
+    await advance(1);
+    // Assert
+    expect(onApply).toHaveBeenCalledTimes(1);
+    expect(onApply).toHaveBeenLastCalledWith(
+      expect.objectContaining({ provider: 'exact name' }),
+    );
+    expect(api.getProviders).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['success', 'unsupported'] as const)(
+    'reset discards a pending %s response even before any selection',
+    async outcome => {
+      // Arrange
+      let resolve!: (page: HistoryProviderSearchResponse) => void;
+      let reject!: (error: unknown) => void;
+      const pending = new Promise<HistoryProviderSearchResponse>((yes, no) => {
+        resolve = yes;
+        reject = no;
+      });
+      const api = client(
+        jest.fn().mockReturnValueOnce(pending).mockResolvedValue({ items: [] }),
+      );
+      const onApply = jest.fn();
+      render(<HistoryFilters api={api} onApply={onApply} />);
+      fireEvent.focus(screen.getByRole('combobox', { name: 'Provider' }));
+      await advance(0);
+      fireEvent.change(screen.getByRole('combobox', { name: 'Provider' }), {
+        target: { value: 'pending' },
+      });
+      // Act
+      fireEvent.click(screen.getByRole('button', { name: 'Reset filters' }));
+      await advance();
+      await act(async () => {
+        if (outcome === 'success')
+          resolve({ items: ['obsolete'], nextCursor: 'old' });
+        else reject(new CatalogHistoryApiError(404));
+      });
+      // Assert
+      expect(api.getProviders).toHaveBeenCalledTimes(1);
+      expect(onApply).toHaveBeenCalledTimes(1);
+      expect(onApply).toHaveBeenLastCalledWith({});
+      expect(screen.getByRole('combobox', { name: 'Provider' })).toHaveValue(
+        '',
+      );
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(
+        screen.queryByText('Type more to narrow.'),
+      ).not.toBeInTheDocument();
+    },
+  );
+
+  it('reset removes a chosen provider and allows a fresh search', async () => {
+    // Arrange
+    const api = client();
+    const onApply = jest.fn();
+    render(<HistoryFilters api={api} onApply={onApply} />);
+    await select();
+    // Act
+    fireEvent.click(screen.getByRole('button', { name: 'Reset filters' }));
+    await select();
+    // Assert
+    expect(onApply).toHaveBeenCalledTimes(3);
+    expect(onApply.mock.calls[1][0]).toEqual({});
+    expect(onApply).toHaveBeenLastCalledWith(
+      expect.objectContaining({ provider: ' Raw%_\\ Name ' }),
+    );
   });
 });
