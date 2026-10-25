@@ -377,6 +377,71 @@ describe('catalogModuleHistory', () => {
     );
   });
 
+  it.each([
+    {
+      name: 'frequency only',
+      schedule: { frequency: { minutes: 30 } },
+      expected: {
+        frequency: { minutes: 30 },
+        timeout: { minutes: 10 },
+        initialDelay: { seconds: 30 },
+      },
+    },
+    {
+      name: 'timeout only',
+      schedule: { timeout: { minutes: 2 } },
+      expected: {
+        frequency: { hours: 1 },
+        timeout: { minutes: 2 },
+        initialDelay: { seconds: 30 },
+      },
+    },
+    {
+      name: 'an explicit zero initial delay',
+      schedule: {
+        frequency: 'PT15M',
+        timeout: { minutes: 5 },
+        initialDelay: { seconds: 0 },
+      },
+      expected: {
+        frequency: { minutes: 15 },
+        timeout: { minutes: 5 },
+        initialDelay: { seconds: 0 },
+      },
+    },
+  ])(
+    'fills omitted reconciler schedule keys from defaults: $name',
+    async ({ schedule, expected }) => {
+      const scheduler = mockServices.scheduler.mock();
+
+      backend = await startTestBackend({
+        extensionPoints: [
+          [catalogProcessingExtensionPoint, { addProcessor: jest.fn() }],
+        ],
+        features: [
+          historyStoreServiceFactory,
+          catalogModuleHistory,
+          catalogServiceFactory,
+          scheduler.factory,
+          mockServices.database.factory({ knex: db }),
+          mockServices.rootConfig.factory({
+            data: {
+              catalog: { history: { reconciler: { enabled: true, schedule } } },
+            },
+          }),
+        ],
+      });
+
+      expect(scheduler.scheduleTask).toHaveBeenCalledTimes(1);
+      const { fn: _fn, ...definition } =
+        scheduler.scheduleTask.mock.calls[0][0];
+      expect(definition).toEqual({
+        id: 'catalog-history-reconcile',
+        ...expected,
+      });
+    },
+  );
+
   it('passes the injected history store to processor capture', async () => {
     // Arrange - use the real SDK service reference through the backend container.
     const journal = metricsJournal();

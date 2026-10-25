@@ -4,6 +4,8 @@ import {
   readSchedulerServiceTaskScheduleDefinitionFromConfig,
 } from '@backstage/backend-plugin-api';
 import { metricsServiceRef } from '@backstage/backend-plugin-api/alpha';
+import { ConfigReader } from '@backstage/config';
+import type { JsonObject } from '@backstage/types';
 import {
   catalogProcessingExtensionPoint,
   catalogServiceRef,
@@ -17,6 +19,12 @@ import { HistoryRecordingCatalogProcessor } from '../processor/HistoryRecordingC
 import { CatalogServiceEntityFetcher } from '../reconciler/CatalogServiceEntityFetcher';
 import { reconcile } from '../reconciler/reconcile';
 import { createHistoryRouter } from '../service/createHistoryRouter';
+
+const DEFAULT_RECONCILER_SCHEDULE = {
+  frequency: { hours: 1 },
+  timeout: { minutes: 10 },
+  initialDelay: { seconds: 30 },
+};
 
 /**
  * Backstage backend module for the catalog-history plugin. On init it
@@ -179,15 +187,18 @@ export const catalogModuleHistory = createBackendModule({
           const scheduleConfig = moduleConfig
             ?.getOptionalConfig('reconciler')
             ?.getOptionalConfig('schedule');
-          const schedule = scheduleConfig
-            ? readSchedulerServiceTaskScheduleDefinitionFromConfig(
-                scheduleConfig,
-              )
-            : {
-                frequency: { hours: 1 },
-                timeout: { minutes: 10 },
-                initialDelay: { seconds: 30 },
-              };
+          // Backstage's parser requires frequency and timeout together, so
+          // merge operator keys over the defaults before parsing. This lets a
+          // cadence-only override inherit the default timeout and delay.
+          const schedule = readSchedulerServiceTaskScheduleDefinitionFromConfig(
+            new ConfigReader(
+              {
+                ...DEFAULT_RECONCILER_SCHEDULE,
+                ...scheduleConfig?.get<JsonObject>(),
+              },
+              'catalog.history.reconciler.schedule',
+            ),
+          );
 
           await scheduler.scheduleTask({
             id: 'catalog-history-reconcile',
