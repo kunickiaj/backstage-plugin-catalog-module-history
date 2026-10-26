@@ -4,7 +4,7 @@ A Backstage backend module that records catalog entity changes into a versioned 
 
 Ships with a Postgres backend in v1; designed around a pluggable `HistoryStore` interface so additional backends (Dolt, ClickHouse, etc.) can be added without changes to the wrapper.
 
-**Status: pre-alpha.** All five public packages are published at `0.2.0` with the `latest` dist-tag, including the frontend package. The HTTP read API and migration-log isolation fix ship in `0.2.0`; read the [storage notes](packages/catalog-history-backend/README.md#migration-bookkeeping-in-020) and [migration guide](docs/migration.md) before using a shared catalog database.
+**Status: pre-alpha.** All five public packages are published at `0.2.0` with the `latest` dist-tag, including the frontend package. `0.3.0` is prepared but not yet published. The HTTP read API and migration-log isolation fix ship in `0.2.0`; read the [storage notes](packages/catalog-history-backend/README.md#migration-bookkeeping-in-020) and [migration guide](docs/migration.md) before using a shared catalog database.
 
 Maintainers: see [Publishing packages](docs/publishing.md) for validation, npm trusted publishing, artifact verification, release notes, and recovery.
 
@@ -118,7 +118,7 @@ catalog:
     # Serve authenticated entity-history reads from the catalog backend.
     api:
       enabled: false
-      # Default Postgres history-read statement limit (current source; next release).
+      # Default Postgres history-read statement limit in 0.3.0.
       queryTimeoutMs: 10000
 
     # Scheduled in-process reconciliation through the public Catalog API.
@@ -130,25 +130,25 @@ catalog:
         initialDelay: { seconds: 30 }
 ```
 
-| Key                                                | Default                    | Effect                                                                                                                                               |
-| -------------------------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `catalog.history.enabled`                          | `true`                     | Master switch. Set to `false` to skip schema bootstrap, processor capture, and reconciler.                                                           |
-| `catalog.history.database`                         | unset                      | Deprecated history database override honored by the default store factory. Prefer custom `historyStoreServiceRef` factories for new setups.          |
-| `catalog.history.database.client`                  | `pg`                       | Knex client for the deprecated history database override.                                                                                            |
-| `catalog.history.database.connection`              | Backstage database service | Knex connection string or object for the deprecated history storage override. Treated as secret config.                                              |
-| `catalog.history.provider`                         | unset                      | Provider-layer capture settings.                                                                                                                     |
-| `catalog.history.provider.enabled`                 | `true`                     | Gates provider-layer recording when passed to `HistoryRecordingEntityProvider`.                                                                      |
-| `catalog.history.processing`                       | unset                      | Processor-layer capture settings.                                                                                                                    |
-| `catalog.history.processing.enabled`               | `false`                    | Enables processor-layer capture via `HistoryRecordingCatalogProcessor`.                                                                              |
-| `catalog.history.api`                              | unset                      | HTTP history API settings.                                                                                                                           |
-| `catalog.history.api.enabled`                      | `false`                    | Enables entity history, version, and cross-entity change-feed routes under `/api/catalog/history`.                                                   |
-| `catalog.history.api.queryTimeoutMs`               | `10000`                    | Current source: per-SQL-statement timeout in milliseconds for history reads through the default Postgres store. `0` disables only this plugin limit. |
-| `catalog.history.reconciler`                       | unset                      | Scheduled in-process reconciler settings.                                                                                                            |
-| `catalog.history.reconciler.enabled`               | `false`                    | Enables scheduled in-process reconciliation.                                                                                                         |
-| `catalog.history.reconciler.schedule`              | unset                      | Optional Backstage scheduler config; omitted uses the defaults below.                                                                                |
-| `catalog.history.reconciler.schedule.frequency`    | `{ hours: 1 }`             | Scheduler frequency for the in-process reconciler.                                                                                                   |
-| `catalog.history.reconciler.schedule.timeout`      | `{ minutes: 10 }`          | Scheduler timeout for one reconcile run.                                                                                                             |
-| `catalog.history.reconciler.schedule.initialDelay` | `{ seconds: 30 }`          | Delay before the first scheduled reconcile run.                                                                                                      |
+| Key                                                | Default                    | Effect                                                                                                                                        |
+| -------------------------------------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `catalog.history.enabled`                          | `true`                     | Master switch. Set to `false` to skip schema bootstrap, processor capture, and reconciler.                                                    |
+| `catalog.history.database`                         | unset                      | Deprecated history database override honored by the default store factory. Prefer custom `historyStoreServiceRef` factories for new setups.   |
+| `catalog.history.database.client`                  | `pg`                       | Knex client for the deprecated history database override.                                                                                     |
+| `catalog.history.database.connection`              | Backstage database service | Knex connection string or object for the deprecated history storage override. Treated as secret config.                                       |
+| `catalog.history.provider`                         | unset                      | Provider-layer capture settings.                                                                                                              |
+| `catalog.history.provider.enabled`                 | `true`                     | Gates provider-layer recording when passed to `HistoryRecordingEntityProvider`.                                                               |
+| `catalog.history.processing`                       | unset                      | Processor-layer capture settings.                                                                                                             |
+| `catalog.history.processing.enabled`               | `false`                    | Enables processor-layer capture via `HistoryRecordingCatalogProcessor`.                                                                       |
+| `catalog.history.api`                              | unset                      | HTTP history API settings.                                                                                                                    |
+| `catalog.history.api.enabled`                      | `false`                    | Enables entity history, version, and cross-entity change-feed routes under `/api/catalog/history`.                                            |
+| `catalog.history.api.queryTimeoutMs`               | `10000`                    | `0.3.0`: per-SQL-statement timeout in milliseconds for history reads through the default Postgres store. `0` disables only this plugin limit. |
+| `catalog.history.reconciler`                       | unset                      | Scheduled in-process reconciler settings.                                                                                                     |
+| `catalog.history.reconciler.enabled`               | `false`                    | Enables scheduled in-process reconciliation.                                                                                                  |
+| `catalog.history.reconciler.schedule`              | unset                      | Optional Backstage scheduler config; omitted uses the defaults below.                                                                         |
+| `catalog.history.reconciler.schedule.frequency`    | `{ hours: 1 }`             | Scheduler frequency for the in-process reconciler.                                                                                            |
+| `catalog.history.reconciler.schedule.timeout`      | `{ minutes: 10 }`          | Scheduler timeout for one reconcile run.                                                                                                      |
+| `catalog.history.reconciler.schedule.initialDelay` | `{ seconds: 30 }`          | Delay before the first scheduled reconcile run.                                                                                               |
 
 Processing capture and the scheduled reconciler are config-only after `backend.add(import('@kunickiaj/backstage-plugin-catalog-backend-module-history'))`; no extra code wiring is needed.
 
@@ -156,7 +156,7 @@ Processing capture and the scheduled reconciler are config-only after `backend.a
 
 Enable the API in the existing catalog module. It uses the same history store and database as recording; do not install a separate history backend plugin. Its route prefix is `/api/catalog/history`, not the previously planned `/api/catalog-history`.
 
-Current source adds `catalog.history.api.queryTimeoutMs`, which defaults to 10 seconds after the next release. It limits each history-read SQL statement in the default Postgres store, not the complete HTTP request; a detail lookup can run two separately limited statements. A lower positive Postgres `statement_timeout` remains in effect, while `0` removes only the plugin limit and retains any database limit.
+`0.3.0` adds `catalog.history.api.queryTimeoutMs`, which defaults to 10 seconds. It limits each history-read SQL statement in the default Postgres store, not the complete HTTP request; a detail lookup can run two separately limited statements. A lower positive Postgres `statement_timeout` remains in effect, while `0` removes only the plugin limit and retains any database limit.
 
 ```yaml
 catalog:
@@ -190,9 +190,9 @@ The entity list routes accept `source` (`provider`, `processing`, or `reconciler
 
 The detail route accepts no query parameters. Invalid, nonpositive, or out-of-range PostgreSQL bigint IDs return `400`; an absent row or an ID for another entity returns `404`. The API returns retained history for deleted entities and does not filter rows by current catalog visibility. An approved `catalog-history.read` permission grants access to all retained history, not only entities visible in the current catalog. An empty list is `200` with `items: []`. Errors are `401` for missing authentication, `403` for a rejected permission decision, and `500` for a sanitized backend failure. Stats, facets, and arbitrary diff routes are not available yet.
 
-Unreleased source populates saved-field summaries on the default Postgres entity timeline and selected-event detail. Owner, relations, status, and orphan flags compare the immediately preceding saved event from the same entity, source, and provider, even when that event falls outside the current page or filters. A flag is omitted if either recorded value or the comparison is unavailable; known unchanged values produce `false`. Inserts, deletes, and updates without a comparable predecessor have empty summaries. Arrays are compared as whole, order-sensitive values, not graph semantics. The global feed, version lists, and nested predecessor summaries still return `{}`. The default Postgres query implementation in published `0.2.0` returns empty summaries.
+`0.3.0` populates saved-field summaries on the default Postgres entity timeline and selected-event detail. Owner, relations, status, and orphan flags compare the immediately preceding saved event from the same entity, source, and provider, even when that event falls outside the current page or filters. A flag is omitted if either recorded value or the comparison is unavailable; known unchanged values produce `false`. Inserts, deletes, and updates without a comparable predecessor have empty summaries. Arrays are compared as whole, order-sensitive values, not graph semantics. The global feed, version lists, and nested predecessor summaries still return `{}`. The default Postgres query implementation in published `0.2.0` returns empty summaries.
 
-### Read recording cycles in the unreleased source
+### Read recording cycles in `0.3.0`
 
 `GET /api/catalog/history/cycles` lists recorded capture cycles. It accepts exact `source`, `provider`, `op`, and `mutationType` filters; inclusive `startedAfter`, `startedBefore`, `finishedAfter`, and `finishedBefore` instants; `limit`; and `cursor`. `op` selects cycles with a retained changed-entity row of that operation. Cycles without an `op` filter include heartbeat cycles.
 
@@ -244,7 +244,7 @@ The list sorts by stored start time and then UUID, newest first. Changed rows so
 
 Cycle routes require the same user authentication and `catalog-history.read` authorization as the other history routes. An older backend has no route (`404`); a custom store without the relevant query capability returns `501` after authentication and authorization. `401` and `403` indicate access failures, not unsupported cycle reads.
 
-### Read a retained observation as of a time in the unreleased source
+### Read a retained observation as of a time in `0.3.0`
 
 `GET /api/catalog/history/entities/:kind/:namespace/:name/as-of` returns the latest retained physical row for the canonical entity at or before `timestamp`. Its only query parameters are required `timestamp` and optional exact `source` and `provider`; `timestamp` must be an ISO 8601 instant with a valid calendar date.
 
@@ -261,7 +261,7 @@ If no eligible retained row exists—for example, the entity is unknown, the req
 
 The route requires the same authentication and `catalog-history.read` authorization as other history reads. A custom store without `getEntityAsOf` returns `501` only after authorization; an older backend without the route returns `404`. `401` and `403` are access failures.
 
-### Provider discovery in unreleased source
+### Provider discovery in `0.3.0`
 
 `GET /api/catalog/history/providers` returns `{ items: string[], nextCursor? }` with distinct provider names from retained entity-history rows, including deletion records. It does not list current provider registrations or names represented only by empty recording cycles. This route uses the same user authentication and `catalog-history.read` permission as other history reads.
 
@@ -271,7 +271,7 @@ Optional `source`, `entityRef`, `kind`, `op`, `changedAfter`, and `changedBefore
 
 The existing `provider` filter on history requests remains exact. Use a discovered full name unchanged when applying it. The optional `getProviders` query/API capability supports discovery without changing existing list responses. A custom store without the method returns `501` after authorization; an older backend without the route returns `404`. The client propagates these statuses and does not treat `401` or `403` as unsupported capability.
 
-### Entity and Kind discovery in unreleased source
+### Entity and Kind discovery in `0.3.0`
 
 `GET /api/catalog/history/entities` discovers identities from retained history.
 It accepts optional `prefix`, `kind`, `source`, `provider`, `op`, `changedAfter`,
@@ -365,17 +365,17 @@ Text fields apply after 300 ms; dropdowns and valid dates apply immediately. Dat
 
 Select a timeline row by pointer or keyboard to inspect its exact event; there is no separate inspect action. The responsive timeline and inspector panels show update field changes when available, plus raw JSON separately. Delete events remain tombstones with no current snapshot; when a prior saved snapshot is available, the inspector labels it as the last recorded snapshot before deletion and shows its provenance. It is not the deletion payload.
 
-Unreleased source also displays recorded metadata, spec, relations, status items, owner, memberships, parent, and orphan status as read-only fields. Missing values stay distinct from recorded empty values or `false`; fields are not filled from the live catalog. Nested values remain available as JSON within their fields, alongside the complete raw snapshot.
+`0.3.0` also displays recorded metadata, spec, relations, status items, owner, memberships, parent, and orphan status as read-only fields. Missing values stay distinct from recorded empty values or `false`; fields are not filled from the live catalog. Nested values remain available as JSON within their fields, alongside the complete raw snapshot.
 
-The unreleased provider picker searches retained provider names when opened, then debounces literal prefix suggestions by 300 ms. Selecting a returned full name applies the existing exact provider filter, preserving its case and whitespace. Typing a prefix leaves the current provider filter in place; it does not filter events or derive suggestions from loaded rows. Suggestions use the applied source, entity, kind, operation, and time context, with the first 25 names shown and a narrowing hint when more are available.
+The `0.3.0` provider picker searches retained provider names when opened, then debounces literal prefix suggestions by 300 ms. Selecting a returned full name applies the existing exact provider filter, preserving its case and whitespace. Typing a prefix leaves the current provider filter in place; it does not filter events or derive suggestions from loaded rows. Suggestions use the applied source, entity, kind, operation, and time context, with the first 25 names shown and a narrowing hint when more are available.
 
 Custom APIs without discovery, or backends returning `404`/`501` for it, keep a labeled exact-name textbox. Authentication/access errors remain visible rather than disabling discovery as unsupported; other failures can be retried. Published `0.2.0` keeps its original exact-name provider input.
 
-Unreleased source also replaces the standalone page's entity-reference and Kind text inputs with retained-history pickers when their optional discovery APIs are supported. Search **Entity** by name prefix, then select a result labeled with its kind and namespace; the picker applies its full exact reference internally, including for deleted-history identities. Selecting an entity also sets Kind. Choosing an incompatible Kind clears Entity; **All kinds** keeps Entity, and clearing Entity keeps Kind. Prefix typing alone does not change the event filters.
+`0.3.0` also replaces the standalone page's entity-reference and Kind text inputs with retained-history pickers when their optional discovery APIs are supported. Search **Entity** by name prefix, then select a result labeled with its kind and namespace; the picker applies its full exact reference internally, including for deleted-history identities. Selecting an entity also sets Kind. Choosing an incompatible Kind clears Entity; **All kinds** keeps Entity, and clearing Entity keeps Kind. Prefix typing alone does not change the event filters.
 
 **Kind** lists retained kinds independently of the active filters, with **Load more kinds** for later pages. Entity suggestions use applied kind, source, provider, operation, and time filters; they exclude the selected reference so alternatives remain discoverable. The two controls fall back independently to their legacy text inputs when the optional method is absent or returns `404`/`501`. They remain hidden on the already-scoped entity History tab.
 
-In unreleased source, an inspector's **Cycle ID** links to its **Recording cycle**: the capture run or flushed batch that recorded the event. The view shows recorded source/provider identity, timing, totals, and paginated retained changes. Selecting a change opens its exact event, including changes to other entities. The last saved snapshot before deletion links to its own earlier cycle. Links use the public history route, including host mount overrides; custom APIs without cycle lookup keep readable cycle-ID text.
+In `0.3.0`, an inspector's **Cycle ID** links to its **Recording cycle**: the capture run or flushed batch that recorded the event. The view shows recorded source/provider identity, timing, totals, and paginated retained changes. Selecting a change opens its exact event, including changes to other entities. The last saved snapshot before deletion links to its own earlier cycle. Links use the public history route, including host mount overrides; custom APIs without cycle lookup keep readable cycle-ID text.
 
 Cycle URLs use `?cycleId=…` on the standalone page. **Back to catalog history** removes that parameter and keeps other query parameters. The filter form stays mounted while hidden, preserving Entity, Kind, provider, source, operation, and time controls when returning. Event pagination and inspector selection restart. A cycle with no retained changes still shows its recorded totals. The recorded totals are separate from the number of loaded changes.
 
@@ -406,9 +406,9 @@ backend.add(catalogModuleHistory);
 backend.add(myHistoryStoreServiceFactory);
 ```
 
-## Metrics in the unreleased source
+## Metrics in `0.3.0`
 
-The unreleased source after `0.2.0` creates four optional OpenTelemetry instruments through Backstage's `MetricsService`:
+`0.3.0` adds four optional OpenTelemetry instruments through Backstage's `MetricsService`:
 
 - `catalog.history.capture.operation.duration`
 - `catalog.history.storage.operation.duration`
@@ -501,8 +501,9 @@ env \
 - [Entity discovery evaluation](docs/entity-discovery-evaluation.md)
 - [Storage sizing and retention planning](docs/sizing.md)
 - [Architecture](docs/ARCHITECTURE.md)
-- [Observability (current source after `0.2.0`)](docs/observability.md)
+- [Observability in `0.3.0`](docs/observability.md)
 - [`0.2.0` release and E2E setup](docs/releases/0.2.0.md)
+- [`0.3.0` release preparation](docs/releases/0.3.0.md)
 
 ## License
 

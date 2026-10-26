@@ -196,7 +196,7 @@ Replace `createMyHistoryStore()` with your implementation returning a
 `HistoryStore`; it is not a function supplied by this package.
 
 The custom store must provide the read/query capability, including
-`getEntityVersion`, before enabling the HTTP API. In unreleased source,
+`getEntityVersion`, before enabling the HTTP API. In `0.3.0`,
 `getEntities` and `getKinds` are optional query methods: existing custom stores
 continue to start and serve their existing routes. The authenticated discovery
 routes return `501` after authorization when a custom query omits either
@@ -220,7 +220,7 @@ The global-feed index builds during schema bootstrap and blocks writes to
 window for large retained histories. Do not downgrade a database using the new
 dedicated migration log to `0.1.0`.
 
-Unreleased source adds migration
+`0.3.0` adds migration
 `20261025000000_entity_discovery_name_index.js`. It creates
 `catalog_history_entities_name_prefix_idx` on the first 128 folded name
 characters with `C` collation and `text_pattern_ops`, then runs `ANALYZE`.
