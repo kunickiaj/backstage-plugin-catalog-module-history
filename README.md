@@ -128,11 +128,22 @@ catalog:
         frequency: { hours: 1 }
         timeout: { minutes: 10 }
         initialDelay: { seconds: 30 }
+
+    # Scheduled removal of old history. Off by default and dry run first.
+    retention:
+      enabled: false
+      maxAge: { days: 90 } # required when enabled
+      dryRun: true
+      batchSize: 1000
+      schedule:
+        frequency: { hours: 24 }
+        timeout: { hours: 1 }
+        initialDelay: { minutes: 5 }
 ```
 
 | Key                                                | Default                    | Effect                                                                                                                                        |
 | -------------------------------------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `catalog.history.enabled`                          | `true`                     | Master switch. Set to `false` to skip schema bootstrap, processor capture, and reconciler.                                                    |
+| `catalog.history.enabled`                          | `true`                     | Master switch. Set to `false` to skip schema bootstrap, processor capture, reconciler, and retention.                                         |
 | `catalog.history.database`                         | unset                      | Deprecated history database override honored by the default store factory. Prefer custom `historyStoreServiceRef` factories for new setups.   |
 | `catalog.history.database.client`                  | `pg`                       | Knex client for the deprecated history database override.                                                                                     |
 | `catalog.history.database.connection`              | Backstage database service | Knex connection string or object for the deprecated history storage override. Treated as secret config.                                       |
@@ -149,6 +160,15 @@ catalog:
 | `catalog.history.reconciler.schedule.frequency`    | `{ hours: 1 }`             | Scheduler frequency for the in-process reconciler.                                                                                            |
 | `catalog.history.reconciler.schedule.timeout`      | `{ minutes: 10 }`          | Scheduler timeout for one reconcile run.                                                                                                      |
 | `catalog.history.reconciler.schedule.initialDelay` | `{ seconds: 30 }`          | Delay before the first scheduled reconcile run.                                                                                               |
+| `catalog.history.retention`                        | unset                      | Scheduled retention settings. See [Retention](#retention).                                                                                    |
+| `catalog.history.retention.enabled`                | `false`                    | Enables the `catalog-history-retention` task. When `false`, nothing is scheduled.                                                             |
+| `catalog.history.retention.maxAge`                 | none                       | Required when enabled. Duration object or ISO string such as `P90D`. Must be at least 1 day.                                                  |
+| `catalog.history.retention.dryRun`                 | `true`                     | Logs what a run would remove without deleting. Set `false` to delete.                                                                         |
+| `catalog.history.retention.batchSize`              | `1000`                     | Rows or cycles deleted per transaction. Integer from 1 through 10000.                                                                         |
+| `catalog.history.retention.schedule`               | unset                      | Optional Backstage scheduler config. Omitted keys use the defaults below.                                                                     |
+| `catalog.history.retention.schedule.frequency`     | `{ hours: 24 }`            | Scheduler frequency for retention.                                                                                                            |
+| `catalog.history.retention.schedule.timeout`       | `{ hours: 1 }`             | Scheduler timeout for one retention run.                                                                                                      |
+| `catalog.history.retention.schedule.initialDelay`  | `{ minutes: 5 }`           | Delay before the first retention run.                                                                                                         |
 
 Processing capture and the scheduled reconciler are config-only after `backend.add(import('@kunickiaj/backstage-plugin-catalog-backend-module-history'))`; no extra code wiring is needed.
 
@@ -491,6 +511,24 @@ env \
   PG_CONNECTION_STRING=postgres://... \
   npx reconcile-catalog-history
 ```
+
+## Retention
+
+Retention is in unreleased source and is not part of `0.3.0`. History grows until you remove it. The module can run a scheduled retention task, `catalog-history-retention`, on one backend replica. It is off by default.
+
+```yaml
+catalog:
+  history:
+    retention:
+      enabled: true
+      maxAge: { days: 90 }
+```
+
+Each run computes a cutoff of now minus `maxAge`. Retention keeps the newest row of each entity capture stream (entity ref, source, and provider), even when that row is older than the cutoff. It removes the whole history of an entity only when every capture stream of that entity ended in a delete before the cutoff. It also removes cycles that finished before the cutoff and no longer have rows.
+
+Runs are dry runs until you set `dryRun: false`. A dry run logs how many entity rows and cycles a real run would remove and changes nothing. Check those counts in the backend logs before you turn on deletion. Deleting runs work in transactions of at most `batchSize` rows or cycles and stop between batches when the scheduler timeout cancels the task. A stopped run logs a warning with what it removed, and the next run continues. A first cleanup of a large history can take several runs. A dry run counts everything in one query that the timeout does not stop, so expect it to take longer than a deleting batch on large tables.
+
+`maxAge` has no default and must be at least 1 day. Startup fails when retention is enabled with a missing or invalid `maxAge` or `batchSize`, or when the configured history store does not implement `planRetention` and `applyRetention`. The default PostgreSQL store implements both. Removed rows no longer appear in history reads, including as-of lookups. A change-feed cursor that points at a removed row returns an empty page, so readers should start again from the first page after a retention run. See [storage sizing](docs/sizing.md) for choosing a window.
 
 ## Documentation
 
