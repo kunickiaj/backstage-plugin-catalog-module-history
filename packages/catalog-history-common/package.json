@@ -1,6 +1,6 @@
 {
   "name": "@kunickiaj/backstage-plugin-catalog-history-common",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Frontend/backend-safe types and API contracts for the Backstage catalog history plugin family.",
   "main": "src/index.ts",
   "types": "src/index.ts",
