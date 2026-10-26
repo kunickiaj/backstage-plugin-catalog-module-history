@@ -164,6 +164,40 @@ describe('PostgresHistoryQueryService change feed', () => {
     expect(repeated).toEqual(last);
   });
 
+  it('rejects a cursor whose anchor row was removed instead of returning an empty page', async () => {
+    // Arrange: the anchor is the oldest row on the first page.
+    for (const name of ['a', 'b', 'c']) {
+      await insert(`component:default/${name}`);
+    }
+    const first = await service.getChangeFeed({ limit: 2 });
+    const anchorId = first.items[1].id;
+    await db('catalog_history_entities').where('id', anchorId).delete();
+    // Act / Assert
+    await expect(
+      service.getChangeFeed({ limit: 2, cursor: first.nextCursor }),
+    ).rejects.toThrow(/removed history/);
+    await expect(
+      service.getChangeFeed({ limit: 2, cursor: first.nextCursor }),
+    ).rejects.toBeInstanceOf(InputError);
+  });
+
+  it('keeps an empty final page when the cursor anchor still exists', async () => {
+    // Arrange: a filter that matches nothing after the anchor.
+    await insert('component:default/a');
+    await insert('component:default/b');
+    const first = await service.getChangeFeed({ limit: 1 });
+    await db('catalog_history_entities')
+      .whereNot('id', first.items[0].id)
+      .delete();
+    // Act
+    const next = await service.getChangeFeed({
+      limit: 1,
+      cursor: first.nextCursor,
+    });
+    // Assert
+    expect(next).toEqual({ items: [], nextCursor: undefined });
+  });
+
   it('combines exact entity/kind/provenance/operation/time filters without a global fallback', async () => {
     // Arrange
     await insert('component:default/a', { kind: 'Component' });

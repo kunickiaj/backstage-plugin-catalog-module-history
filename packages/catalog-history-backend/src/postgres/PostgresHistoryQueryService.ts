@@ -495,7 +495,8 @@ export class PostgresHistoryQueryService {
     await this.ensureReady();
     const limit = normalizeLimit(request.limit);
     this.validateReadRequest(request);
-    const rows = await this.read('feed', db => {
+    const cursor = decodeCursor(request.cursor);
+    const { rows, anchorRemoved } = await this.read('feed', async db => {
       const query = this.applyChangeFilters(
         db<HistoryEntityRow>('catalog_history_entities'),
         request,
@@ -506,7 +507,6 @@ export class PostgresHistoryQueryService {
       if (request.kind !== undefined) {
         query.whereRaw('LOWER(??) = LOWER(?)', ['kind', request.kind]);
       }
-      const cursor = decodeCursor(request.cursor);
       if (cursor) {
         // Use the stored timestamp, not its millisecond-rounded cursor value.
         query.whereRaw(
@@ -514,7 +514,7 @@ export class PostgresHistoryQueryService {
           [cursor.id],
         );
       }
-      return query
+      const page = await query
         .orderBy('changed_at', 'desc')
         .orderBy('id', 'desc')
         .limit(limit + 1)
@@ -531,7 +531,21 @@ export class PostgresHistoryQueryService {
           'changed_at',
           'etag',
         );
+      // A removed anchor makes the comparison NULL, which looks like the last
+      // page. Only an empty cursor page needs the extra lookup.
+      const removed =
+        cursor !== undefined &&
+        page.length === 0 &&
+        (await db('catalog_history_entities')
+          .where('id', cursor.id)
+          .first('id')) === undefined;
+      return { rows: page, anchorRemoved: removed };
     });
+    if (anchorRemoved) {
+      throw new InputError(
+        'History page cursor points at removed history; start again from the first page',
+      );
+    }
     return {
       items: rows.slice(0, limit).map(rowToChange),
       nextCursor:
