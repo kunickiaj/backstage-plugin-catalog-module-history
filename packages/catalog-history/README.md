@@ -65,6 +65,18 @@ export default createApp({
 
 The plugin contributes the entity-content extension at `history` with the title **History**, so the catalog entity page renders it as an entity tab. It also registers the `/catalog-history` page with navigation metadata and the title **Catalog history**.
 
+To place the History tab after your other entity tabs, list those `entity-content` extensions in `app.extensions` and put `entity-content:catalog-history` last. Backstage orders extensions named in app config by their position in that list:
+
+```yaml
+app:
+  extensions:
+    - entity-content:catalog/overview
+    # Your other entity tabs, in display order.
+    - entity-content:catalog-history
+```
+
+If the tab belongs to an entity page group, Backstage sorts the group's tabs by title unless the group sets `contentOrder: natural`. Check the rendered entity page after changing the order. To remove the tab, set `entity-content:catalog-history: false`.
+
 The default plugin registers `catalogHistoryApiRef` with Backstage discovery and fetch APIs, so no separate API factory wiring is required.
 
 This plugin uses Backstage UI (BUI), with a dependency on `@backstage/ui@^0.19.0`. If the host app does not already declare BUI, add a version compatible with both the host and that range rather than upgrading arbitrarily.
