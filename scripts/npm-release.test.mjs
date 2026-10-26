@@ -18,12 +18,14 @@ import {
   main,
   PACKAGES,
   packRelease,
+  prepareReleaseNotes,
   publishRelease,
   REGISTRY,
   registryIntegrity,
   registryPackageExists,
   REPOSITORY,
   validateRelease,
+  verifyPublishedRelease,
 } from './npm-release.mjs';
 
 const VERSION = '0.2.0';
@@ -1999,3 +2001,216 @@ for (const [args, env, message] of [
     assert.equal(subprocess.mock.callCount(), 0);
   });
 }
+
+// Registry responses for verification: one function per package name.
+function verifyRunner(packages, publications) {
+  const calls = [];
+  const run = (command, args, options) => {
+    calls.push({ command, args });
+    if (command === 'tar') {
+      const pkg = packages.find(item => item.archive === args[1]);
+      if (args[0] === '-xOf') return JSON.stringify(pkg.manifest);
+      return pkg.files.join('\n');
+    }
+    if (command === 'npm' && args[0] === 'view') {
+      const pkg = packages.find(item => `${item.name}@${VERSION}` === args[1]);
+      assert.ok(pkg, 'verification must use an exact package version');
+      assert.equal(options.shell ?? false, false);
+      const response = publications(pkg, calls);
+      if (response instanceof Error) throw response;
+      return response;
+    }
+    return assert.fail(`Unexpected subprocess: ${command} ${args.join(' ')}`);
+  };
+  return { run, calls };
+}
+
+function published(pkg, overrides = {}) {
+  return JSON.stringify({
+    dist: {
+      integrity: pkg.integrity,
+      attestations: {
+        provenance: { predicateType: 'https://slsa.dev/provenance/v1' },
+      },
+    },
+    'dist-tags': { latest: VERSION },
+    ...overrides,
+  });
+}
+
+test('verification reads dist and dist-tags for the exact version without cache', t => {
+  // Arrange
+  const { root, packages } = fixture(t);
+  const { run, calls } = verifyRunner(packages, pkg => published(pkg));
+  // Act
+  const result = verifyPublishedRelease(VERSION, {
+    root,
+    run,
+    sleep: () => {},
+  });
+  // Assert
+  assert.equal(result.length, 5);
+  assert.deepEqual(calls.find(call => call.command === 'npm').args, [
+    'view',
+    `${packages[0].name}@${VERSION}`,
+    'dist',
+    'dist-tags',
+    '--json',
+    '--prefer-online',
+    '--registry',
+    REGISTRY,
+  ]);
+});
+
+test('verification waits while npm still hides a version under review', t => {
+  // Arrange: the frontend is absent for two polls, then appears.
+  const { root, packages } = fixture(t);
+  let frontendPolls = 0;
+  const { run } = verifyRunner(packages, pkg => {
+    if (pkg.name !== PACKAGES[4][0]) return published(pkg);
+    frontendPolls += 1;
+    return frontendPolls < 3 ? registryError('E404') : published(pkg);
+  });
+  const sleeps = [];
+  // Act
+  verifyPublishedRelease(VERSION, {
+    root,
+    run,
+    sleep: ms => sleeps.push(ms),
+    intervalMs: 5,
+  });
+  // Assert
+  assert.deepEqual(sleeps, [5, 5]);
+  assert.equal(frontendPolls, 3);
+});
+
+test('verification waits for latest to move, then fails after the attempt limit', t => {
+  // Arrange
+  const { root, packages } = fixture(t);
+  const { run } = verifyRunner(packages, pkg =>
+    published(pkg, { 'dist-tags': { latest: '0.1.0' } }),
+  );
+  let sleeps = 0;
+  // Act / Assert
+  assert.throws(
+    () =>
+      verifyPublishedRelease(VERSION, {
+        root,
+        run,
+        sleep: () => {
+          sleeps += 1;
+        },
+        attempts: 3,
+      }),
+    /latest tag for: .*catalog-history-common/,
+  );
+  assert.equal(sleeps, 2);
+});
+
+for (const [name, response, message] of [
+  [
+    'different bytes',
+    pkg =>
+      published(pkg, {
+        dist: {
+          integrity: `${pkg.integrity.slice(0, -4)}AAA=`,
+          attestations: { provenance: {} },
+        },
+      }),
+    /does not match the validated archive/,
+  ],
+  [
+    'no provenance',
+    pkg => published(pkg, { dist: { integrity: pkg.integrity } }),
+    /no provenance attestation/,
+  ],
+  [
+    'a registry failure',
+    () => registryError('E500'),
+    /Registry lookup failed .*E500/,
+  ],
+]) {
+  test(`verification fails immediately for ${name}`, t => {
+    // Arrange
+    const { root, packages } = fixture(t);
+    const { run } = verifyRunner(packages, response);
+    // Act / Assert
+    assert.throws(
+      () =>
+        verifyPublishedRelease(VERSION, {
+          root,
+          run,
+          sleep: () => assert.fail('must not wait'),
+        }),
+      message,
+    );
+  });
+}
+
+test('release notes rewrite relative links to files under the release tag', t => {
+  // Arrange
+  const { root } = fixture(t);
+  mkdirSync(join(root, 'docs/releases'), { recursive: true });
+  writeFileSync(
+    join(root, 'docs/releases', `${VERSION}.md`),
+    [
+      '# Notes',
+      '[guide](../observability.md) and [readme](../../README.md#limits).',
+      '[run](https://example.test/run) [anchor](#upgrade) [mail](mailto:a@b.test)',
+    ].join('\n'),
+  );
+  const base = `https://github.com/${REPOSITORY}/blob/v${VERSION}`;
+  // Act
+  const body = prepareReleaseNotes(VERSION, root);
+  // Assert
+  assert.equal(
+    body,
+    [
+      '# Notes',
+      `[guide](${base}/docs/observability.md) and [readme](${base}/README.md#limits).`,
+      '[run](https://example.test/run) [anchor](#upgrade) [mail](mailto:a@b.test)',
+    ].join('\n'),
+  );
+  assert.equal(
+    readFileSync(join(root, '.tmp/npm-release/release-notes.md'), 'utf8'),
+    body,
+  );
+});
+
+test('release notes are required for the requested version', t => {
+  // Arrange
+  const { root } = fixture(t);
+  // Act / Assert
+  assert.throws(
+    () => prepareReleaseNotes(VERSION, root),
+    new RegExp(`Write docs/releases/${VERSION.replaceAll('.', '\\.')}\\.md`),
+  );
+});
+
+test('release notes leave root-absolute links unchanged', t => {
+  // Arrange: a leading slash has no file-relative meaning to resolve.
+  const { root } = fixture(t);
+  mkdirSync(join(root, 'docs/releases'), { recursive: true });
+  writeFileSync(
+    join(root, 'docs/releases', `${VERSION}.md`),
+    '[a](/docs/a.md)',
+  );
+  // Act / Assert
+  assert.equal(prepareReleaseNotes(VERSION, root), '[a](/docs/a.md)');
+});
+
+test('verification treats an empty registry response as not yet published', t => {
+  // Arrange
+  const { root, packages } = fixture(t);
+  let polls = 0;
+  const { run } = verifyRunner(packages, pkg => {
+    if (pkg.name !== PACKAGES[0][0]) return published(pkg);
+    polls += 1;
+    return polls === 1 ? '\n' : published(pkg);
+  });
+  let sleeps = 0;
+  // Act
+  verifyPublishedRelease(VERSION, { root, run, sleep: () => (sleeps += 1) });
+  // Assert
+  assert.equal(sleeps, 1);
+});

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, readdirSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { posix, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const REGISTRY = 'https://registry.npmjs.org';
@@ -500,6 +500,119 @@ export function publishRelease(
   return plan;
 }
 
+// npm can keep a new version in automated review for several minutes before
+// the registry returns it, so verification polls for up to 20 minutes.
+const VERIFY_ATTEMPTS = 40;
+const VERIFY_INTERVAL_MS = 30_000;
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+export function registryPublication(pkg, run = execFileSync) {
+  let output;
+  try {
+    output = run(
+      'npm',
+      [
+        'view',
+        `${pkg.name}@${pkg.version}`,
+        'dist',
+        'dist-tags',
+        '--json',
+        '--prefer-online',
+        '--registry',
+        REGISTRY,
+      ],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+  } catch (error) {
+    let code;
+    try {
+      code = JSON.parse(String(error.stdout)).error?.code;
+    } catch {
+      // An unrecognized error is not proof that a version is absent.
+    }
+    if (code === 'E404') return undefined;
+    throw new Error(
+      `Registry lookup failed for ${pkg.name}@${pkg.version}${code ? ` (${code})` : ''}`,
+    );
+  }
+  if (!output.trim()) return undefined;
+  const data = JSON.parse(output);
+  return {
+    integrity: data?.dist?.integrity,
+    latest: data?.['dist-tags']?.latest,
+    provenance: Boolean(data?.dist?.attestations?.provenance),
+  };
+}
+
+function isVerifiedPublication(pkg, publication) {
+  if (!publication?.integrity) return false;
+  if (publication.integrity !== pkg.integrity) {
+    throw new Error(
+      `${pkg.name}@${pkg.version} on npm does not match the validated archive`,
+    );
+  }
+  if (!publication.provenance) {
+    throw new Error(`${pkg.name}@${pkg.version} has no provenance attestation`);
+  }
+  return publication.latest === pkg.version;
+}
+
+export function verifyPublishedRelease(
+  version,
+  {
+    root = process.cwd(),
+    run = execFileSync,
+    sleep = sleepSync,
+    attempts = VERIFY_ATTEMPTS,
+    intervalMs = VERIFY_INTERVAL_MS,
+  } = {},
+) {
+  const expected = validateRelease(version, root).map(pkg => ({
+    ...pkg,
+    integrity: inspectArchive(pkg, run),
+  }));
+  for (let attempt = 1; ; attempt++) {
+    const pending = expected
+      .filter(pkg => !isVerifiedPublication(pkg, registryPublication(pkg, run)))
+      .map(pkg => pkg.name);
+    if (pending.length === 0) return expected;
+    if (attempt >= attempts) {
+      throw new Error(
+        `npm did not expose verified ${version} with the latest tag for: ${pending.join(', ')}`,
+      );
+    }
+    console.log(`Waiting for npm to expose ${version}: ${pending.join(', ')}`);
+    sleep(intervalMs);
+  }
+}
+
+const RELEASE_NOTES_OUTPUT = '.tmp/npm-release/release-notes.md';
+
+// GitHub release bodies have no file context, so relative links in the notes
+// are rewritten to point at the same files under the release tag.
+export function prepareReleaseNotes(version, root = process.cwd()) {
+  validateRelease(version, root);
+  const source = `docs/releases/${version}.md`;
+  let notes;
+  try {
+    notes = readFileSync(resolve(root, source), 'utf8');
+  } catch {
+    throw new Error(`Write ${source} before releasing ${version}`);
+  }
+  const base = `https://github.com/${REPOSITORY}/blob/v${version}`;
+  const body = notes.replace(
+    /\]\((?![a-z][a-z0-9+.-]*:|#|\/)([^)\s]+)\)/gi,
+    (_, target) =>
+      `](${base}/${posix.normalize(posix.join(posix.dirname(source), target))})`,
+  );
+  mkdirSync(resolve(root, '.tmp/npm-release'), { recursive: true });
+  writeFileSync(resolve(root, RELEASE_NOTES_OUTPUT), body);
+  return body;
+}
+
 export function main([command, version], env = process.env) {
   bootstrapFrontendRequested(env);
   if (
@@ -517,8 +630,10 @@ export function main([command, version], env = process.env) {
   if (command === 'validate') return validateRelease(version);
   if (command === 'pack') return packRelease(version);
   if (command === 'publish') return publishRelease(version, { env });
+  if (command === 'verify') return verifyPublishedRelease(version);
+  if (command === 'notes') return prepareReleaseNotes(version);
   throw new Error(
-    'Usage: node scripts/npm-release.mjs <validate|pack|publish> <version>',
+    'Usage: node scripts/npm-release.mjs <validate|pack|publish|verify|notes> <version>',
   );
 }
 
