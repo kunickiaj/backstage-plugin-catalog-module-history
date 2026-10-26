@@ -1,6 +1,6 @@
 # Publishing packages
 
-All five public packages are published at `0.3.0` with the `latest` dist-tag. A normal release publishes the same numeric version for every package from `main`, using the validated archives from one successful CI run. Do not publish from a branch, source directory, rebuilt archive, or arbitrary package subset.
+All five public packages are published at `0.4.0` with the `latest` dist-tag. A normal release publishes the same numeric version for every package from `main`, using the validated archives from one successful CI run. Do not publish from a branch, source directory, rebuilt archive, or arbitrary package subset.
 
 | Public package                                               | Workspace directory                       |
 | ------------------------------------------------------------ | ----------------------------------------- |
@@ -33,7 +33,7 @@ The storage package is a `node-library`, not a backend plugin. The root package 
 
 To check a release without publishing, dispatch with **publish** unchecked. Only the validation job runs.
 
-`0.4.0` follows these steps. It is the first release whose tag and GitHub release come from the workflow's release job, so watch that job. If npm verification times out, rerun only the release job from the same run.
+`0.4.0` was the first release whose tag and GitHub release came from the workflow's release job.
 
 ## Publication safeguards
 
@@ -70,6 +70,8 @@ node -e "const { createHash } = require('node:crypto'); const { readFileSync } =
 ```
 
 For `0.2.0`, all five exact versions and `latest` tags were checked, and their registry integrities matched the CI archives. The first four packages came from the OIDC/provenance job at commit `a9260710c6158a774853be7d11b7f7fc4ab4a115`; the frontend was manually published from its exact CI archive after approval and has the same SHA-512 integrity. The frontend's local publish has no GitHub Actions provenance claim.
+
+For `0.4.0`, all five exact versions and `latest` tags were checked, and their registry integrities matched the archives from OIDC/provenance run `40411906131` at commit `c573922d12e5515da77be93a2733833b75772c32`. All five expose SLSA v1 provenance attestations. The same run's release job verified npm, tagged that commit `v0.4.0`, and created the GitHub release.
 
 For `0.3.0`, all five exact versions and `latest` tags were checked, and their registry integrities matched the archives from OIDC/provenance run `40270922196` at commit `daa8409a7ca0b0062a04bcb70879557a0c4fa2cd`. All five, including the frontend, expose npm provenance attestations. This was the frontend's first trusted publish. That release used a separate validation-only dispatch and a manually created tag and GitHub release, which the workflow now handles.
 
