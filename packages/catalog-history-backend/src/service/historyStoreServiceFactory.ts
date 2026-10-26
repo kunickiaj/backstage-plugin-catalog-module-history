@@ -1,12 +1,15 @@
 import {
   coreServices,
   createServiceFactory,
+  type DatabaseService,
+  type RootConfigService,
 } from '@backstage/backend-plugin-api';
 import { metricsServiceRef } from '@backstage/backend-plugin-api/alpha';
 import { type Knex, knex as createKnex } from 'knex';
 import { historyStoreServiceRef } from '@kunickiaj/backstage-plugin-catalog-history-node';
 import { PostgresHistoryStore } from '../postgres/PostgresHistoryStore';
 import { normalizeQueryTimeoutMs } from '../postgres/historyQueryTimeout';
+import { createLazyHistoryStore } from './createLazyHistoryStore';
 
 /**
  * Default factory for {@link @kunickiaj/backstage-plugin-catalog-history-node#historyStoreServiceRef}.
@@ -17,9 +20,12 @@ import { normalizeQueryTimeoutMs } from '../postgres/historyQueryTimeout';
  * deprecated `catalog.history.database` override, but custom storage should be
  * supplied by registering a different factory for `historyStoreServiceRef`.
  *
- * The store runs history schema migrations lazily through `ensureReady()` or
- * before its first read/write, so consumers can depend on the service without
- * forcing schema bootstrap when history is disabled.
+ * Resolving the service acquires no database client. The store opens its
+ * connection and runs history schema migrations on the first `ensureReady()`,
+ * read, or write, so consumers can depend on the service while history is
+ * disabled without touching the database. Every catalog module receives the
+ * same plugin-scoped instance, so provider wrappers, processors, and the read
+ * API share one connection and one schema bootstrap.
  *
  * Add it to the backend alongside modules that consume the ref:
  *
@@ -47,29 +53,24 @@ export const historyStoreServiceFactory = createServiceFactory({
         : config.getOptionalNumber('catalog.history.api.queryTimeoutMs'),
     );
     const dbConfig = config.getOptionalConfig('catalog.history.database');
-    let db: Knex;
-    let ownsDatabase = false;
-
     if (dbConfig) {
       logger.warn(
         'catalog.history.database is deprecated; register a custom historyStoreServiceRef factory instead',
       );
-      db = createKnex({
-        client: dbConfig.getOptionalString('client') ?? 'pg',
-        connection: dbConfig.get('connection') as
-          | string
-          | Knex.PgConnectionConfig,
-      });
-      ownsDatabase = true;
-    } else {
-      db = await database.getClient();
     }
 
-    const store = new PostgresHistoryStore(db, {
-      ownsDatabase,
-      queryTimeoutMs,
-      metrics,
+    const store = createLazyHistoryStore(async () => {
+      const { db, ownsDatabase } = await openHistoryDatabase(
+        dbConfig,
+        database,
+      );
+      return new PostgresHistoryStore(db, {
+        ownsDatabase,
+        queryTimeoutMs,
+        metrics,
+      });
     });
+    // The factory creates the store, so it is the single owner of its release.
     lifecycle.addShutdownHook(async () => {
       await store.shutdown();
     });
@@ -77,3 +78,18 @@ export const historyStoreServiceFactory = createServiceFactory({
     return store;
   },
 });
+
+async function openHistoryDatabase(
+  dbConfig: ReturnType<RootConfigService['getOptionalConfig']>,
+  database: DatabaseService,
+): Promise<{ db: Knex; ownsDatabase: boolean }> {
+  if (!dbConfig) {
+    // Backstage owns this pool and closes it; the store must not destroy it.
+    return { db: await database.getClient(), ownsDatabase: false };
+  }
+  const db = createKnex({
+    client: dbConfig.getOptionalString('client') ?? 'pg',
+    connection: dbConfig.get('connection') as string | Knex.PgConnectionConfig,
+  });
+  return { db, ownsDatabase: true };
+}

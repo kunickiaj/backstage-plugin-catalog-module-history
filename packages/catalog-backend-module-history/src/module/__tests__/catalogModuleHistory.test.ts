@@ -562,4 +562,63 @@ describe('catalogModuleHistory', () => {
     expect(metrics.createCounter).not.toHaveBeenCalled();
     expect(metrics.createHistogram).not.toHaveBeenCalled();
   });
+
+  describe('shutdown of custom stores with processor capture', () => {
+    async function stopWithStore(store: HistoryStore, order: string[]) {
+      const stop = jest
+        .spyOn(HistoryRecordingCatalogProcessor.prototype, 'stop')
+        .mockImplementation(async () => {
+          order.push('processor.stop');
+        });
+      backend = await startTestBackend({
+        extensionPoints: [
+          [catalogProcessingExtensionPoint, { addProcessor: jest.fn() }],
+        ],
+        features: [
+          catalogModuleHistory,
+          catalogServiceFactory,
+          customStoreFactory(store),
+          mockServices.rootConfig.factory({
+            data: { catalog: { history: { processing: { enabled: true } } } },
+          }),
+        ],
+      });
+      await backend.stop();
+      backend = undefined;
+      stop.mockRestore();
+    }
+
+    it('flushes before shutdown for a store without addShutdownHook', async () => {
+      // Arrange
+      const order: string[] = [];
+      const store: HistoryStore = Object.assign(new InMemoryHistoryStore(), {
+        shutdown: jest.fn(async () => {
+          order.push('store.shutdown');
+        }),
+      });
+      // Act
+      await stopWithStore(store, order);
+      // Assert
+      expect(order).toEqual(['processor.stop', 'store.shutdown']);
+    });
+
+    it('routes the flush through addShutdownHook and still calls shutdown', async () => {
+      // Arrange: mirror PostgresHistoryStore, which runs hooks in shutdown.
+      const order: string[] = [];
+      const hooks: Array<() => Promise<void>> = [];
+      let done: Promise<void> | undefined;
+      const store: HistoryStore = Object.assign(new InMemoryHistoryStore(), {
+        addShutdownHook: (hook: () => Promise<void>) => hooks.unshift(hook),
+        shutdown: () =>
+          (done ??= (async () => {
+            for (const hook of hooks) await hook();
+            order.push('store.shutdown');
+          })()),
+      });
+      // Act
+      await stopWithStore(store, order);
+      // Assert
+      expect(order).toEqual(['processor.stop', 'store.shutdown']);
+    });
+  });
 });

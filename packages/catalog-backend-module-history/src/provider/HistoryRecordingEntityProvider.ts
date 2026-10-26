@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { LoggerService } from '@backstage/backend-plugin-api';
+import type {
+  LoggerService,
+  RootConfigService,
+} from '@backstage/backend-plugin-api';
 import type { MetricsService } from '@backstage/backend-plugin-api/alpha';
 import {
   EntityProvider,
@@ -10,6 +13,7 @@ import {
   EntityRow,
   HistoryStore,
 } from '@kunickiaj/backstage-plugin-catalog-history-node';
+import { readHistoryLayers } from '../config/readHistoryLayers';
 import { entityToRow } from '../mapping/entityToRow';
 import { createCaptureMetrics } from '../telemetry/captureMetrics';
 
@@ -102,6 +106,25 @@ export class HistoryRecordingEntityProvider implements EntityProvider {
     this.forceFullEveryMs = options.forceFullEvery
       ? durationToMs(options.forceFullEvery)
       : undefined;
+  }
+
+  /**
+   * Creates a wrapper whose recording follows the history configuration.
+   *
+   * Recording runs only when both `catalog.history.enabled` and
+   * `catalog.history.provider.enabled` are on (both default to true).
+   * Otherwise the wrapper is a passthrough that never calls the store, so a
+   * lazily initialized store acquires no database client. Which providers to
+   * wrap stays the caller's decision.
+   */
+  static fromConfig(
+    config: RootConfigService,
+    options: Omit<HistoryRecordingEntityProviderOptions, 'enabled'>,
+  ): HistoryRecordingEntityProvider {
+    return new HistoryRecordingEntityProvider({
+      ...options,
+      enabled: readHistoryLayers(config).provider,
+    });
   }
 
   getProviderName(): string {

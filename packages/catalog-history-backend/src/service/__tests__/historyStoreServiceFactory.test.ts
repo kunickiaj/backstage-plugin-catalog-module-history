@@ -171,7 +171,11 @@ describe('historyStoreServiceFactory query timeout configuration', () => {
       );
       // Act
       const store = await tester.getSubject();
-      // Assert: construction stays lazy and uses the shared database service.
+      const beforeUse = database.getClient.mock.calls.length;
+      // The fake client cannot run migrations; only construction matters here.
+      await store.ensureReady?.().catch(() => undefined);
+      // Assert: first use builds the store on the shared database service.
+      expect(beforeUse).toBe(0);
       expect(constructor).toHaveBeenCalledWith(db, {
         ownsDatabase: false,
         queryTimeoutMs: expected,
@@ -183,6 +187,63 @@ describe('historyStoreServiceFactory query timeout configuration', () => {
       expect(db.destroy).not.toHaveBeenCalled();
     },
   );
+
+  it('acquires no client or pool when resolved but never used', async () => {
+    // Arrange
+    const constructor = jest.mocked(storeModule.PostgresHistoryStore);
+    const ownedPool = jest.spyOn(knexModule, 'knex');
+    const shared = setup({});
+    const owned = setup({
+      database: { client: 'pg', connection: 'postgres://unused.invalid/h' },
+    });
+    // Act
+    for (const { tester } of [shared, owned]) {
+      const store = await tester.getSubject();
+      await store.shutdown?.();
+    }
+    // Assert
+    expect(shared.database.getClient).not.toHaveBeenCalled();
+    expect(ownedPool).not.toHaveBeenCalled();
+    expect(constructor).not.toHaveBeenCalled();
+  });
+
+  it('retries client acquisition after a failed first use', async () => {
+    // Arrange
+    const { db, database, tester } = setup({});
+    database.getClient
+      .mockRejectedValueOnce(new Error('database unavailable'))
+      .mockResolvedValue(db);
+    const constructor = jest.mocked(storeModule.PostgresHistoryStore);
+    const store = await tester.getSubject();
+    // Act
+    await expect(store.loadCurrentEtags('p')).rejects.toThrow(
+      'database unavailable',
+    );
+    await store.ensureReady?.().catch(() => undefined);
+    // Assert
+    expect(database.getClient).toHaveBeenCalledTimes(2);
+    expect(constructor).toHaveBeenCalledTimes(1);
+    await store.shutdown?.();
+  });
+
+  it('destroys a pool it created for the deprecated override on shutdown', async () => {
+    // Arrange: Knex creates pools without connecting, so no server is needed.
+    const constructor = jest.mocked(storeModule.PostgresHistoryStore);
+    const { database, tester } = setup({
+      database: { client: 'pg', connection: 'postgres://unused.invalid/h' },
+    });
+    const store = await tester.getSubject();
+    await store.ensureReady?.().catch(() => undefined);
+    const [owned, options] = constructor.mock.calls[0];
+    const poolBefore = owned.client.pool;
+    // Act
+    await store.shutdown?.();
+    // Assert: Knex clears client.pool when destroy() releases it.
+    expect(database.getClient).not.toHaveBeenCalled();
+    expect(options).toEqual(expect.objectContaining({ ownsDatabase: true }));
+    expect(poolBefore).toBeDefined();
+    expect(owned.client.pool).toBeUndefined();
+  });
 
   it.each(['bad', NaN, Infinity, -1, 0.5, 2147483648])(
     'rejects invalid configuration %s before shared or owned database acquisition',
@@ -214,9 +275,9 @@ describe('historyStoreServiceFactory query timeout configuration', () => {
     });
     // Act
     const store = await tester.getSubject();
-    // Assert: disabled consumers can resolve the lazy service without a schema query.
-    expect(store.query).toBeDefined();
-    expect(database.getClient).toHaveBeenCalledTimes(1);
     await store.shutdown?.();
+    // Assert: disabled consumers resolve the service without any database work.
+    expect(store.query).toBeDefined();
+    expect(database.getClient).not.toHaveBeenCalled();
   });
 });

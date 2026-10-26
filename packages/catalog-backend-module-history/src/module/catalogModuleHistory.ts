@@ -2,6 +2,7 @@ import {
   coreServices,
   createBackendModule,
   readSchedulerServiceTaskScheduleDefinitionFromConfig,
+  type RootLifecycleService,
 } from '@backstage/backend-plugin-api';
 import { metricsServiceRef } from '@backstage/backend-plugin-api/alpha';
 import { type Config, ConfigReader } from '@backstage/config';
@@ -15,6 +16,10 @@ import {
   historyStoreServiceRef,
 } from '@kunickiaj/backstage-plugin-catalog-history-node';
 import { catalogHistoryReadPermission } from '@kunickiaj/backstage-plugin-catalog-history-common';
+import {
+  hasActiveHistoryLayer,
+  readHistoryLayers,
+} from '../config/readHistoryLayers';
 import { HistoryRecordingCatalogProcessor } from '../processor/HistoryRecordingCatalogProcessor';
 import { CatalogServiceEntityFetcher } from '../reconciler/CatalogServiceEntityFetcher';
 import { reconcile } from '../reconciler/reconcile';
@@ -56,12 +61,16 @@ function readScheduleWithDefaults(
 
 /**
  * Backstage backend module for the catalog-history plugin. On init it
- * resolves the history store from Backstage DI and prepares it for use. When
+ * resolves the history store from Backstage DI. When history is enabled and
+ * at least one read, capture, or retention layer is on, it prepares the store for use, so
+ * migrations fail startup early. With history disabled or every layer off, it
+ * leaves the store untouched and the default store acquires no client. When
  * processor-layer capture is enabled, it also registers a history processor
  * with the catalog processing extension point.
  *
  * Wrapping individual EntityProviders for cycle recording is handled at
- * backend wiring time via the exported `HistoryRecordingEntityProvider`.
+ * backend wiring time via `HistoryRecordingEntityProvider.fromConfig`, which
+ * shares the same plugin-scoped store.
  *
  * Reconciliation is opt-in and can be scheduled in-process via Backstage's
  * scheduler service. The external CLI shim (`bin/reconcile-catalog-history.js`)
@@ -72,7 +81,7 @@ function readScheduleWithDefaults(
  * ```yaml
  * catalog:
  *   history:
- *     enabled: true       # set to false to skip schema bootstrap entirely
+ *     enabled: true       # set to false to skip database access entirely
  *     database:           # deprecated compatibility override honored by the default historyStoreServiceFactory
  *       client: pg
  *       connection: ${PG_HISTORY_URL}
@@ -129,7 +138,8 @@ export const catalogModuleHistory = createBackendModule({
         permissionsRegistry,
       }) {
         const moduleConfig = config.getOptionalConfig('catalog.history');
-        if (moduleConfig?.getOptionalBoolean('enabled') === false) {
+        const layers = readHistoryLayers(config);
+        if (!layers.enabled) {
           logger.info(
             'catalog-history is disabled via catalog.history.enabled=false; skipping schema bootstrap',
           );
@@ -149,7 +159,7 @@ export const catalogModuleHistory = createBackendModule({
               'catalog.history.retention.schedule',
             )
           : undefined;
-        if (moduleConfig?.getOptionalBoolean('api.enabled') === true) {
+        if (layers.api) {
           if (
             !store.query ||
             typeof store.query.getEntityTimeline !== 'function' ||
@@ -171,31 +181,11 @@ export const catalogModuleHistory = createBackendModule({
           httpRouter.use(router);
         }
 
-        // Backstage runs shutdown hooks as an unordered batch, so teardown
-        // steps that depend on each other must live in a single hook:
-        // the processor's final flush has to complete before a self-created
-        // pool is destroyed, or the flush writes to a closed pool.
-        const teardown: Array<() => Promise<void>> = [];
-        lifecycle.addShutdownHook(async () => {
-          for (const step of teardown) {
-            await step();
-          }
-          await store.shutdown?.();
-        });
-        await store.ensureReady?.();
-        const providerEnabled =
-          moduleConfig
-            ?.getOptionalConfig('provider')
-            ?.getOptionalBoolean('enabled') ?? true;
-        const processingEnabled =
-          moduleConfig
-            ?.getOptionalConfig('processing')
-            ?.getOptionalBoolean('enabled') ?? false;
-        const reconcilerEnabled =
-          moduleConfig
-            ?.getOptionalConfig('reconciler')
-            ?.getOptionalBoolean('enabled') ?? false;
-
+        const {
+          provider: providerEnabled,
+          processing: processingEnabled,
+          reconciler: reconcilerEnabled,
+        } = layers;
         logger.info(
           `catalog-history capture layers: provider=${
             providerEnabled ? 'on' : 'off'
@@ -207,6 +197,16 @@ export const catalogModuleHistory = createBackendModule({
           `catalog-history retention=${describeRetentionMode(retention)}`,
         );
 
+        if (!hasActiveHistoryLayer(layers) && !retention) {
+          logger.info(
+            'catalog-history has no active read, capture, or retention layer; skipping schema bootstrap',
+          );
+          return;
+        }
+
+        const addTeardown = registerTeardown(lifecycle, store);
+        await store.ensureReady?.();
+
         if (processingEnabled) {
           const processor = new HistoryRecordingCatalogProcessor({
             store,
@@ -214,17 +214,9 @@ export const catalogModuleHistory = createBackendModule({
             metrics,
           });
           catalog.addProcessor(processor);
-          const stopProcessor = async () => {
+          addTeardown(async () => {
             await processor.stop();
-          };
-          // If the store owns a database pool, the store-level hook keeps this
-          // flush ordered before pool destruction even if Backstage starts
-          // lifecycle hooks as an unordered batch.
-          if (store.addShutdownHook) {
-            store.addShutdownHook(stopProcessor);
-          } else {
-            teardown.unshift(stopProcessor);
-          }
+          });
         }
 
         if (reconcilerEnabled) {
@@ -276,5 +268,37 @@ export const catalogModuleHistory = createBackendModule({
     });
   },
 });
+
+/**
+ * Orders module teardown before the store releases its resources.
+ *
+ * Backstage runs shutdown hooks as an unordered batch, so a processor's final
+ * flush must not race the destruction of a store-owned pool. A store with
+ * `addShutdownHook` runs the step inside its own shutdown. Otherwise the
+ * module's hook runs the steps first.
+ *
+ * The hook always ends with `store.shutdown`, because custom factories may
+ * rely on the module for release. `shutdown` is idempotent, and plugin
+ * lifecycle hooks run before root hooks, so for the default store this call
+ * finds the factory's shutdown already complete.
+ */
+function registerTeardown(
+  lifecycle: RootLifecycleService,
+  store: HistoryStore,
+): (step: () => Promise<void>) => void {
+  const steps: Array<() => Promise<void>> = [];
+  lifecycle.addShutdownHook(async () => {
+    for (const step of steps) {
+      await step();
+    }
+    await store.shutdown?.();
+  });
+  if (store.addShutdownHook) {
+    return step => store.addShutdownHook!(step);
+  }
+  return step => {
+    steps.unshift(step);
+  };
+}
 
 export default catalogModuleHistory;
