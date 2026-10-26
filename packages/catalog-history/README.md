@@ -110,7 +110,7 @@ Capture sources describe where the record came from:
 - `processing` records catalog processor output.
 - `reconciler` records the served catalog view observed by reconciliation.
 
-### Structured snapshots in unreleased source
+### Structured snapshots in `0.3.0`
 
 The current workspace adds read-only sections for recorded entity fields, metadata, spec, relations, and status items. Owner, memberships, parent, and orphan status come from the selected saved snapshot, without filling gaps from spec fields or the current catalog entity.
 
@@ -118,13 +118,13 @@ Missing fields show **Not recorded** or a category-specific missing message. Rec
 
 For a deletion, these sections appear only within **Last recorded snapshot before deletion** when that earlier snapshot exists. They do not describe a deletion payload or a current entity state.
 
-### Timeline badges in unreleased source
+### Timeline badges in `0.3.0`
 
 Update rows can show **Owner changed**, **Relations changed**, **Status changed**, and **Orphan changed** beneath the operation. Each badge requires an explicit `true` summary flag from the API; missing or false flags render no badge and do not imply that the event has no other changes. Inserts and deletes do not show these comparison badges.
 
 The default Postgres backend supplies summaries for the entity timeline and current event detail. Its global feed and version lists still return empty summaries; older and custom APIs can also omit them. The UI does not fetch each event or compare loaded rows to fill those gaps. Badge comparisons describe known fields in adjacent saved events from the same source and provider, not the original upstream mutation.
 
-### Provider suggestions in unreleased source
+### Provider suggestions in `0.3.0`
 
 Open **Provider** to discover names represented in retained history for the applied filters. Suggestions come from the server across retained rows, not only the loaded event page or current provider registrations. Names from deleted entities can still appear. With no unfinished search, opening the picker shows the first names in scope, even when a provider is already selected.
 
@@ -134,7 +134,7 @@ Missing optional `getProviders` support or a `404`/`501` discovery response swit
 
 Stored empty provider names are displayed but cannot be selected because the existing history API rejects an empty `provider` parameter. Nonempty whitespace names have escaped labels for readability and retain their original value when selected.
 
-### Entity and Kind pickers in unreleased source
+### Entity and Kind pickers in `0.3.0`
 
 The standalone page's **Entity** picker searches retained entity names by literal, case-insensitive prefix after 300 ms. Choose a returned identity to apply its exact reference without typing the reference yourself. Options show name, kind, and namespace so equal names remain distinguishable. Retained delete-only identities are included; the picker does not query the live catalog or infer current/deleted status.
 
@@ -146,7 +146,7 @@ Each control handles compatibility independently. Missing `getEntities` or `getK
 
 The entity-scoped History tab does not show or call these global discovery controls. Existing provider selections preserve their original case and whitespace through Entity and Kind changes.
 
-### Recording cycle navigation in unreleased source
+### Recording cycle navigation in `0.3.0`
 
 Choose an inspector's **Cycle ID** to open its **Recording cycle**, meaning one recorded capture run or batch. The view shows the saved provider, capture source, mutation type, start/finish times, and recorded totals. **Changed entities** lists retained event metadata across the cycle; choose a row by pointer or keyboard to inspect that row's exact entity reference and event ID. It fetches a snapshot only after selection.
 
@@ -158,7 +158,7 @@ An API without optional `getCycle`, or an unresolved public history route, keeps
 
 ## SDK: retained entity and Kind discovery
 
-Unreleased source adds optional `getEntities` and `getKinds` methods to
+`0.3.0` adds optional `getEntities` and `getKinds` methods to
 `CatalogHistoryApi` and `CatalogHistoryClient`. The standalone page uses them
 for the pickers above. Custom consumers can also call them through an injected
 API instance named `api`:
@@ -190,7 +190,7 @@ the route is absent, `501` means the store lacks that method, and `401`/`403`
 remain authentication or authorization failures. Treat cursors as opaque and
 reset them when changing a bound prefix or entity-search filter.
 
-### Cycle SDK methods in unreleased source
+### Cycle SDK methods in `0.3.0`
 
 ```ts
 const cycles = await api.listCycles?.({ source: 'provider', limit: 25 });
@@ -206,7 +206,7 @@ metadata and a retained change page, respectively. The client URI-encodes
 cycle IDs and filter values, uses the same
 authenticated fetch API, and has no fallback or cache.
 
-### As-of SDK method in unreleased source
+### As-of SDK method in `0.3.0`
 
 `getEntityAsOf` is optional for custom API implementations. It reads one
 retained observation at or before the requested timestamp:
@@ -255,7 +255,7 @@ This NFS- and BUI-only package exports:
 
 It also exports the plugin's API and entity-content blueprints for NFS composition. The default plugin automatically registers the standalone page. There are no statistics, facets, as-of, or arbitrary version-comparison views.
 
-Current source also exposes optional `CatalogHistoryApi.getProviders(request)` and the corresponding `CatalogHistoryClient` method for [retained-provider discovery](../../README.md#provider-discovery-in-unreleased-source). Custom APIs can omit it. It returns server-matched names for suggestions; consumers still apply a selected full name through the existing exact `provider` filter. HTTP `404` and `501` identify unavailable discovery, while `401` and `403` are authentication/access errors. The HTTP client forwards failures without caching; the provider picker handles compatibility fallback.
+`0.3.0` also exposes optional `CatalogHistoryApi.getProviders(request)` and the corresponding `CatalogHistoryClient` method for [retained-provider discovery](../../README.md#provider-discovery-in-030). Custom APIs can omit it. It returns server-matched names for suggestions; consumers still apply a selected full name through the existing exact `provider` filter. HTTP `404` and `501` identify unavailable discovery, while `401` and `403` are authentication/access errors. The HTTP client forwards failures without caching; the provider picker handles compatibility fallback.
 
 For API configuration, permissions, routes, and retention behavior, read the [workspace README](../../README.md#read-history-over-http-in-020).
 

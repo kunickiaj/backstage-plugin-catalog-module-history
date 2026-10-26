@@ -31,6 +31,15 @@ The storage package is a `node-library`, not a backend plugin. The root package 
 4. With explicit approval to publish, dispatch the workflow from `main` with **publish** checked and **bootstrap_frontend** unchecked. This dispatch validates and packs again; the publishing job uses that dispatch's artifacts, not an earlier validation-only run. After the required `npm` environment review, it publishes all five archives in dependency order through trusted publishing and provenance.
 5. Verify the registry after it processes the publish. npm pages and registry reads can lag for a few minutes; retry the read only. Do not publish again to make a read appear sooner.
 
+## `0.3.0` publication procedure
+
+`0.3.0` is the first normal five-package OIDC release. Before dispatching, confirm that the frontend trusted publisher is still valid. Its configuration was created after the manual `0.2.0` publish and expires if it has no successful publish within two days.
+
+1. Dispatch **Publish npm packages** on `main` with `version` set to `0.3.0`, `publish` unchecked, and `bootstrap_frontend` unchecked.
+2. Inspect the validation run's `npm-release-COMMIT_SHA` artifact.
+3. With explicit approval, dispatch the same workflow from `main` with `version` set to `0.3.0`, `publish` checked, and `bootstrap_frontend` unchecked.
+4. Verify the frontend provenance and every package's registry integrity against the exact CI artifact, following [Verify a published release](#verify-a-published-release).
+
 The workflow validates all five archives and preflights each exact registry version before npm changes. It skips a version only when the existing registry integrity equals the matching archive. A malformed response, unexpected existing version, integrity mismatch, or registry error other than a missing version stops publication.
 
 The publishing job uses GitHub-hosted runners, Node 24, pinned npm `11.19.1`, and `id-token: write` for OIDC. The `npm` environment remains main-only with required reviewers. No npm token secret or token fallback is configured.

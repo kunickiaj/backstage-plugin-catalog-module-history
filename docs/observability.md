@@ -1,6 +1,6 @@
 # Observability
 
-The unreleased source after `0.2.0` creates four OpenTelemetry instruments through Backstage's `MetricsService`. Configure the SDK and exporter at the backend root; this package adds no exporter, endpoint, registry, dependency, health check, or readiness check. See Backstage's [metrics service guide](https://backstage.io/docs/backend-system/core-services/metrics) and [OpenTelemetry setup tutorial](https://backstage.io/docs/tutorials/setup-opentelemetry).
+`0.3.0` adds four optional OpenTelemetry instruments through Backstage's `MetricsService`. Configure the SDK and exporter at the backend root; this package adds no exporter, endpoint, registry, dependency, health check, or readiness check. See Backstage's [metrics service guide](https://backstage.io/docs/backend-system/core-services/metrics) and [OpenTelemetry setup tutorial](https://backstage.io/docs/tutorials/setup-opentelemetry).
 
 ## Metric reference
 

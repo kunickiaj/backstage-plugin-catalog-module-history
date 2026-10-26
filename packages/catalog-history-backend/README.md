@@ -22,13 +22,13 @@ The `@kunickiaj/backstage-plugin-catalog-backend-module-history` default export 
 
 For compatibility, the default factory still honors the deprecated `catalog.history.database` override. Prefer a custom service factory for new dedicated-storage setups.
 
-## Cycle-read capability in the unreleased source
+## Cycle-read capability in `0.3.0`
 
 The cycle endpoints additionally use the optional `listCycles` and `getCycle` query methods. A custom store that supports older history routes but omits either method continues to serve those routes; the corresponding cycle route returns `501` after the normal user authentication and `catalog-history.read` authorization. It does not change `401` or `403` handling.
 
 `listCycles` returns recorded cycle headers and `getCycle` returns one header with a page of retained change metadata. Cycle counts are values recorded for the capture run, so they can exceed the retained rows returned by a detail page. The default Postgres implementation runs one query for a cycle list and two for a cycle detail: it loads the header first and does not query changes when the header is absent.
 
-## As-of read capability in the unreleased source
+## As-of read capability in `0.3.0`
 
 `HistoryStore.query.getEntityAsOf` is optional for custom stores. It accepts an entity reference, a required timestamp, and optional exact source and provider filters; it returns the latest retained physical observation at or before that timestamp, or no observation. A custom store without it continues to serve existing routes; the catalog route returns `501` after normal authentication and `catalog-history.read` authorization.
 
@@ -36,7 +36,7 @@ The default Postgres implementation uses one lookup with an inclusive timestamp 
 
 ## Statement timeouts
 
-Current source adds a 10-second PostgreSQL `statement_timeout` for each history-read SQL statement made through the default store. The setting is available after the next release; it does not apply to capture writes, schema setup, pool acquisition, application-side mapping, transaction cleanup, or the whole HTTP request. A timed-out read follows the existing sanitized backend-error path, which currently returns `500`, not a new timeout status.
+`0.3.0` adds a 10-second PostgreSQL `statement_timeout` for each history-read SQL statement made through the default store. It does not apply to capture writes, schema setup, pool acquisition, application-side mapping, transaction cleanup, or the whole HTTP request. A timed-out read follows the existing sanitized backend-error path, which currently returns `500`, not a new timeout status.
 
 ```yaml
 catalog:
@@ -59,7 +59,7 @@ import { PostgresHistoryStore } from '@kunickiaj/backstage-plugin-catalog-histor
 const store = new PostgresHistoryStore(db, { queryTimeoutMs: 5_000 });
 ```
 
-## Saved-field summaries (unreleased source)
+## Saved-field summaries in `0.3.0`
 
 The default Postgres store supplies optional owner, relations, status, and orphan change flags on entity timeline rows and current exact-event detail responses. Comparisons use the immediately preceding physical saved event from the same entity, source, and provider, ordered by stored timestamp and ID. Owner, operation, time, and page filters select displayed rows without redefining their predecessors.
 
@@ -67,15 +67,15 @@ A supplied flag is `true` for different known saved values and `false` for equal
 
 The metadata-only global feed, version lists, and nested `previousVersion.summary` keep empty summaries. Custom query implementations may also leave summaries unavailable. Timeline enrichment stays within one paged SQL statement; exact detail keeps its existing two statements. The returned page size limits predecessor payloads, not the amount of database work.
 
-## Provider discovery (unreleased source)
+## Provider discovery in `0.3.0`
 
 The default store adds optional `getProviders` discovery over retained entity-history rows. It returns original provider-name strings, with literal case-insensitive prefix matching and deterministic `C`-collated name pagination. All supplied entity, kind, source, operation, and time filters apply before distinct-name selection. Existing history `provider` matching remains exact.
 
-The capability is optional on `HistoryStore.query`; custom stores do not need it to initialize or serve existing routes. The catalog module exposes it through the authenticated provider route described in the [workspace API guide](../../README.md#provider-discovery-in-unreleased-source). Unsupported custom queries return `501` only after the existing read authorization succeeds.
+The capability is optional on `HistoryStore.query`; custom stores do not need it to initialize or serve existing routes. The catalog module exposes it through the authenticated provider route described in the [workspace API guide](../../README.md#provider-discovery-in-030). Unsupported custom queries return `501` only after the existing read authorization succeeds.
 
 Discovery uses the normal per-statement read limit and fixed `providers` query-metric operation. A small returned name page can still scan or sort retained history; no new index or count query is added, and the page limit is not a database-work bound.
 
-## Entity and Kind discovery (unreleased source)
+## Entity and Kind discovery in `0.3.0`
 
 The default store implements optional `HistoryStore.query.getEntities` and
 `getKinds`. `getEntities` makes one paged SELECT and returns retained identity
@@ -91,7 +91,7 @@ next cursor; it does not bound database work. Schema setup runs before the
 query-phase timer, so `catalog.history.query.operation.duration` measures the
 query SQL phase rather than schema initialization.
 
-## Entity-discovery name index (unreleased source)
+## Entity-discovery name index in `0.3.0`
 
 Migration `20261025000000_entity_discovery_name_index.js` adds
 `catalog_history_entities_name_prefix_idx` on
@@ -114,9 +114,9 @@ history. See the [entity-discovery evaluation](../../docs/entity-discovery-evalu
 for the measured fixture shapes and limits; its results are not an operator or
 production performance guarantee.
 
-## Metrics in the unreleased source
+## Metrics in `0.3.0`
 
-The source after `0.2.0` creates four optional OpenTelemetry instruments through Backstage's `metricsServiceRef`:
+`0.3.0` adds four optional OpenTelemetry instruments through Backstage's `metricsServiceRef`:
 
 - `catalog.history.capture.operation.duration`
 - `catalog.history.storage.operation.duration`
