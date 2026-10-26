@@ -4,7 +4,7 @@ A Backstage backend module that records catalog entity changes into a versioned 
 
 Ships with a Postgres backend in v1; designed around a pluggable `HistoryStore` interface so additional backends (Dolt, ClickHouse, etc.) can be added without changes to the wrapper.
 
-**Status: pre-alpha.** All five public packages are published at `0.2.0` with the `latest` dist-tag, including the frontend package. `0.3.0` is prepared but not yet published. The HTTP read API and migration-log isolation fix ship in `0.2.0`; read the [storage notes](packages/catalog-history-backend/README.md#migration-bookkeeping-in-020) and [migration guide](docs/migration.md) before using a shared catalog database.
+**Status: pre-alpha.** All five public packages are published at `0.3.0` with the `latest` dist-tag, including the frontend package. The HTTP read API and migration-log isolation fix ship in `0.2.0`; read the [storage notes](packages/catalog-history-backend/README.md#migration-bookkeeping-in-020) and [migration guide](docs/migration.md) before using a shared catalog database.
 
 Maintainers: see [Publishing packages](docs/publishing.md) for validation, npm trusted publishing, artifact verification, release notes, and recovery.
 
