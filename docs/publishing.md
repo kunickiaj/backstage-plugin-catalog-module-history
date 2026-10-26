@@ -14,9 +14,9 @@ The storage package is a `node-library`, not a backend plugin. The root package 
 
 ## Normal five-package release
 
-1. Update all five public numeric versions together with a stable version (for example, `0.2.1`), then merge the release change to `main` with explicit merge approval. Confirm the validated commit is on upstream `main`. Internal `workspace:^` dependencies are rewritten by Yarn 4.5 during packing to ranges such as `^0.2.1`.
-2. Dispatch **Publish npm packages** from `main` with the version and **publish** unchecked. `bootstrap_frontend` is unchecked for normal releases. Validation uses PostgreSQL 16 and Node 24 and runs release-helper checks, formatting, lint, typecheck, build, and tests with watches disabled.
-3. Inspect the successful `npm-release-COMMIT_SHA` artifact. It contains these five archives, named after their workspace directories:
+1. Update all five public numeric versions together with a stable version (for example, `0.2.1`) and write `docs/releases/VERSION.md`, then merge the release change to `main` with explicit merge approval. Confirm the validated commit is on upstream `main`. Internal `workspace:^` dependencies are rewritten by Yarn 4.5 during packing to ranges such as `^0.2.1`.
+2. Dispatch **Publish npm packages** from `main` with the version, **publish** checked, and **bootstrap_frontend** unchecked. The run validates and packs, then waits at the `npm` environment review. Validation uses PostgreSQL 16 and Node 24 and runs release-helper checks, formatting, lint, typecheck, build, and tests with watches disabled.
+3. Before approving the review, inspect that run's `npm-release-COMMIT_SHA` artifact. It contains `release-notes.md` and these five archives, named after their workspace directories:
 
    - `catalog-history-common-VERSION.tgz`
    - `catalog-history-node-VERSION.tgz`
@@ -28,17 +28,12 @@ The storage package is a `node-library`, not a backend plugin. The root package 
 
    Source and packed manifests must have the expected Backstage role and required plugin identity metadata. The catalog module must declare its configuration schema and reconciliation command; packed schema and CLI targets must stay inside the package and exist in the archive. Schema targets must be compiled JSON, not source declarations; these checks confirm target inclusion, not schema-content correctness or CLI execution.
 
-4. With explicit approval to publish, dispatch the workflow from `main` with **publish** checked and **bootstrap_frontend** unchecked. This dispatch validates and packs again; the publishing job uses that dispatch's artifacts, not an earlier validation-only run. After the required `npm` environment review, it publishes all five archives in dependency order through trusted publishing and provenance.
-5. Verify the registry after it processes the publish. npm pages and registry reads can lag for a few minutes; retry the read only. Do not publish again to make a read appear sooner.
+4. Approve the `npm` environment review. The publishing job publishes all five archives from that artifact in dependency order through trusted publishing and provenance.
+5. The release job then waits up to 20 minutes for npm to return every exact version, because npm can hold a new version in automated review. It fails unless each registry integrity equals its archive, each version has a provenance attestation, and `latest` points to the version. After verification passes, it tags the validated commit `vVERSION` and creates the GitHub release from `release-notes.md`.
 
-## `0.3.0` publication procedure
+To check a release without publishing, dispatch with **publish** unchecked. Only the validation job runs.
 
-`0.3.0` is the first normal five-package OIDC release. Before dispatching, confirm that the frontend trusted publisher is still valid. Its configuration was created after the manual `0.2.0` publish and expires if it has no successful publish within two days.
-
-1. Dispatch **Publish npm packages** on `main` with `version` set to `0.3.0`, `publish` unchecked, and `bootstrap_frontend` unchecked.
-2. Inspect the validation run's `npm-release-COMMIT_SHA` artifact.
-3. With explicit approval, dispatch the same workflow from `main` with `version` set to `0.3.0`, `publish` checked, and `bootstrap_frontend` unchecked.
-4. Verify the frontend provenance and every package's registry integrity against the exact CI artifact, following [Verify a published release](#verify-a-published-release).
+## Publication safeguards
 
 The workflow validates all five archives and preflights each exact registry version before npm changes. It skips a version only when the existing registry integrity equals the matching archive. A malformed response, unexpected existing version, integrity mismatch, or registry error other than a missing version stops publication.
 
@@ -74,7 +69,7 @@ node -e "const { createHash } = require('node:crypto'); const { readFileSync } =
 
 For `0.2.0`, all five exact versions and `latest` tags were checked, and their registry integrities matched the CI archives. The first four packages came from the OIDC/provenance job at commit `a9260710c6158a774853be7d11b7f7fc4ab4a115`; the frontend was manually published from its exact CI archive after approval and has the same SHA-512 integrity. The frontend's local publish has no GitHub Actions provenance claim.
 
-For `0.3.0`, all five exact versions and `latest` tags were checked, and their registry integrities matched the archives from OIDC/provenance run `40270922196` at commit `daa8409a7ca0b0062a04bcb70879557a0c4fa2cd`. All five, including the frontend, expose npm provenance attestations. This was the frontend's first trusted publish.
+For `0.3.0`, all five exact versions and `latest` tags were checked, and their registry integrities matched the archives from OIDC/provenance run `40270922196` at commit `daa8409a7ca0b0062a04bcb70879557a0c4fa2cd`. All five, including the frontend, expose npm provenance attestations. This was the frontend's first trusted publish. That release used a separate validation-only dispatch and a manually created tag and GitHub release, which the workflow now handles.
 
 ## Installed-package smoke check
 
@@ -87,17 +82,13 @@ Run this only in a disposable, authorized consumer development workspace. Instal
 
 The read permission grants access to retained history, including deleted entities, independently of live catalog visibility. The global-feed index builds during schema startup even when the HTTP API is disabled and blocks history-entity writes while it builds. Plan a maintenance window for large histories; do not use this smoke check for production data writes or row deletion.
 
-## GitHub release notes are a separate approved action
+## GitHub tag and release
 
-The workflow does not create changelogs, tags, GitHub releases, or version bumps. Prepare human-reviewed notes that describe released features, setup, and caveats; do not use generated notes alone as a claim that every planned feature shipped.
+The workflow creates the `vVERSION` tag and GitHub release only after npm verification passes. It does not write changelogs or bump versions. The release body is `docs/releases/VERSION.md` from the validated commit, with relative links rewritten to files under the tag. Validation fails if that file is missing, so write human-reviewed notes in the release PR.
 
-After npm verification and separate approval, pin the actual validated merge SHA and create the release deliberately. These are placeholders, not a command to run literally:
+The release job uses `contents: write` and never receives the npm OIDC permission. If the tag already points at the validated commit, the job keeps an existing release or creates a missing one. If the tag points at another commit, the job fails without changing it. A bootstrap run skips the release job because the frontend is not published yet.
 
-```sh
-gh release create 'vVERSION' --target 'FULL_COMMIT_SHA' --title 'vVERSION' --notes-file 'path/to/notes.md'
-```
-
-`gh` can create a tag when it is absent. Confirm the tag points to the validated SHA before and after the action. A GitHub tag or release does not publish npm packages.
+If verification times out after a successful publish, rerun only the release job from the same run. Do not dispatch a new run. A GitHub tag or release does not publish npm packages.
 
 ## Partial publication and recovery
 

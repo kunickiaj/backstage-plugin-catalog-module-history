@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       publish:
-        description: Publish validated archives (main only; requires npm trust)
+        description: Publish validated archives, then tag and create the GitHub release (main only; requires npm trust)
         type: boolean
         default: false
       bootstrap_frontend:
@@ -63,6 +63,8 @@ jobs:
       - run: corepack enable
       - name: Validate release version and source
         run: node scripts/npm-release.mjs validate "$RELEASE_VERSION"
+      - name: Prepare GitHub release notes
+        run: node scripts/npm-release.mjs notes "$RELEASE_VERSION"
       - run: yarn install --immutable
       - run: yarn test:release
       - run: yarn prettier:check
@@ -75,7 +77,9 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: npm-release-${{ github.sha }}
-          path: .tmp/npm-release/*.tgz
+          path: |
+            .tmp/npm-release/*.tgz
+            .tmp/npm-release/release-notes.md
           include-hidden-files: true
           if-no-files-found: error
 
@@ -115,3 +119,52 @@ jobs:
           echo '::warning::Manual frontend publication pending. Only four trusted packages were released; use the validated frontend archive from this run after separate approval.'
           echo '### Manual frontend publication pending' >> "$GITHUB_STEP_SUMMARY"
           echo 'The four trusted packages completed. The frontend was not published. Use the exact validated archive from this run after separate approval; see docs/publishing.md.' >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    name: Verify npm and create the GitHub release
+    if: inputs.publish && !inputs.bootstrap_frontend && github.ref == 'refs/heads/main' && github.repository == 'kunickiaj/backstage-plugin-catalog-module-history'
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: npm-release-${{ github.sha }}
+          path: .tmp/npm-release
+      - name: Wait for npm to expose every package with matching bytes and provenance
+        run: node scripts/npm-release.mjs verify "$RELEASE_VERSION"
+      - name: Tag the validated commit and create the release
+        run: |
+          tag="v$RELEASE_VERSION"
+          # Only a 404 means the tag is absent. Any other API failure stops the
+          # job, because gh release create would reuse an existing tag.
+          if ! lookup=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq .object.sha 2>&1); then
+            case "$lookup" in
+              *"HTTP 404"*) lookup="" ;;
+              *) echo "::error::Tag lookup failed: $lookup"; exit 1 ;;
+            esac
+          fi
+          existing="$lookup"
+          if [ -n "$existing" ] && [ "$existing" != "$GITHUB_SHA" ]; then
+            echo "::error::$tag already points at $existing, not $GITHUB_SHA"
+            exit 1
+          fi
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$tag release already exists at $GITHUB_SHA"
+            exit 0
+          fi
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "$tag" --notes-file .tmp/npm-release/release-notes.md --latest
+          echo "Created [$tag](https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag)" >> "$GITHUB_STEP_SUMMARY"
