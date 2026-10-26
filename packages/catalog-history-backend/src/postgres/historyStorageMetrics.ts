@@ -21,7 +21,9 @@ export type QueryOperation =
 type StorageOperation =
   | 'record_cycle'
   | 'load_current_etags'
-  | 'load_all_current_etags';
+  | 'load_all_current_etags'
+  | 'plan_retention'
+  | 'apply_retention';
 
 export interface HistoryStorageMetrics {
   storage<T>(

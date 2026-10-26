@@ -20,6 +20,51 @@ export type CurrentEtag = {
 };
 
 /**
+ * Selects history eligible for retention removal.
+ *
+ * @public
+ */
+export type HistoryRetentionRequest = {
+  /** Rows and cycles recorded before this instant may be removed. */
+  cutoff: Date;
+};
+
+/**
+ * Rows and cycles that retention removes, or would remove, for one cutoff.
+ *
+ * Retention never removes the newest row of an entity's capture stream
+ * (entity ref, source, and provider) unless every stream of that entity ends
+ * in a delete recorded before the cutoff.
+ *
+ * @public
+ */
+export type HistoryRetentionCounts = {
+  /** Rows of entities whose every capture stream ended in a delete before the cutoff. */
+  deletedEntityRows: number;
+  /** Older rows superseded by a newer row in the same capture stream. */
+  supersededRows: number;
+  /** Cycles that finished before the cutoff and have no remaining rows. */
+  emptyCycles: number;
+};
+
+/**
+ * Rejection from {@link HistoryStore.applyRetention} when its signal aborts.
+ * Batches committed before the abort stay removed.
+ *
+ * @public
+ */
+export class HistoryRetentionAbortedError extends Error {
+  readonly name = 'HistoryRetentionAbortedError';
+
+  constructor(
+    readonly counts: HistoryRetentionCounts,
+    options?: { cause?: unknown },
+  ) {
+    super('History retention stopped before it finished', options);
+  }
+}
+
+/**
  * Write-side contract for catalog history storage backends.
  *
  * @public
@@ -94,4 +139,27 @@ export interface HistoryStore {
   }): Promise<Map<string, CurrentEtag>>;
 
   recordCycle(input: CycleInput): Promise<void>;
+
+  /**
+   * Counts what {@link HistoryStore.applyRetention} would remove for the same
+   * cutoff, without changing data. Optional; scheduled retention requires it.
+   */
+  planRetention?(
+    request: HistoryRetentionRequest,
+  ): Promise<HistoryRetentionCounts>;
+
+  /**
+   * Removes history older than the cutoff in short batched transactions and
+   * returns what was removed. Stops between batches when `signal` aborts and
+   * rejects with {@link HistoryRetentionAbortedError}, whose `counts` report
+   * what committed batches removed before the abort.
+   * Optional; scheduled retention requires it.
+   */
+  applyRetention?(
+    request: HistoryRetentionRequest & {
+      /** Maximum rows or cycles removed per transaction. */
+      batchSize: number;
+      signal?: AbortSignal;
+    },
+  ): Promise<HistoryRetentionCounts>;
 }

@@ -5,9 +5,17 @@ import {
   CurrentEtag,
   CycleInput,
   EntityRow,
+  HistoryRetentionCounts,
+  HistoryRetentionRequest,
   HistoryStore,
 } from '@kunickiaj/backstage-plugin-catalog-history-node';
 import { ensureSchema } from './ensureSchema';
+import {
+  applyRetention,
+  assertRetentionBatchSize,
+  assertRetentionCutoff,
+  planRetention,
+} from './retention';
 import { PostgresHistoryQueryService } from './PostgresHistoryQueryService';
 import { normalizeQueryTimeoutMs } from './historyQueryTimeout';
 import {
@@ -317,6 +325,42 @@ export class PostgresHistoryStore implements HistoryStore {
             }),
           { callerOwnedTransaction: this.db.isTransaction === true },
         );
+      },
+    );
+  }
+
+  async planRetention(
+    request: HistoryRetentionRequest,
+  ): Promise<HistoryRetentionCounts> {
+    return this.metrics.storage(
+      'plan_retention',
+      () => 'all',
+      async () => {
+        assertRetentionCutoff(request.cutoff);
+        await this.ensureReady();
+        return planRetention(this.db, request.cutoff);
+      },
+    );
+  }
+
+  async applyRetention(
+    request: HistoryRetentionRequest & {
+      batchSize: number;
+      signal?: AbortSignal;
+    },
+  ): Promise<HistoryRetentionCounts> {
+    return this.metrics.storage(
+      'apply_retention',
+      () => 'all',
+      async () => {
+        assertRetentionCutoff(request.cutoff);
+        assertRetentionBatchSize(request.batchSize);
+        await this.ensureReady();
+        return applyRetention(this.db, {
+          cutoff: request.cutoff,
+          batchSize: request.batchSize,
+          signal: request.signal,
+        });
       },
     );
   }
