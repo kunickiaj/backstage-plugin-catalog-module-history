@@ -99,16 +99,20 @@ deps: {
 async init({ catalog, logger, config, historyStore }) {
   const inner = MyEntityProvider.fromConfig(/* ... */);
   catalog.addEntityProvider(
-    new HistoryRecordingEntityProvider({
+    HistoryRecordingEntityProvider.fromConfig(config, {
       inner,
       store: historyStore,
       logger,
-      enabled:
-        config.getOptionalBoolean('catalog.history.provider.enabled') ?? true,
     }),
   );
 }
 ```
+
+`fromConfig` records only when both `catalog.history.enabled` and
+`catalog.history.provider.enabled` are on. Earlier examples passed only
+`catalog.history.provider.enabled`, so their wrappers kept recording after
+`catalog.history.enabled: false`. The constructor's `enabled` option still
+works for callers that need their own rule.
 
 Keep the wrapper at its existing provider registration site. Optional processor
 and reconciler capture remain configuration-driven. Processor capture does not

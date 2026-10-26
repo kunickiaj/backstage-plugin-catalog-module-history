@@ -32,13 +32,7 @@ See [ADR 2026-07-01](adr/2026-07-01-entity-capture-layers.md) for the capture-la
 - Best for: identity-shaped entities where provider data is the source of truth.
 
 ```ts
-new HistoryRecordingEntityProvider({
-  inner,
-  store,
-  logger,
-  enabled:
-    config.getOptionalBoolean('catalog.history.provider.enabled') ?? true,
-});
+HistoryRecordingEntityProvider.fromConfig(config, { inner, store, logger });
 ```
 
 ### Processing layer (`source='processing'`)

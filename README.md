@@ -53,7 +53,7 @@ backend.start();
 
 The module package default export installs the catalog backend module and the default Postgres `historyStoreServiceRef` factory from `@kunickiaj/backstage-plugin-catalog-history-storage-node`. That gives you schema bootstrap, optional processor capture, optional scheduled reconciliation, and the opt-in HTTP read API.
 
-Provider capture still needs provider wiring: in the catalog module where you create the provider, depend on `historyStoreServiceRef` and pass the injected store into `HistoryRecordingEntityProvider`:
+Provider capture still needs provider wiring. In the catalog module where you create the provider, depend on `historyStoreServiceRef` and wrap each provider you want recorded with `HistoryRecordingEntityProvider.fromConfig`. Every catalog module receives the same plugin-scoped store, so your wrappers, processor capture, the reconciler, and the read API share one connection and one schema bootstrap. The wrapper records only when `catalog.history.enabled` and `catalog.history.provider.enabled` are both on. Otherwise it forwards mutations without touching the store. Which providers to wrap stays your choice:
 
 ```ts
 import { HistoryRecordingEntityProvider } from '@kunickiaj/backstage-plugin-catalog-backend-module-history';
@@ -75,13 +75,10 @@ backend.add(
         async init({ catalog, logger, config, historyStore }) {
           const inner = OktaOrgEntityProvider.fromConfig(/* ... */);
           catalog.addEntityProvider(
-            new HistoryRecordingEntityProvider({
+            HistoryRecordingEntityProvider.fromConfig(config, {
               inner,
               store: historyStore,
               logger,
-              enabled:
-                config.getOptionalBoolean('catalog.history.provider.enabled') ??
-                true,
             }),
           );
         },
@@ -90,6 +87,8 @@ backend.add(
   }),
 );
 ```
+
+The default store acquires its database client and runs migrations on first use, not when the service is resolved. With `catalog.history.enabled: false`, or with the API, provider, processing, and reconciler layers all off, the backend opens no history connection and runs no migrations. When any layer is on, the module runs migrations at startup so schema errors fail the backend early. The store factory registers one shutdown for the store, and every wrapper and reader shares it. On shutdown the store flushes processor capture and then destroys only a pool it created for the deprecated `catalog.history.database` override. It never destroys Backstage's shared database pool.
 
 ## Config
 
@@ -143,12 +142,12 @@ catalog:
 
 | Key                                                | Default                    | Effect                                                                                                                                        |
 | -------------------------------------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `catalog.history.enabled`                          | `true`                     | Master switch. Set to `false` to skip schema bootstrap, processor capture, reconciler, and retention.                                         |
+| `catalog.history.enabled`                          | `true`                     | Master switch. Set to `false` to skip database access, schema bootstrap, the API, every capture layer, and retention.                         |
 | `catalog.history.database`                         | unset                      | Deprecated history database override honored by the default store factory. Prefer custom `historyStoreServiceRef` factories for new setups.   |
 | `catalog.history.database.client`                  | `pg`                       | Knex client for the deprecated history database override.                                                                                     |
 | `catalog.history.database.connection`              | Backstage database service | Knex connection string or object for the deprecated history storage override. Treated as secret config.                                       |
 | `catalog.history.provider`                         | unset                      | Provider-layer capture settings.                                                                                                              |
-| `catalog.history.provider.enabled`                 | `true`                     | Gates provider-layer recording when passed to `HistoryRecordingEntityProvider`.                                                               |
+| `catalog.history.provider.enabled`                 | `true`                     | Gates provider-layer recording in wrappers built with `HistoryRecordingEntityProvider.fromConfig`.                                            |
 | `catalog.history.processing`                       | unset                      | Processor-layer capture settings.                                                                                                             |
 | `catalog.history.processing.enabled`               | `false`                    | Enables processor-layer capture via `HistoryRecordingCatalogProcessor`.                                                                       |
 | `catalog.history.api`                              | unset                      | HTTP history API settings.                                                                                                                    |
