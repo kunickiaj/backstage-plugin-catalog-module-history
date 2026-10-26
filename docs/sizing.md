@@ -84,9 +84,9 @@ The scheduled reconciler is off by default
 `catalog.history.reconciler.schedule` is omitted, the scheduler uses a one-hour
 frequency, a 10-minute timeout, and a 30-second initial delay.
 
-If `schedule` is present, Backstage requires both `frequency` and `timeout`.
-The hourly and 10-minute defaults apply only when the entire `schedule` key is
-omitted. An explicit schedule can also set `initialDelay`.
+Keys omitted from an explicit `schedule` inherit those defaults, so setting only
+`frequency` keeps the 10-minute timeout and 30-second initial delay. Set
+`initialDelay: { seconds: 0 }` to start without a delay.
 
 Each reconcile run walks every catalog page, using 500-entity pages by default,
 and accumulates the entities in memory before mapping and diffing. It also loads

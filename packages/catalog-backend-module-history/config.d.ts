@@ -104,9 +104,9 @@ export interface Config {
          * format; omit it to use the default hourly schedule, 10 minute
          * timeout, and 30 second initial delay.
          *
-         * When set, `frequency` and `timeout` are both required (Backstage's
-         * schedule parser rejects partial definitions at startup); the
-         * defaults above apply only when the whole `schedule` key is omitted.
+         * Keys you omit inherit those defaults, so `frequency` alone keeps the
+         * 10 minute timeout and 30 second initial delay. Set `initialDelay`
+         * to `{ seconds: 0 }` to start without a delay.
          */
         schedule?: {
           /**
