@@ -33,6 +33,8 @@ The storage package is a `node-library`, not a backend plugin. The root package 
 
 To check a release without publishing, dispatch with **publish** unchecked. Only the validation job runs.
 
+`0.4.0` follows these steps. It is the first release whose tag and GitHub release come from the workflow's release job, so watch that job. If npm verification times out, rerun only the release job from the same run.
+
 ## Publication safeguards
 
 The workflow validates all five archives and preflights each exact registry version before npm changes. It skips a version only when the existing registry integrity equals the matching archive. A malformed response, unexpected existing version, integrity mismatch, or registry error other than a missing version stops publication.

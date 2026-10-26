@@ -209,8 +209,7 @@ fast-query claim or a migration recommendation.
 
 ## Plan retention
 
-Unreleased source after `0.3.0` adds an opt-in scheduled retention job. It is
-off by default.
+`0.4.0` adds an opt-in scheduled retention job. It is off by default.
 When `catalog.history.retention.enabled` is `true`, one backend replica runs the
 `catalog-history-retention` task every 24 hours by default. Each run removes
 history recorded before now minus `catalog.history.retention.maxAge`. The
