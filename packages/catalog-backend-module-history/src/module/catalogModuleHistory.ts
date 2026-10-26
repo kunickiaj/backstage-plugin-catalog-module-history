@@ -4,7 +4,7 @@ import {
   readSchedulerServiceTaskScheduleDefinitionFromConfig,
 } from '@backstage/backend-plugin-api';
 import { metricsServiceRef } from '@backstage/backend-plugin-api/alpha';
-import { ConfigReader } from '@backstage/config';
+import { type Config, ConfigReader } from '@backstage/config';
 import type { JsonObject } from '@backstage/types';
 import {
   catalogProcessingExtensionPoint,
@@ -19,12 +19,40 @@ import { HistoryRecordingCatalogProcessor } from '../processor/HistoryRecordingC
 import { CatalogServiceEntityFetcher } from '../reconciler/CatalogServiceEntityFetcher';
 import { reconcile } from '../reconciler/reconcile';
 import { createHistoryRouter } from '../service/createHistoryRouter';
+import { readRetentionConfig } from '../retention/readRetentionConfig';
+import {
+  describeRetentionMode,
+  requireRetentionStore,
+  runRetention,
+} from '../retention/runRetention';
 
 const DEFAULT_RECONCILER_SCHEDULE = {
   frequency: { hours: 1 },
   timeout: { minutes: 10 },
   initialDelay: { seconds: 30 },
 };
+
+const DEFAULT_RETENTION_SCHEDULE = {
+  frequency: { hours: 24 },
+  timeout: { hours: 1 },
+  initialDelay: { minutes: 5 },
+};
+
+// Backstage's parser requires frequency and timeout together, so merge
+// operator keys over the defaults before parsing. This lets a cadence-only
+// override inherit the default timeout and delay.
+function readScheduleWithDefaults(
+  scheduleConfig: Config | undefined,
+  defaults: JsonObject,
+  configKey: string,
+) {
+  return readSchedulerServiceTaskScheduleDefinitionFromConfig(
+    new ConfigReader(
+      { ...defaults, ...scheduleConfig?.get<JsonObject>() },
+      configKey,
+    ),
+  );
+}
 
 /**
  * Backstage backend module for the catalog-history plugin. On init it
@@ -58,6 +86,11 @@ const DEFAULT_RECONCILER_SCHEDULE = {
  *         frequency: { minutes: 30 }
  *         timeout: { minutes: 5 }
  *         initialDelay: { seconds: 30 }
+ *     retention:
+ *       enabled: false    # opt-in scheduled history retention
+ *       maxAge: { days: 90 } # required when enabled; at least 1 day
+ *       dryRun: true      # log counts only; set false to delete
+ *       batchSize: 1000
  * ```
  */
 export const catalogModuleHistory = createBackendModule({
@@ -104,6 +137,18 @@ export const catalogModuleHistory = createBackendModule({
         }
 
         const store: HistoryStore = historyStore;
+        // Validate before any store work so bad retention config fails startup.
+        const retention = readRetentionConfig(moduleConfig);
+        const retentionStore = retention
+          ? requireRetentionStore(store)
+          : undefined;
+        const retentionSchedule = retention
+          ? readScheduleWithDefaults(
+              moduleConfig?.getOptionalConfig('retention.schedule'),
+              DEFAULT_RETENTION_SCHEDULE,
+              'catalog.history.retention.schedule',
+            )
+          : undefined;
         if (moduleConfig?.getOptionalBoolean('api.enabled') === true) {
           if (
             !store.query ||
@@ -158,6 +203,9 @@ export const catalogModuleHistory = createBackendModule({
             reconcilerEnabled ? 'on' : 'off'
           }`,
         );
+        logger.info(
+          `catalog-history retention=${describeRetentionMode(retention)}`,
+        );
 
         if (processingEnabled) {
           const processor = new HistoryRecordingCatalogProcessor({
@@ -187,17 +235,10 @@ export const catalogModuleHistory = createBackendModule({
           const scheduleConfig = moduleConfig
             ?.getOptionalConfig('reconciler')
             ?.getOptionalConfig('schedule');
-          // Backstage's parser requires frequency and timeout together, so
-          // merge operator keys over the defaults before parsing. This lets a
-          // cadence-only override inherit the default timeout and delay.
-          const schedule = readSchedulerServiceTaskScheduleDefinitionFromConfig(
-            new ConfigReader(
-              {
-                ...DEFAULT_RECONCILER_SCHEDULE,
-                ...scheduleConfig?.get<JsonObject>(),
-              },
-              'catalog.history.reconciler.schedule',
-            ),
+          const schedule = readScheduleWithDefaults(
+            scheduleConfig,
+            DEFAULT_RECONCILER_SCHEDULE,
+            'catalog.history.reconciler.schedule',
           );
 
           await scheduler.scheduleTask({
@@ -213,6 +254,20 @@ export const catalogModuleHistory = createBackendModule({
                 );
               }
             },
+          });
+        }
+
+        if (retention && retentionStore && retentionSchedule) {
+          await scheduler.scheduleTask({
+            id: 'catalog-history-retention',
+            ...retentionSchedule,
+            fn: signal =>
+              runRetention({
+                store: retentionStore,
+                settings: retention,
+                logger,
+                signal,
+              }),
           });
         }
 

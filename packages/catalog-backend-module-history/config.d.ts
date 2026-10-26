@@ -129,6 +129,60 @@ export interface Config {
           initialDelay?: string | { [key: string]: unknown };
         };
       };
+
+      /**
+       * Scheduled history retention. Defaults to disabled. When enabled, one
+       * backend replica runs the `catalog-history-retention` task. Retention
+       * keeps the newest row of each entity capture stream unless every stream
+       * of that entity ended in a delete before the cutoff. It also removes
+       * cycles that finished before the cutoff and have no rows. The history
+       * store must implement `planRetention` and `applyRetention`, or startup
+       * fails.
+       */
+      retention?: {
+        /**
+         * Enables scheduled retention. Defaults to false. When false, the
+         * module schedules nothing and reads no other retention keys.
+         */
+        enabled?: boolean;
+
+        /**
+         * How long to keep history. Required when retention is enabled and
+         * must be at least 1 day. Each run removes eligible history recorded
+         * before now minus this duration. Accepts a duration object such as
+         * `{ days: 90 }` or a string such as `P90D`.
+         */
+        maxAge?: string | { [key: string]: unknown };
+
+        /**
+         * When true, each run only counts what it would remove and logs the
+         * counts. Set to false to delete. Defaults to true.
+         */
+        dryRun?: boolean;
+
+        /**
+         * Maximum rows or cycles removed per transaction when deleting.
+         * Must be an integer from 1 through 10000. Defaults to 1000.
+         */
+        batchSize?: number;
+
+        /**
+         * Scheduler configuration for retention. The shape follows Backstage's
+         * SchedulerServiceTaskScheduleDefinition config format. Omitted keys
+         * use the defaults: every 24 hours, a 1 hour timeout, and a 5 minute
+         * initial delay.
+         */
+        schedule?: {
+          /** Retention schedule frequency. Defaults to `{ hours: 24 }`. */
+          frequency?: string | { [key: string]: unknown };
+
+          /** Retention task timeout. Defaults to `{ hours: 1 }`. */
+          timeout?: string | { [key: string]: unknown };
+
+          /** Retention initial delay. Defaults to `{ minutes: 5 }`. */
+          initialDelay?: string | { [key: string]: unknown };
+        };
+      };
     };
   };
 }

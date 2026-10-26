@@ -32,9 +32,8 @@ those operational needs from measurements of the intended PostgreSQL service;
 the fixture data below does not provide a fixed headroom ratio.
 
 Choose the planning window from the history users need to investigate or retain.
-It is an input to storage planning, not an automatic retention setting. Current
-source has no `catalog.history.retention` configuration or retention job. Rows
-remain until an operator-managed database lifecycle changes them.
+Rows remain until you remove them. The opt-in retention job described in
+[Plan retention](#plan-retention) can enforce a window once you choose one.
 
 ## Account for each capture layer
 
@@ -208,19 +207,38 @@ case had unscoped p95 of 319 ms versus 1,014 ms for baseline, but provider-plus-
 source p95 of 517 ms versus 168 ms. No fixture result supports a universal
 fast-query claim or a migration recommendation.
 
-## Plan retention as a separate change
+## Plan retention
 
-Until retention work exists, choose a desired history window only for storage,
-backup, and restore planning. Set storage alerts, take backups, and verify a
-restore path before any future maintenance work. Do not treat the roadmap's
-example retention keys or TTLs as current configuration.
+Unreleased source after `0.3.0` adds an opt-in scheduled retention job. It is
+off by default.
+When `catalog.history.retention.enabled` is `true`, one backend replica runs the
+`catalog-history-retention` task every 24 hours by default. Each run removes
+history recorded before now minus `catalog.history.retention.maxAge`. The
+operator must set `maxAge`, and it must be at least 1 day.
 
-Future retention design must preserve the newest useful state, delete tombstones
-for an appropriate period, source and provider detail, version history, and the
-predecessor needed for useful comparisons.
+Retention keeps the newest row of each entity capture stream, meaning each
+combination of entity ref, source, and provider, even when that row is older
+than the cutoff. Current state therefore survives any window. The job removes
+every row of an entity only when all of its capture streams ended in a delete
+before the cutoff. It also removes cycles that finished before the cutoff and
+have no rows left. Rows recorded after the cutoff always stay, so version
+history inside the window is intact. The oldest version inside the window can
+lose the older predecessor it was compared with.
 
-See the [productization roadmap](plans/2026-07-05-catalog-history-productization-roadmap.md#phase-4--retention-and-compaction)
-for the planned, not implemented, retention work. The [known deletion-capture
+Runs are dry runs by default. A dry run logs the number of deleted-entity rows,
+superseded rows, and empty cycles that a deleting run would remove, and changes
+nothing. Use those counts to check the window against this guide's row
+estimate. Then set `dryRun: false`. Deleting runs remove at most `batchSize`
+rows or cycles per transaction (default 1000, maximum 10000) and stop between
+batches when the scheduler timeout cancels the task. See the
+[retention section of the README](../README.md#retention) for the full config.
+
+Before you enable deletion, set storage alerts, take backups, and verify a
+restore path. Deleting rows does not shrink the table files on disk right away.
+PostgreSQL reuses the space after vacuum, so measure physical size over several
+runs rather than right after one.
+
+The [known deletion-capture
 limitation](../README.md#known-deletion-capture-limitation) remains relevant:
 retained history is not a complete record of catalog deletion actions.
 
