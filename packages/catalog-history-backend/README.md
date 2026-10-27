@@ -34,7 +34,7 @@ The cycle endpoints additionally use the optional `listCycles` and `getCycle` qu
 
 The default Postgres implementation uses one lookup with an inclusive timestamp cutoff, ordered by stored `changed_at` and bigint `id`, both descending. It applies the normal per-statement timeout and records the fixed query-metric operation `as_of`.
 
-## Diff capability (unreleased)
+## Diff capability in `0.5.0`
 
 `HistoryStore.query.getEntityDiff` is optional for custom stores. A custom store without it continues to serve existing routes. The catalog diff route returns `501` after normal authentication and `catalog-history.read` authorization.
 

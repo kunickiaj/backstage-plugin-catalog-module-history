@@ -76,7 +76,7 @@ A provider wrapper records mutations in arrival order. When history writes are s
 History recording for provider <name> is <count> mutations behind. Catalog writes continue, but each applyMutation call waits for its own recording.
 ```
 
-Catalog writes still go through, but the provider's `applyMutation` calls take longer, because each call waits for its own recording. Check `catalog.history.storage.operation.duration` for `record_cycle` and `load_current_etags`, database load, and locks on the history tables. With `convertFullToDelta` on, each converted full reads the history baseline before it forwards, so slow history also delays that provider's catalog writes. A history call that hangs stops them until it finishes. The `queryTimeoutMs` deadline does not apply to these baseline reads or to recording writes. See [Overlapping provider mutations](../packages/catalog-backend-module-history/README.md#overlapping-provider-mutations-unreleased).
+Catalog writes still go through, but the provider's `applyMutation` calls take longer, because each call waits for its own recording. Check `catalog.history.storage.operation.duration` for `record_cycle` and `load_current_etags`, database load, and locks on the history tables. With `convertFullToDelta` on, each converted full reads the history baseline before it forwards, so slow history also delays that provider's catalog writes. A history call that hangs stops them until it finishes. The `queryTimeoutMs` deadline does not apply to these baseline reads or to recording writes. See [Overlapping provider mutations](../packages/catalog-backend-module-history/README.md#overlapping-provider-mutations-in-050).
 
 ## Run retention safely
 

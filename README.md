@@ -4,7 +4,7 @@ A Backstage backend module that records catalog entity changes into a versioned 
 
 Ships with a Postgres backend in v1; designed around a pluggable `HistoryStore` interface so additional backends (Dolt, ClickHouse, etc.) can be added without changes to the wrapper.
 
-**Status: pre-alpha.** All five public packages are published at `0.4.0` with the `latest` dist-tag, including the frontend package. The HTTP read API and migration-log isolation fix ship in `0.2.0`; read the [storage notes](packages/catalog-history-backend/README.md#migration-bookkeeping-in-020) and [migration guide](docs/migration.md) before using a shared catalog database.
+**Status: pre-alpha.** All five public packages are published at `0.4.0` with the `latest` dist-tag, including the frontend package. `0.5.0` is prepared but not yet published. The HTTP read API and migration-log isolation fix ship in `0.2.0`; read the [storage notes](packages/catalog-history-backend/README.md#migration-bookkeeping-in-020) and [migration guide](docs/migration.md) before using a shared catalog database.
 
 Maintainers: see [Publishing packages](docs/publishing.md) for validation, npm trusted publishing, artifact verification, release notes, and recovery.
 
@@ -280,7 +280,7 @@ If no eligible retained row exists—for example, the entity is unknown, the req
 
 The route requires the same authentication and `catalog-history.read` authorization as other history reads. A custom store without `getEntityAsOf` returns `501` only after authorization; an older backend without the route returns `404`. `401` and `403` are access failures.
 
-### Compare two recorded events (unreleased)
+### Compare two recorded events in `0.5.0`
 
 `GET /api/catalog/history/entities/:kind/:namespace/:name/diff?from=row:<id>&to=row:<id>` compares two retained rows of the same entity. The response lists how `from` became `to`, in the requested order, together with both recorded versions.
 
@@ -413,7 +413,7 @@ In `0.3.0`, an inspector's **Cycle ID** links to its **Recording cycle**: the ca
 
 Cycle URLs use `?cycleId=…` on the standalone page. **Back to catalog history** removes that parameter and keeps other query parameters. The filter form stays mounted while hidden, preserving Entity, Kind, provider, source, operation, and time controls when returning. Event pagination and inspector selection restart. A cycle with no retained changes still shows its recorded totals. The recorded totals are separate from the number of loaded changes.
 
-The backend requires an authenticated user and, when permissions are enabled, an explicit `ALLOW` for `catalog-history.read`. A disabled, unreachable, or older backend without the route appears as a history `404`; expired sessions return `401`; rejected permission decisions return `403`. The standalone page shows a compatibility message when a custom history API does not implement the change feed (`501`); the entity tab remains available. Deleted entities may have retained API history, but the entity tab cannot open after the catalog entity itself is absent. There are no statistics, facets, or as-of views. Unreleased source adds a comparison of any two recorded events of one entity; see the [frontend package README](packages/catalog-history/README.md#compare-two-recorded-events-unreleased).
+The backend requires an authenticated user and, when permissions are enabled, an explicit `ALLOW` for `catalog-history.read`. A disabled, unreachable, or older backend without the route appears as a history `404`; expired sessions return `401`; rejected permission decisions return `403`. The standalone page shows a compatibility message when a custom history API does not implement the change feed (`501`); the entity tab remains available. Deleted entities may have retained API history, but the entity tab cannot open after the catalog entity itself is absent. There are no statistics, facets, or as-of views. `0.5.0` adds a comparison of any two recorded events of one entity; see the [frontend package README](packages/catalog-history/README.md#compare-two-recorded-events-in-050).
 
 See the [frontend package README](packages/catalog-history/README.md) for workspace use, NFS exports, and user-facing error guidance.
 
@@ -559,6 +559,7 @@ Runs are dry runs until you set `dryRun: false`. A dry run logs how many entity 
 - [`0.2.0` release and E2E setup](docs/releases/0.2.0.md)
 - [`0.3.0` release preparation](docs/releases/0.3.0.md)
 - [`0.4.0` release](docs/releases/0.4.0.md)
+- [`0.5.0` release preparation](docs/releases/0.5.0.md)
 
 ## License
 

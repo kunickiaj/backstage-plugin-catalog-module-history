@@ -122,8 +122,8 @@ is required.
 ## 4. Use canonical import locations
 
 Move contracts and storage imports to their canonical packages. Releases
-`0.2.0` through `0.4.0` re-exported them from the module; the next release
-removes those re-exports.
+`0.2.0` through `0.4.0` re-exported them from the module; `0.5.0` removes
+those re-exports.
 
 | Historical export                                                                                                                                | Current import location                                      |
 | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
@@ -140,7 +140,7 @@ import {
 } from '@kunickiaj/backstage-plugin-catalog-backend-module-history';
 ```
 
-See the [module's removed re-exports table](../packages/catalog-backend-module-history/README.md#removed-compatibility-re-exports-unreleased)
+See the [module's removed re-exports table](../packages/catalog-backend-module-history/README.md#removed-compatibility-re-exports-in-050)
 when updating imports.
 
 ## 5. Keep configuration, then review storage
