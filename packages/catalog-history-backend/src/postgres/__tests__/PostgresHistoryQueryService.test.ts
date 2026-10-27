@@ -300,6 +300,95 @@ describe('PostgresHistoryQueryService', () => {
     });
   });
 
+  it.each(['timeline', 'versions'] as const)(
+    'pages the %s across rows that differ only in microseconds',
+    async endpoint => {
+      // Arrange: the newest row shares its millisecond with two older rows.
+      const cycleId = await insertCycle(db, {
+        provider: 'okta',
+        source: 'provider',
+        at: '2026-07-07T00:00:00Z',
+      });
+      const ids = [];
+      for (const at of [
+        '2026-07-07T00:00:00.000100Z',
+        '2026-07-07T00:00:00.000200Z',
+        '2026-07-07T00:00:00.000300Z',
+      ]) {
+        ids.push(
+          await insertEntity(db, {
+            cycleId,
+            provider: 'okta',
+            source: 'provider',
+            op: 'update',
+            etag: at,
+            changedAt: at,
+          }),
+        );
+      }
+      const read = (cursor?: string) =>
+        endpoint === 'timeline'
+          ? service.getEntityTimeline({
+              entityRef: 'user:default/alice',
+              limit: 1,
+              cursor,
+            })
+          : service.getEntityVersions({
+              entityRef: 'user:default/alice',
+              limit: 1,
+              cursor,
+            });
+      // Act
+      const seen: string[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await read(cursor);
+        seen.push(...page.items.map(item => item.id));
+        cursor = page.nextCursor;
+      } while (cursor);
+      // Assert
+      expect(seen).toEqual([...ids].reverse());
+    },
+  );
+
+  it('continues the timeline after retention removes the cursor row', async () => {
+    // Arrange
+    const cycleId = await insertCycle(db, {
+      provider: 'okta',
+      source: 'provider',
+      at: '2026-07-07T00:00:00Z',
+    });
+    const older = await insertEntity(db, {
+      cycleId,
+      provider: 'okta',
+      source: 'provider',
+      op: 'insert',
+      etag: 'a',
+      changedAt: '2026-07-07T00:00:00Z',
+    });
+    const newer = await insertEntity(db, {
+      cycleId,
+      provider: 'okta',
+      source: 'provider',
+      op: 'update',
+      etag: 'b',
+      changedAt: '2026-07-07T01:00:00Z',
+    });
+    const first = await service.getEntityTimeline({
+      entityRef: 'user:default/alice',
+      limit: 1,
+    });
+    await db('catalog_history_entities').where('id', newer).delete();
+    // Act
+    const second = await service.getEntityTimeline({
+      entityRef: 'user:default/alice',
+      limit: 1,
+      cursor: first.nextCursor,
+    });
+    // Assert
+    expect(second.items.map(item => item.id)).toEqual([older]);
+  });
+
   it('paginates distinct versions and keeps entity refs isolated', async () => {
     for (const [index, at] of [
       '2026-07-07T00:00:00Z',

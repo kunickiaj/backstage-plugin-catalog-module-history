@@ -1113,12 +1113,12 @@ export class PostgresHistoryQueryService {
     if (!decoded) {
       return;
     }
-    query.andWhere(builder => {
-      builder.where('changed_at', '<', decoded.changedAt).orWhere(inner => {
-        inner
-          .where('changed_at', decoded.changedAt)
-          .andWhere('id', '<', decoded.id);
-      });
-    });
+    // Compare against the stored row's timestamp, not the cursor's
+    // millisecond copy, so rows that differ only in microseconds are not
+    // skipped. If retention removed the row, fall back to the cursor's copy.
+    query.whereRaw(
+      '(changed_at, id) < (coalesce((select changed_at from catalog_history_entities where id = ?), ?::timestamptz), ?::bigint)',
+      [decoded.id, decoded.changedAt, decoded.id],
+    );
   }
 }
