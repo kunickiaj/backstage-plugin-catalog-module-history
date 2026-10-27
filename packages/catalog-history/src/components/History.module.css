@@ -301,6 +301,21 @@
   min-width: 0;
 }
 
+.comparisonActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--bui-space-2);
+  margin-block: var(--bui-space-2);
+}
+
+.comparePrompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--bui-space-2);
+  margin-bottom: var(--bui-space-3);
+}
+
 .provenance {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);

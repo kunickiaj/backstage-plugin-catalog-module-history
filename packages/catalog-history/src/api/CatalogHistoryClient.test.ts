@@ -18,6 +18,35 @@ function setup() {
 }
 
 describe('CatalogHistoryClient', () => {
+  it('requests a diff of two rows under the canonical entity path', async () => {
+    // Arrange
+    const { client, fetch } = setup();
+    // Act
+    await client.getEntityDiff({
+      entityRef: 'Component:Default/Example',
+      from: { kind: 'history-row', id: '12' },
+      to: { kind: 'history-row', id: '9' },
+    });
+    // Assert
+    expect(fetch).toHaveBeenCalledWith(
+      'https://catalog.example/api/catalog/history/entities/component/default/example/diff?from=row%3A12&to=row%3A9',
+    );
+  });
+
+  it('rejects non-row diff targets without fetching', async () => {
+    // Arrange
+    const { client, fetch } = setup();
+    // Act
+    const result = client.getEntityDiff({
+      entityRef: 'component:default/example',
+      from: { kind: 'timestamp', timestamp: '2026-01-01T00:00:00Z' },
+      to: { kind: 'history-row', id: '9' },
+    });
+    // Assert
+    await expect(result).rejects.toThrow('recorded events only');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it('discovers the global feed without constructing an entity path and omits absent filters', async () => {
     // Arrange
     const { client, fetch, getBaseUrl } = setup();

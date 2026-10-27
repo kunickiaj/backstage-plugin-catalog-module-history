@@ -7,15 +7,38 @@ import { catalogHistoryApiRef } from '../api/CatalogHistoryApi';
 import { HistoryFilters, HistoryFiltersValue } from './HistoryFilters';
 import { HistoryTimeline } from './HistoryTimeline';
 import { HistoryCycleView } from './HistoryCycleView';
+import {
+  formatComparisonParam,
+  type HistoryComparisonTarget,
+  parseComparisonParams,
+} from './comparisonTarget';
 import styles from './History.module.css';
 
 /** Browse recorded changes across catalog entities, including deleted entities. @public */
 export function CatalogHistoryPage() {
   const api = useApi(catalogHistoryApiRef);
   const [filters, setFilters] = useState<HistoryFiltersValue>({});
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const cycleId = params.get('cycleId');
   const request = { ...filters, limit: 25 };
+  const comparison = parseComparisonParams(params);
+  // Keep a comparison in the URL so an audit link opens the same pair.
+  const setComparison = (target?: HistoryComparisonTarget) => {
+    setParams(
+      previous => {
+        const next = new URLSearchParams(previous);
+        if (target) {
+          next.set('compare', formatComparisonParam(target));
+          next.set('compareRef', target.entityRef);
+        } else {
+          next.delete('compare');
+          next.delete('compareRef');
+        }
+        return next;
+      },
+      { replace: true },
+    );
+  };
   return (
     <>
       {cycleId !== null && (
@@ -44,6 +67,8 @@ export function CatalogHistoryPage() {
               scope="all"
               api={api}
               request={request}
+              comparison={comparison}
+              onComparisonChange={setComparison}
             />
           )}
         </Box>

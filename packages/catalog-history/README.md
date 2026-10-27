@@ -168,6 +168,16 @@ Links resolve through the plugin's public history route, so hosts can override t
 
 An API without optional `getCycle`, or an unresolved public history route, keeps the cycle ID as plain text. Missing event cycle context shows **Not recorded**. A `501` cycle response shows unsupported-cycle guidance; `404` shows an unavailable-cycle message without guessing whether the row or route is absent. Access failures remain sign-in or permission messages, and other failures offer Retry. The pre-deletion saved snapshot links to its own cycle, preserving that record's source and provider.
 
+### Compare two recorded events (unreleased)
+
+Select an event, then choose **Compare with another event** in the inspector and select a second event of the same entity. The inspector shows both events' provenance and the saved fields that differ, from the older event to the newer one. **Swap** reverses the direction, **Exit comparison** returns to the selected event, and **Cancel comparison** stops picking. Selecting another row leaves the comparison and shows that row. On the **Catalog history** page, only events of the first event's entity can be picked.
+
+The two events can come from different capture sources or providers. In that case the inspector warns that each layer records different fields, so fields that only one layer stores appear as added or removed. A deletion record has no snapshot, so comparing with one shows every saved field of the other event as added or removed.
+
+On the **Catalog history** page, the comparison is kept in the URL as `?compare=<from>..<to>&compareRef=<entityRef>`, so the link opens the same comparison. Opening a recording cycle from a compared event leaves the comparison. The entity **History** tab keeps the comparison only while the tab is open and its filters stay the same.
+
+The action appears only when the history API provides optional `getEntityDiff`. A `501` response says the backend does not support comparison. A `404` means an event is no longer available or the backend has no comparison route.
+
 ## SDK: retained entity and Kind discovery
 
 `0.3.0` adds optional `getEntities` and `getKinds` methods to
@@ -217,6 +227,18 @@ const cycle = await api.getCycle?.({
 metadata and a retained change page, respectively. The client URI-encodes
 cycle IDs and filter values, uses the same
 authenticated fetch API, and has no fallback or cache.
+
+### Diff SDK method (unreleased)
+
+`getEntityDiff` is optional for custom API implementations. The default client accepts only `history-row` targets and rejects others before making a request:
+
+```ts
+const diff = await api.getEntityDiff?.({
+  entityRef: 'component:default/payment-api',
+  from: { kind: 'history-row', id: '1042' },
+  to: { kind: 'history-row', id: '1187' },
+});
+```
 
 ### As-of SDK method in `0.3.0`
 

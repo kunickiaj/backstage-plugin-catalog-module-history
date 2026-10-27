@@ -11,9 +11,19 @@ function formatValue(value: HistoryJsonValue | undefined) {
   return JSON.stringify(value, null, 2);
 }
 
-export function HistoryChanges({ changes }: { changes?: HistoryDiffEntry[] }) {
+export function HistoryChanges({
+  changes,
+  title = 'Changes from previous event',
+  description = 'Compared with the previous saved event from the same source and provider. Array values are compared as a whole.',
+  emptyMessage = 'No saved field differences.',
+}: {
+  changes?: HistoryDiffEntry[];
+  title?: string;
+  description?: string;
+  emptyMessage?: string;
+}) {
   let content = <p>No previous saved snapshot is available for comparison.</p>;
-  if (changes?.length === 0) content = <p>No saved field differences.</p>;
+  if (changes?.length === 0) content = <p>{emptyMessage}</p>;
   if (changes && changes.length > 0) {
     content = (
       <div className={styles.changes}>
@@ -49,17 +59,11 @@ export function HistoryChanges({ changes }: { changes?: HistoryDiffEntry[] }) {
     );
   }
   return (
-    <section
-      className={styles.disclosure}
-      aria-label="Changes from previous event"
-    >
+    <section className={styles.disclosure} aria-label={title}>
       <Text as="h3" variant="title-small">
-        Changes from previous event
+        {title}
       </Text>
-      <p className={styles.description}>
-        Compared with the previous saved event from the same source and
-        provider. Array values are compared as a whole.
-      </p>
+      <p className={styles.description}>{description}</p>
       {content}
     </section>
   );

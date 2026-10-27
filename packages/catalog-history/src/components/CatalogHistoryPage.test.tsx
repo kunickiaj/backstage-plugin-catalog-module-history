@@ -24,7 +24,7 @@ import {
 import { catalogHistoryPlugin } from '../plugin';
 import { parseEntityRef } from '@backstage/catalog-model';
 import { CatalogHistoryPage } from './CatalogHistoryPage';
-import { MemoryRouter, useNavigate } from 'react-router-dom';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 
 function render(ui: Parameters<typeof renderComponent>[0]) {
   return renderComponent(ui, { wrapper: MemoryRouter });
@@ -1034,6 +1034,51 @@ describe('CatalogHistoryPage', () => {
       expect(api.getEntityTimeline).not.toHaveBeenCalled();
     },
   );
+
+  it('opens a shared comparison link and removes it on exit', async () => {
+    // Arrange: the compared events need not be on the loaded page.
+    const { api } = setup();
+    const getEntityDiff = jest.fn().mockResolvedValue({
+      entityRef: componentRef,
+      from: { ...event('12'), snapshot: undefined },
+      to: { ...event('9'), snapshot: undefined },
+      changes: [],
+    });
+    function Location() {
+      return <output aria-label="Location">{useLocation().search}</output>;
+    }
+    renderComponent(
+      <MemoryRouter
+        initialEntries={[
+          `/catalog-history?keep=1&compare=12..9&compareRef=${componentRef}`,
+        ]}
+      >
+        <TestApiProvider
+          apis={[[catalogHistoryApiRef, { ...api, getEntityDiff }]]}
+        >
+          <CatalogHistoryPage />
+          <Location />
+        </TestApiProvider>
+      </MemoryRouter>,
+    );
+    // Act
+    await screen.findByRole('heading', {
+      name: 'Comparing two recorded events',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Exit comparison' }));
+    // Assert
+    expect(getEntityDiff).toHaveBeenCalledWith({
+      entityRef: componentRef,
+      from: { kind: 'history-row', id: '12' },
+      to: { kind: 'history-row', id: '9' },
+    });
+    await waitFor(() =>
+      expect(screen.getByLabelText('Location')).toHaveTextContent(/^\?keep=1$/),
+    );
+    expect(
+      screen.queryByRole('heading', { name: 'Comparing two recorded events' }),
+    ).not.toBeInTheDocument();
+  });
 
   it('mounts the plugin page at /catalog-history with an API override', async () => {
     // Arrange
