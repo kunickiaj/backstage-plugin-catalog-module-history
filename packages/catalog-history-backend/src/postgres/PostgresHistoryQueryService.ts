@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer';
 import { InputError, NotFoundError } from '@backstage/errors';
-import { Knex } from 'knex';
+import type { Knex } from 'knex';
 import {
   DEFAULT_HISTORY_PAGE_LIMIT,
   HISTORY_SOURCES,

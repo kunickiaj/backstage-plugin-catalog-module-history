@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
 import { TestDatabases } from '@backstage/backend-test-utils';
 import { InputError, NotFoundError } from '@backstage/errors';
-import { Knex } from 'knex';
+import type { Knex } from 'knex';
 import { ensureSchema } from '../ensureSchema';
 import { PostgresHistoryQueryService } from '../PostgresHistoryQueryService';
 

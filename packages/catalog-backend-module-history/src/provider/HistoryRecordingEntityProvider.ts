@@ -4,12 +4,12 @@ import type {
   RootConfigService,
 } from '@backstage/backend-plugin-api';
 import type { MetricsService } from '@backstage/backend-plugin-api/alpha';
-import {
+import type {
   EntityProvider,
   EntityProviderConnection,
   EntityProviderMutation,
 } from '@backstage/plugin-catalog-node';
-import {
+import type {
   EntityRow,
   HistoryStore,
 } from '@kunickiaj/backstage-plugin-catalog-history-node';

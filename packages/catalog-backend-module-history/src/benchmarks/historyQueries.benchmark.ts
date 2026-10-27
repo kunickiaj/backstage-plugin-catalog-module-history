@@ -888,6 +888,7 @@ async function runFixture(
     // Inside the try: a pool-construction failure must still destroy allocated.
     db = createPool(allocated);
     store = new PostgresHistoryStore(db, { queryTimeoutMs: QUERY_TIMEOUT_MS });
+    const openStore = store;
     await store.ensureReady();
     const version = await db.raw('SHOW server_version');
     const cap = await db.raw('SHOW statement_timeout');
@@ -954,7 +955,7 @@ async function runFixture(
     );
     const entityRef = entityToRow(entities[0]).entityRef;
     const first = await measure(
-      () => store!.query.getEntityTimeline({ entityRef, limit: 5 }),
+      () => openStore.query.getEntityTimeline({ entityRef, limit: 5 }),
       'first-query-schema-promise-unprepared',
       emit,
     );
@@ -1274,19 +1275,18 @@ describe('history query benchmark harness invariants', () => {
     'keeps every revision unique at exactly %i bytes',
     bytes => {
       // Arrange: representative raw entity, no generator/network dependency.
+      const annotations: Record<string, string> = { [PADDING]: '' };
       const raw: Entity = {
         apiVersion: 'backstage.io/v1alpha1',
         kind: 'Component',
         metadata: {
           name: 'example',
           description: 'Synthetic project 0000001 revision 0',
-          annotations: { [PADDING]: '' },
+          annotations,
         },
         spec: { owner: 'group:default/example' },
       };
-      raw.metadata.annotations![PADDING] = 'a'.repeat(
-        bytes - payloadBytes(raw),
-      );
+      annotations[PADDING] = 'a'.repeat(bytes - payloadBytes(raw));
       // Act
       const entities = Array.from({ length: 150 }, (_, revision) =>
         revisionEntity(raw, revision, bytes),

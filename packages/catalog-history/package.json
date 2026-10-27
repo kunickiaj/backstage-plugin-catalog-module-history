@@ -39,7 +39,7 @@
     "start": "backstage-cli package start --config dev/app-config.yaml",
     "build": "backstage-cli package build",
     "clean": "backstage-cli package clean",
-    "lint": "backstage-cli package lint",
+    "lint": "backstage-cli package lint --max-warnings 18",
     "lint:fix": "backstage-cli package lint --fix",
     "test": "backstage-cli package test --passWithNoTests",
     "test:watch": "backstage-cli package test --watch",

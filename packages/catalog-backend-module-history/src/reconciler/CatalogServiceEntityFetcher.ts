@@ -1,7 +1,7 @@
 import { type AuthService } from '@backstage/backend-plugin-api';
 import { type CatalogService } from '@backstage/plugin-catalog-node';
 import { type Entity } from '@backstage/catalog-model';
-import { EntityFetcher } from './EntityFetcher';
+import type { EntityFetcher } from './EntityFetcher';
 import { fetchAllEntities } from './paginateEntities';
 
 /**

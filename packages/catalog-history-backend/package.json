@@ -30,7 +30,7 @@
   "scripts": {
     "build": "backstage-cli package build",
     "clean": "backstage-cli package clean",
-    "lint": "backstage-cli package lint",
+    "lint": "backstage-cli package lint --max-warnings 9",
     "lint:fix": "backstage-cli package lint --fix",
     "test": "backstage-cli package test --passWithNoTests",
     "test:watch": "backstage-cli package test --watch",

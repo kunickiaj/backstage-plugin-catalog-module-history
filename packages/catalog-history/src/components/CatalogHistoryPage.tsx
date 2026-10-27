@@ -4,7 +4,8 @@ import { useApi } from '@backstage/core-plugin-api';
 import { Box, Text } from '@backstage/ui';
 import { useSearchParams } from 'react-router-dom';
 import { catalogHistoryApiRef } from '../api/CatalogHistoryApi';
-import { HistoryFilters, HistoryFiltersValue } from './HistoryFilters';
+import type { HistoryFiltersValue } from './HistoryFilters';
+import { HistoryFilters } from './HistoryFilters';
 import { HistoryTimeline } from './HistoryTimeline';
 import { HistoryCycleView } from './HistoryCycleView';
 import {

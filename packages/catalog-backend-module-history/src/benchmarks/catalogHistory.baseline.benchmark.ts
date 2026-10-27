@@ -689,7 +689,8 @@ async function runCase(
     let expectedRows = 0;
     const expectedCycles: Counters[] = [];
     for (const stage of options.stages) {
-      const entities = snapshots.get(stage)!;
+      const entities = snapshots.get(stage);
+      if (!entities) throw new Error(`Missing snapshot for stage ${stage}`);
       const expected = expectedCycle(previous, entities);
       if (enabled) {
         expectedCycles.push(expected.counters);

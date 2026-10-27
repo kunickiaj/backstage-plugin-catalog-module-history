@@ -1,14 +1,12 @@
 import { mockServices } from '@backstage/backend-test-utils';
-import {
+import type {
   EntityProvider,
   EntityProviderConnection,
   EntityProviderMutation,
 } from '@backstage/plugin-catalog-node';
 import { InMemoryHistoryStore } from '@kunickiaj/backstage-plugin-catalog-history-node/testUtils';
-import {
-  ForceFullEveryDuration,
-  HistoryRecordingEntityProvider,
-} from '../HistoryRecordingEntityProvider';
+import type { ForceFullEveryDuration } from '../HistoryRecordingEntityProvider';
+import { HistoryRecordingEntityProvider } from '../HistoryRecordingEntityProvider';
 
 const full: EntityProviderMutation = {
   type: 'full',

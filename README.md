@@ -553,6 +553,7 @@ Runs are dry runs until you set `dryRun: false`. A dry run logs how many entity 
 - [Entity discovery evaluation](docs/entity-discovery-evaluation.md)
 - [Storage sizing and retention planning](docs/sizing.md)
 - [Operations runbook](docs/operations.md)
+- [Contributing: checks and code quality limits](CONTRIBUTING.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Observability in `0.3.0`](docs/observability.md)
 - [`0.2.0` release and E2E setup](docs/releases/0.2.0.md)

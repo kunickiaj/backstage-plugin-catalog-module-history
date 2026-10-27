@@ -1,13 +1,13 @@
-import { Entity } from '@backstage/catalog-model';
+import type { Entity } from '@backstage/catalog-model';
 import { CatalogClient } from '@backstage/catalog-client';
-import { LoggerService } from '@backstage/backend-plugin-api';
+import type { LoggerService } from '@backstage/backend-plugin-api';
 import { knex as createKnex } from 'knex';
 import {
   ensureSchema,
   PostgresHistoryStore,
 } from '@kunickiaj/backstage-plugin-catalog-history-storage-node';
 import { reconcile } from '../reconciler/reconcile';
-import { EntityFetcher } from '../reconciler/EntityFetcher';
+import type { EntityFetcher } from '../reconciler/EntityFetcher';
 import { fetchAllEntities } from '../reconciler/paginateEntities';
 
 const stderrLogger: LoggerService = {

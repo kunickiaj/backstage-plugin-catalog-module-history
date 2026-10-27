@@ -1,5 +1,5 @@
 import { readdir } from 'node:fs/promises';
-import { Knex } from 'knex';
+import type { Knex } from 'knex';
 import { resolvePackagePath } from '@backstage/backend-plugin-api';
 
 // Note: resolvePackagePath runs at module-load time and requires this

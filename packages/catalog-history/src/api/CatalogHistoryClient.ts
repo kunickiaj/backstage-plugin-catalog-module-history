@@ -26,7 +26,8 @@ import type {
   HistoryProviderSearchRequest,
   HistoryProviderSearchResponse,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
-import { CatalogHistoryApi, CatalogHistoryApiError } from './CatalogHistoryApi';
+import type { CatalogHistoryApi } from './CatalogHistoryApi';
+import { CatalogHistoryApiError } from './CatalogHistoryApi';
 
 /** Starts a query with a validated page size, capped at the API maximum. */
 function pageQuery(requested: number | undefined): URLSearchParams {

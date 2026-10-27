@@ -1,4 +1,4 @@
-import { CaptureSource, CycleInput } from './types';
+import type { CaptureSource, CycleInput } from './types';
 import type { HistoryQueryService } from '../query/HistoryQueryService';
 
 /**

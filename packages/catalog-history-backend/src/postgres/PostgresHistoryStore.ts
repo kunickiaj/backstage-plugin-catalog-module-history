@@ -1,6 +1,6 @@
-import { Knex } from 'knex';
+import type { Knex } from 'knex';
 import type { MetricsService } from '@backstage/backend-plugin-api/alpha';
-import {
+import type {
   CaptureSource,
   CurrentEtag,
   CycleInput,
