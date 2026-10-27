@@ -1,6 +1,5 @@
 import { request as httpRequest } from 'node:http';
 import { randomUUID } from 'node:crypto';
-import type { AddressInfo } from 'node:net';
 import { createServiceFactory } from '@backstage/backend-plugin-api';
 import {
   mockCredentials,
@@ -17,7 +16,7 @@ import {
 import { AuthorizeResult } from '@backstage/plugin-permission-common';
 import { historyStoreServiceFactory } from '@kunickiaj/backstage-plugin-catalog-history-storage-node';
 import { knex, type Knex } from 'knex';
-import request from 'supertest';
+import request, { testBackendUrl } from '../__testUtils__/testBackendRequest';
 import { catalogModuleHistory } from '../catalogModuleHistory';
 
 jest.setTimeout(30000);
@@ -181,14 +180,13 @@ describe('catalog history HTTP query deadlines', () => {
   it('terminates a server SELECT at its deadline after the client disconnects while blocked', async () => {
     // Arrange: the only read connection must wait for this fixture's table lock.
     const blocker = await lockHistory();
-    const address = backend!.server.address() as AddressInfo;
-    const client = httpRequest({
-      hostname: '127.0.0.1',
-      port: address.port,
-      path: `${path}?provider=${provider}`,
-      headers: { Authorization: mockCredentials.user.header() },
-      agent: false,
-    });
+    const client = httpRequest(
+      `${testBackendUrl(backend!.server)}${path}?provider=${provider}`,
+      {
+        headers: { Authorization: mockCredentials.user.header() },
+        agent: false,
+      },
+    );
     let clientError: Error | undefined;
     const clientClosed = new Promise<void>(resolve => {
       client.on('error', error => {
