@@ -434,6 +434,8 @@ describe('PostgresHistoryStore metrics', () => {
     expect(journal.values(storageDuration)[0].value).toBe(10);
 
     // Arrange: query preparation and response mapping lie outside the SQL timer.
+    // Reads share the store's bootstrap, so count preparation only once below.
+    jest.mocked(store.ensureReady).mockRestore();
     clock = 0;
     const queryReady = store.query.ensureReady.bind(store.query);
     jest.spyOn(store.query, 'ensureReady').mockImplementation(async () => {

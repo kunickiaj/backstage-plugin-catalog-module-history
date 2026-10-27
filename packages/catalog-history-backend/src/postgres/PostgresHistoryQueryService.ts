@@ -41,6 +41,7 @@ import type {
   HistoryProviderSearchResponse,
   HistorySource,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
+import type { HistoryStore } from '@kunickiaj/backstage-plugin-catalog-history-node';
 import { ensureSchema } from './ensureSchema';
 import {
   cycleListScope,
@@ -456,26 +457,36 @@ function rowToVersion(row: HistoryEntityRow): HistoryEntityVersion {
 }
 
 /**
- * Postgres-backed history query methods.
- *
- * This class is intentionally kept out of the package barrel until the full
- * `HistoryQueryService` contract is implemented across the follow-up query
- * beads.
+ * PostgreSQL reads behind `PostgresHistoryStore.query`, which the history
+ * API serves. It is reached through the store rather than exported on its own.
  */
-export class PostgresHistoryQueryService {
+export class PostgresHistoryQueryService implements NonNullable<
+  HistoryStore['query']
+> {
   private schemaReady: Promise<void> | undefined;
+  private readonly sharedReady?: () => Promise<void>;
   private readonly queryTimeoutMs: number;
   private readonly metrics: HistoryStorageMetrics;
 
   constructor(
     private readonly db: Knex,
-    options: { queryTimeoutMs?: number; metrics?: HistoryStorageMetrics } = {},
+    options: {
+      queryTimeoutMs?: number;
+      metrics?: HistoryStorageMetrics;
+      /** Shares the owning store's schema bootstrap instead of running its own. */
+      ensureReady?: () => Promise<void>;
+    } = {},
   ) {
     this.queryTimeoutMs = normalizeQueryTimeoutMs(options.queryTimeoutMs);
     this.metrics = options.metrics ?? createHistoryStorageMetrics();
+    this.sharedReady = options.ensureReady;
   }
 
   async ensureReady(): Promise<void> {
+    if (this.sharedReady) {
+      await this.sharedReady();
+      return;
+    }
     this.schemaReady ??= ensureSchema(this.db).catch(error => {
       this.schemaReady = undefined;
       throw error;
