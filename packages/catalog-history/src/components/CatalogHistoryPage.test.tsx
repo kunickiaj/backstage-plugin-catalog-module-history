@@ -1080,6 +1080,51 @@ describe('CatalogHistoryPage', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('keeps loaded older events when a comparison starts, swaps, and exits', async () => {
+    // Arrange: the second event comes from the older page.
+    const { api } = setup();
+    api.getChangeFeed.mockImplementation(async request =>
+      request.cursor
+        ? { items: [event('1')] }
+        : {
+            items: [{ ...event('2'), changedAt: '2026-10-24T12:00:00.000Z' }],
+            nextCursor: 'older',
+          },
+    );
+    api.getEntityVersion.mockImplementation(async request => event(request.id));
+    const getEntityDiff = jest.fn(async request => ({
+      entityRef: componentRef,
+      from: event(request.from.id),
+      to: event(request.to.id),
+      changes: [],
+    }));
+    renderComponent(
+      <MemoryRouter initialEntries={['/catalog-history']}>
+        <TestApiProvider
+          apis={[[catalogHistoryApiRef, { ...api, getEntityDiff }]]}
+        >
+          <CatalogHistoryPage />
+        </TestApiProvider>
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Load older' }));
+    fireEvent.click(await screen.findByRole('row', { name: /^Event 1,/ }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Compare with another event' }),
+    );
+    // Act
+    fireEvent.click(screen.getByRole('row', { name: /^Event 2,/ }));
+    await screen.findByRole('heading', {
+      name: 'Comparing two recorded events',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Swap' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Exit comparison' }));
+    // Assert: URL updates do not reload the feed or drop older rows.
+    await screen.findByRole('button', { name: 'Compare with another event' });
+    expect(api.getChangeFeed).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('row', { name: /^Event 1,/ })).toBeInTheDocument();
+  });
+
   it('mounts the plugin page at /catalog-history with an API override', async () => {
     // Arrange
     const { api } = setup();

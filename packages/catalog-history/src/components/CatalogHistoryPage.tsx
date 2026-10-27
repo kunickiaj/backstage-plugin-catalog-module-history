@@ -1,5 +1,5 @@
 /** @jsxRuntime automatic */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useApi } from '@backstage/core-plugin-api';
 import { Box, Text } from '@backstage/ui';
 import { useSearchParams } from 'react-router-dom';
@@ -20,7 +20,9 @@ export function CatalogHistoryPage() {
   const [filters, setFilters] = useState<HistoryFiltersValue>({});
   const [params, setParams] = useSearchParams();
   const cycleId = params.get('cycleId');
-  const request = { ...filters, limit: 25 };
+  // Keep one request per applied filter set. The timeline reloads when the
+  // request changes, and comparison URL updates rerender this page.
+  const request = useMemo(() => ({ ...filters, limit: 25 }), [filters]);
   const comparison = parseComparisonParams(params);
   // Keep a comparison in the URL so an audit link opens the same pair.
   const setComparison = (target?: HistoryComparisonTarget) => {
