@@ -1,5 +1,8 @@
 # Latest-state query candidate benchmark
 
+> The benchmark source and its `bench:latest-*` scripts were removed after
+> these decisions. To rerun it, check out commit `850b66e`.
+
 This fixture-only benchmark compares the current public history-store method
 with an executor-harness candidate in an owned PostgreSQL 16 Docker database.
 Public store methods and migrations are unchanged; index variants exist only

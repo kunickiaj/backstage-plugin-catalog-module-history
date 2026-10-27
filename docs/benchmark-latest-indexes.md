@@ -1,5 +1,8 @@
 # Latest-state index benchmark
 
+> The benchmark source and its `bench:latest-*` scripts were removed after
+> these decisions. To rerun it, check out commit `850b66e`.
+
 This benchmark compared fixture-only index layouts for the history store's
 current-state reads in an owned PostgreSQL 16 Docker database. It calls public
 store methods; it does not start a catalog backend, make HTTP calls, or change
