@@ -226,7 +226,7 @@ describe('CatalogHistoryPage', () => {
       expect(request).not.toHaveProperty('cursor');
     }
     for (const [request] of jest.mocked(api.getKinds).mock.calls) {
-      expect(Object.keys(request!)).toEqual(['prefix', 'limit', 'cursor']);
+      expect(Object.keys(request!)).toEqual(['prefix', 'limit']);
     }
     expect(api.getKinds).toHaveBeenLastCalledWith({
       prefix: 'gR',

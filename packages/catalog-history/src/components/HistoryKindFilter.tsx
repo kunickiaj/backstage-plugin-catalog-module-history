@@ -1,10 +1,10 @@
 /** @jsxRuntime automatic */
-import { useEffect, useRef, useState } from 'react';
-import { Button, Combobox, ComboboxItemText, TextField } from '@backstage/ui';
+import { useRef, useState } from 'react';
+import { Combobox, ComboboxItemText, TextField } from '@backstage/ui';
 import { makeValidator } from '@backstage/catalog-model';
 import type { CatalogHistoryApi } from '../api/CatalogHistoryApi';
-import { useKindSearch } from './useKindSearch';
-import styles from './History.module.css';
+import { RetainedSearchField } from './RetainedSearchField';
+import { useRetainedSearch } from './useRetainedSearch';
 
 const all = 'all-kinds';
 const validators = makeValidator();
@@ -33,19 +33,15 @@ export function HistoryKindFilter(props: {
     setEditing(false);
     inputText.current = text;
   }
-  const container = useRef<HTMLDivElement>(null);
-  const focused = useRef(false);
-  const search = useKindSearch({
+  const search = useRetainedSearch({
     api: props.api,
+    method: api => api.getKinds?.bind(api),
     query: editing ? query : '',
     open,
+    isItem: (value): value is string => typeof value === 'string',
+    key: kind => kind,
+    label: 'kind',
   });
-  const wasUnsupported = useRef(search.unsupported);
-  useEffect(() => {
-    if (search.unsupported && !wasUnsupported.current && focused.current)
-      container.current?.querySelector('input')?.focus();
-    wasUnsupported.current = search.unsupported;
-  }, [search.unsupported]);
   const kinds = new Map(search.items.map(kind => [kindKey(kind), kind]));
   if (!editing && props.value && !kinds.has(kindKey(props.value)))
     kinds.set(kindKey(props.value), props.value);
@@ -123,68 +119,16 @@ export function HistoryKindFilter(props: {
       />
     );
   return (
-    <div
-      className={styles.providerField}
-      ref={container}
-      onFocusCapture={event => {
-        if (event.target instanceof HTMLInputElement) {
-          focused.current = true;
-          setOpen(true);
-        }
-      }}
-      onBlurCapture={event => {
-        if (
-          event.target instanceof HTMLInputElement ||
-          !event.currentTarget.contains(event.relatedTarget)
-        )
-          focused.current = false;
-      }}
+    <RetainedSearchField
+      label="kind"
+      search={search}
+      open={open}
+      onOpenChange={setOpen}
+      applied={props.appliedKind}
+      onClear={props.value || (editing && query) ? () => select() : undefined}
+      paged
     >
       {control}
-      {props.appliedKind && (
-        <p className={styles.providerHelp}>
-          Current kind filter: {props.appliedKind}
-        </p>
-      )}
-      {!search.unsupported && (props.value || (editing && query)) && (
-        <Button type="button" variant="secondary" onPress={() => select()}>
-          Clear kind
-        </Button>
-      )}
-      {!search.unsupported &&
-        open &&
-        search.status === 'idle' &&
-        !search.items.length && (
-          <p className={styles.providerHelp}>No matching kinds.</p>
-        )}
-      {search.nextCursor && (
-        <Button
-          type="button"
-          variant="secondary"
-          isDisabled={search.status !== 'idle'}
-          onPress={() => {
-            setOpen(true);
-            search.loadMore();
-          }}
-        >
-          Load more kinds
-        </Button>
-      )}
-      {search.error && (
-        <div role="alert" className={styles.providerHelp}>
-          {search.error}{' '}
-          <Button
-            type="button"
-            variant="secondary"
-            onPress={() => {
-              setOpen(true);
-              search.retry();
-            }}
-          >
-            Retry
-          </Button>
-        </div>
-      )}
-    </div>
+    </RetainedSearchField>
   );
 }

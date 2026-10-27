@@ -1,6 +1,6 @@
 /** @jsxRuntime automatic */
-import { useEffect, useRef, useState } from 'react';
-import { Button, Combobox, ComboboxItemText, TextField } from '@backstage/ui';
+import { useRef, useState } from 'react';
+import { Combobox, ComboboxItemText, TextField } from '@backstage/ui';
 import {
   makeValidator,
   parseEntityRef,
@@ -11,8 +11,8 @@ import type {
   HistoryEntitySearchRequest,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import type { CatalogHistoryApi } from '../api/CatalogHistoryApi';
-import { useEntitySearch } from './useEntitySearch';
-import styles from './History.module.css';
+import { RetainedSearchField } from './RetainedSearchField';
+import { useRetainedSearch } from './useRetainedSearch';
 
 const validators = makeValidator();
 function selectable(item: HistoryEntityIdentity) {
@@ -29,6 +29,13 @@ function selectable(item: HistoryEntityIdentity) {
     return false;
   }
 }
+function isIdentity(value: unknown): value is HistoryEntityIdentity {
+  if (!value || typeof value !== 'object') return false;
+  return ['entityRef', 'kind', 'namespace', 'name'].every(
+    key => typeof (value as Record<string, unknown>)[key] === 'string',
+  );
+}
+
 function readable(value: string) {
   return value.trim() ? value : JSON.stringify(value);
 }
@@ -58,20 +65,16 @@ export function HistoryEntityFilter(props: {
     setEditing(false);
     inputText.current = text;
   }
-  const container = useRef<HTMLDivElement>(null);
-  const focused = useRef(false);
-  const search = useEntitySearch({
+  const search = useRetainedSearch({
     api: props.api,
+    method: api => api.getEntities?.bind(api),
     context: props.context,
     query: editing ? query : '',
     open,
+    isItem: isIdentity,
+    key: item => item.entityRef,
+    label: 'entity',
   });
-  const wasUnsupported = useRef(search.unsupported);
-  useEffect(() => {
-    if (search.unsupported && !wasUnsupported.current && focused.current)
-      container.current?.querySelector('input')?.focus();
-    wasUnsupported.current = search.unsupported;
-  }, [search.unsupported]);
   const identities = new Map(search.items.map(item => [item.entityRef, item]));
   if (!editing && props.selected)
     identities.set(props.selected.entityRef, props.selected);
@@ -130,70 +133,22 @@ export function HistoryEntityFilter(props: {
         }}
       />
     );
+  function clear() {
+    inputText.current = '';
+    setQuery('');
+    setEditing(false);
+    props.onSelect(undefined);
+  }
   return (
-    <div
-      className={styles.providerField}
-      ref={container}
-      onFocusCapture={event => {
-        if (event.target instanceof HTMLInputElement) {
-          focused.current = true;
-          setOpen(true);
-        }
-      }}
-      onBlurCapture={event => {
-        if (
-          event.target instanceof HTMLInputElement ||
-          !event.currentTarget.contains(event.relatedTarget)
-        )
-          focused.current = false;
-      }}
+    <RetainedSearchField
+      label="entity"
+      search={search}
+      open={open}
+      onOpenChange={setOpen}
+      applied={props.appliedEntityRef}
+      onClear={props.value || query ? clear : undefined}
     >
       {control}
-      {props.appliedEntityRef && (
-        <p className={styles.providerHelp}>
-          Current entity filter: {props.appliedEntityRef}
-        </p>
-      )}
-      {!search.unsupported && (props.value || query) && (
-        <Button
-          type="button"
-          variant="secondary"
-          onPress={() => {
-            inputText.current = '';
-            setQuery('');
-            setEditing(false);
-            props.onSelect(undefined);
-          }}
-        >
-          Clear entity
-        </Button>
-      )}
-      {search.more && (
-        <p className={styles.providerHelp}>
-          More matches. Type more to narrow.
-        </p>
-      )}
-      {!search.unsupported &&
-        open &&
-        search.status === 'idle' &&
-        !search.items.length && (
-          <p className={styles.providerHelp}>No matching entities.</p>
-        )}
-      {search.error && (
-        <div role="alert" className={styles.providerHelp}>
-          {search.error}{' '}
-          <Button
-            type="button"
-            variant="secondary"
-            onPress={() => {
-              setOpen(true);
-              search.retry();
-            }}
-          >
-            Retry
-          </Button>
-        </div>
-      )}
-    </div>
+    </RetainedSearchField>
   );
 }
