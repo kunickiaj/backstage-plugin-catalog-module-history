@@ -68,6 +68,16 @@ catalog:
 
 The API logs `Catalog history query failed` with error metadata and returns a sanitized HTTP `500` response, `Unable to retrieve catalog history`. Start by checking `catalog.history.query.operation.duration`, filtered by `operation` and `outcome`. A PostgreSQL cancellation has `outcome="timeout"`. Use the matching backend log and query plan before raising the limit. See [Slow history reads](observability.md#operator-examples) for the metric names and their limits.
 
+## Provider history is falling behind
+
+A provider wrapper records mutations in arrival order. When history writes are slower than the provider's mutations, recordings wait in line. The wrapper logs one warning when more than 20 are queued, and warns again only after the queue drains:
+
+```text
+History recording for provider <name> is <count> mutations behind. Catalog writes continue, but each applyMutation call waits for its own recording.
+```
+
+Catalog writes still go through, but the provider's `applyMutation` calls take longer, because each call waits for its own recording. Check `catalog.history.storage.operation.duration` for `record_cycle` and `load_current_etags`, database load, and locks on the history tables. With `convertFullToDelta` on, each converted full reads the history baseline before it forwards, so slow history also delays that provider's catalog writes. A history call that hangs stops them until it finishes. The `queryTimeoutMs` deadline does not apply to these baseline reads or to recording writes. See [Overlapping provider mutations](../packages/catalog-backend-module-history/README.md#overlapping-provider-mutations-unreleased).
+
 ## Run retention safely
 
 Retention is off by default. It requires `catalog.history.retention.enabled: true` and a `maxAge` of at least one day. `dryRun` defaults to `true`, so start with it enabled and inspect the next log:
