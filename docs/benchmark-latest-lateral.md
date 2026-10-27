@@ -1,5 +1,8 @@
 # Latest-state lateral candidate benchmark
 
+> The benchmark source and its `bench:latest-*` scripts were removed after
+> these decisions. To rerun it, check out commit `850b66e`.
+
 This fixture-only benchmark compares the current public history-store method
 with scope-aware SQL candidates in an owned PostgreSQL 16 Docker database. It
 measures store-level behavior only: no catalog backend, providers, processors,
