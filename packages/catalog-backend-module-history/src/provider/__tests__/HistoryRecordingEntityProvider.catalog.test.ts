@@ -1,14 +1,14 @@
 import { dirname, join } from 'node:path';
-import { LoggerService } from '@backstage/backend-plugin-api';
+import type { LoggerService } from '@backstage/backend-plugin-api';
 import { mockServices, TestDatabases } from '@backstage/backend-test-utils';
-import { Entity } from '@backstage/catalog-model';
-import {
+import type { Entity } from '@backstage/catalog-model';
+import type {
   EntityProvider,
   EntityProviderConnection,
   EntityProviderMutation,
 } from '@backstage/plugin-catalog-node';
 import { InMemoryHistoryStore } from '@kunickiaj/backstage-plugin-catalog-history-node/testUtils';
-import { Knex } from 'knex';
+import type { Knex } from 'knex';
 import { HistoryRecordingEntityProvider } from '../HistoryRecordingEntityProvider';
 
 type Entry = Extract<

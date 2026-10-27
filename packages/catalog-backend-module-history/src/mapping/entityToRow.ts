@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
-import { Entity } from '@backstage/catalog-model';
+import type { Entity } from '@backstage/catalog-model';
 import stableStringify from 'json-stable-stringify';
-import { JsonObject } from '@backstage/types';
-import { EntityRow } from '@kunickiaj/backstage-plugin-catalog-history-node';
+import type { JsonObject } from '@backstage/types';
+import type { EntityRow } from '@kunickiaj/backstage-plugin-catalog-history-node';
 
 const DEFAULT_NAMESPACE = 'default';
 

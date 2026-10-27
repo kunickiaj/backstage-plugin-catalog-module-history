@@ -1,5 +1,5 @@
-import { CurrentEtag, HistoryStore } from '../store/HistoryStore';
-import { CaptureSource, CycleInput } from '../store/types';
+import type { CurrentEtag, HistoryStore } from '../store/HistoryStore';
+import type { CaptureSource, CycleInput } from '../store/types';
 
 /**
  * Test double for HistoryStore. Deliberately dumb: `cycles` is the single

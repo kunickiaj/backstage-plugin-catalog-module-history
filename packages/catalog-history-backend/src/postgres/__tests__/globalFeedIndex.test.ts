@@ -1,6 +1,6 @@
 import { TestDatabases } from '@backstage/backend-test-utils';
 import { resolvePackagePath } from '@backstage/backend-plugin-api';
-import { Knex } from 'knex';
+import type { Knex } from 'knex';
 import { ensureSchema } from '../ensureSchema';
 
 const migrationsDir = resolvePackagePath(

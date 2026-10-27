@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { TestDatabases } from '@backstage/backend-test-utils';
-import { Knex } from 'knex';
-import {
+import type { Knex } from 'knex';
+import type {
   CaptureSource,
   EntityRow,
 } from '@kunickiaj/backstage-plugin-catalog-history-node';

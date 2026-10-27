@@ -1,5 +1,5 @@
-import { Entity } from '@backstage/catalog-model';
-import {
+import type { Entity } from '@backstage/catalog-model';
+import type {
   EntityProvider,
   EntityProviderConnection,
   EntityProviderMutation,

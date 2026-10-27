@@ -1,12 +1,12 @@
-import { Entity } from '@backstage/catalog-model';
+import type { Entity } from '@backstage/catalog-model';
 import { mockServices } from '@backstage/backend-test-utils';
-import {
+import type {
   CaptureSource,
   EntityRow,
 } from '@kunickiaj/backstage-plugin-catalog-history-node';
 import { InMemoryHistoryStore } from '@kunickiaj/backstage-plugin-catalog-history-node/testUtils';
 import { reconcile } from '../reconcile';
-import { EntityFetcher } from '../EntityFetcher';
+import type { EntityFetcher } from '../EntityFetcher';
 
 function user(name: string, etag: string): Entity {
   return {

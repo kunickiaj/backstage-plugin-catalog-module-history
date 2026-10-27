@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { LoggerService } from '@backstage/backend-plugin-api';
+import type { LoggerService } from '@backstage/backend-plugin-api';
 import type { MetricsService } from '@backstage/backend-plugin-api/alpha';
-import {
+import type {
   EntityRow,
   HistoryStore,
-  RECONCILER_PROVIDER,
 } from '@kunickiaj/backstage-plugin-catalog-history-node';
+import { RECONCILER_PROVIDER } from '@kunickiaj/backstage-plugin-catalog-history-node';
 import { entityToRow } from '../mapping/entityToRow';
-import { EntityFetcher } from './EntityFetcher';
+import type { EntityFetcher } from './EntityFetcher';
 import { createCaptureMetrics } from '../telemetry/captureMetrics';
 
 export type ReconcileOptions = {

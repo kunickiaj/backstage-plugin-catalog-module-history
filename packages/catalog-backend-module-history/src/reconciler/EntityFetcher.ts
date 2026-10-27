@@ -1,4 +1,4 @@
-import { Entity } from '@backstage/catalog-model';
+import type { Entity } from '@backstage/catalog-model';
 
 /**
  * Minimal interface for fetching the current catalog snapshot. Used by the

@@ -8,7 +8,7 @@ import type {
   EntityRow,
 } from '@kunickiaj/backstage-plugin-catalog-history-node';
 import { knex, type Knex } from 'knex';
-import { PostgresHistoryQueryService } from '../PostgresHistoryQueryService';
+import type { PostgresHistoryQueryService } from '../PostgresHistoryQueryService';
 import { PostgresHistoryStore } from '../PostgresHistoryStore';
 import { metricsJournal } from './metricsJournal';
 

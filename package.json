@@ -15,7 +15,7 @@
   "scripts": {
     "build": "backstage-cli repo build",
     "clean": "backstage-cli repo clean",
-    "lint": "backstage-cli repo lint",
+    "lint": "yarn workspaces foreach --all --parallel --exclude backstage-plugin-catalog-module-history-repo run lint",
     "lint:fix": "backstage-cli repo fix",
     "test": "backstage-cli repo test --passWithNoTests",
     "test:watch": "backstage-cli repo test --watch",
