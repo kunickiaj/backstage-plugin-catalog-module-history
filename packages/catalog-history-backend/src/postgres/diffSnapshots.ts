@@ -113,12 +113,16 @@ function diff(
   return [{ path, op: 'replace', before, after }];
 }
 
-/** Compare saved payload fields only; an absent next snapshot represents deletion. */
+/**
+ * Compare saved payload fields only. An absent snapshot on either side is a
+ * deletion, so every recorded field on the other side appears as added or
+ * removed.
+ */
 export function diffSnapshots(
-  before: HistoryEntitySnapshot,
+  before: HistoryEntitySnapshot | undefined,
   after: HistoryEntitySnapshot | undefined,
 ): HistoryDiffEntry[] {
   return SNAPSHOT_FIELDS.flatMap(field =>
-    diff(before[field], after?.[field], [field]),
+    diff(before?.[field], after?.[field], [field]),
   );
 }

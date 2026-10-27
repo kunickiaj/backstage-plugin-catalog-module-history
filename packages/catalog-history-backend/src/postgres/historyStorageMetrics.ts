@@ -13,6 +13,7 @@ export type QueryOperation =
   | 'versions'
   | 'as_of'
   | 'detail'
+  | 'diff'
   | 'providers'
   | 'entities'
   | 'kinds'

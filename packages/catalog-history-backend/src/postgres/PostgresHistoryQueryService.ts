@@ -18,6 +18,8 @@ import type {
   HistoryMutationType,
   HistoryEntityAsOfRequest,
   HistoryEntityAsOfResponse,
+  HistoryEntityDiffRequest,
+  HistoryEntityDiffResponse,
   HistoryEntitySearchRequest,
   HistoryEntitySearchResponse,
   HistoryEntitySnapshot,
@@ -418,6 +420,39 @@ function rowToChange(row: HistoryChangeRow): HistoryCycleChange {
     namespace: row.namespace,
     name: row.name,
   };
+}
+
+/**
+ * Checks a diff request for direct callers; the HTTP parser rejects the same
+ * cases first with specific messages. Returns the from and to row ids.
+ */
+function validateRowDiffRequest(
+  request: HistoryEntityDiffRequest,
+): [string, string] {
+  if (typeof request.entityRef !== 'string' || request.entityRef.length === 0) {
+    throw new InputError('History entityRef must be a nonempty string');
+  }
+  if (
+    request.from?.kind !== 'history-row' ||
+    request.to?.kind !== 'history-row'
+  ) {
+    throw new InputError('Unsupported history diff target');
+  }
+  if (request.source !== undefined || request.provider !== undefined) {
+    throw new InputError(
+      'History diff source and provider apply only to cycle and timestamp targets',
+    );
+  }
+  const ids: [string, string] = [request.from.id, request.to.id];
+  if (
+    !ids.every(id => typeof id === 'string' && isPositivePostgresBigint(id))
+  ) {
+    throw new InputError('Invalid history row id');
+  }
+  if (ids[0] === ids[1]) {
+    throw new InputError('History diff targets must be different rows');
+  }
+  return ids;
 }
 
 function rowToVersion(row: HistoryEntityRow): HistoryEntityVersion {
@@ -920,6 +955,39 @@ export class PostgresHistoryQueryService {
         (version.snapshot || version.op === 'delete')
           ? diffSnapshots(previousVersion.snapshot, version.snapshot)
           : undefined,
+    };
+  }
+
+  /**
+   * Compares two retained rows of one entity in the requested order. Only
+   * history-row targets are supported. Rows may come from different capture
+   * streams, and a delete row compares as an absent snapshot.
+   */
+  async getEntityDiff(
+    request: HistoryEntityDiffRequest,
+  ): Promise<HistoryEntityDiffResponse> {
+    const [fromId, toId] = validateRowDiffRequest(request);
+    await this.ensureReady();
+    const rows = await this.read('diff', async db => {
+      const found = await db<HistoryEntityRow>('catalog_history_entities')
+        .whereIn('id', [fromId, toId])
+        .where({ entity_ref: request.entityRef });
+      // Both rows must exist for this entity, or the pair is not found.
+      const byId = new Map(found.map(row => [String(row.id), row]));
+      const from = byId.get(fromId);
+      const to = byId.get(toId);
+      if (!from || !to) {
+        throw new NotFoundError('History version not found');
+      }
+      return { from, to };
+    });
+    const from = rowToVersion(rows.from);
+    const to = rowToVersion(rows.to);
+    return {
+      entityRef: request.entityRef,
+      from,
+      to,
+      changes: diffSnapshots(from.snapshot, to.snapshot),
     };
   }
 

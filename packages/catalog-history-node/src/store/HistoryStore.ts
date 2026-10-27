@@ -85,6 +85,7 @@ export interface HistoryStore {
         | 'listCycles'
         | 'getCycle'
         | 'getEntityAsOf'
+        | 'getEntityDiff'
       >
     >;
 

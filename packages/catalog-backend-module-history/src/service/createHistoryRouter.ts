@@ -21,6 +21,7 @@ import {
   parseHistoryChangeFeedRequest,
   parseHistoryCycleDetailRequest,
   parseHistoryCycleListRequest,
+  parseHistoryDiffRequest,
   parseHistoryEntityAsOfRequest,
   parseHistoryEntitySearchRequest,
   parseHistoryKindSearchRequest,
@@ -169,6 +170,21 @@ export function createHistoryRouter(options: HistoryRouterOptions): Router {
       }
       const request = parseHistoryEntityAsOfRequest(req);
       const result = await retrieve(() => getEntityAsOf(request), options);
+      res.json(result);
+    },
+  );
+  router.get(
+    '/history/entities/:kind/:namespace/:name/diff',
+    async (req, res) => {
+      await authorize(req, options);
+      const getEntityDiff = options.query.getEntityDiff?.bind(options.query);
+      if (!getEntityDiff) {
+        throw new NotImplementedError(
+          'This history store does not support comparing history versions.',
+        );
+      }
+      const request = parseHistoryDiffRequest(req);
+      const result = await retrieve(() => getEntityDiff(request), options);
       res.json(result);
     },
   );
