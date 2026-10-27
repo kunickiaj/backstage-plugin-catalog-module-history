@@ -151,10 +151,10 @@ describe('catalog history diff HTTP route', () => {
   });
 
   it.each([
-    ['from=cycle:abc&to=row:2', 'Unsupported history diff target "cycle"'],
+    ['from=cycle:abc&to=row:2', 'Invalid history diff target'],
     [
       'from=row:1&to=timestamp:2026-01-01T00:00:00Z',
-      'Unsupported history diff target "timestamp"',
+      'Invalid history diff target',
     ],
     ['from=row:1', 'History diff requires from and to targets'],
     ['from=1&to=row:2', 'Invalid history diff target'],

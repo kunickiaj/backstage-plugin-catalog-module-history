@@ -51,10 +51,7 @@ export interface CatalogHistoryApi {
   getChangeFeed?(
     request: HistoryChangeFeedRequest,
   ): Promise<HistoryChangeFeedResponse>;
-  /**
-   * Optional comparison of two recorded events of one entity. The default
-   * backend accepts only history-row targets.
-   */
+  /** Optional comparison of two recorded events of one entity. */
   getEntityDiff?(
     request: HistoryEntityDiffRequest,
   ): Promise<HistoryEntityDiffResponse>;

@@ -15,10 +15,6 @@ import type {
   HistoryEntityVersionsResponse,
   HistoryEntityVersionRequest,
   HistoryEntityVersionResponse,
-  HistoryFacetsResponse,
-  HistoryFacetsRequest,
-  HistoryStatsRequest,
-  HistoryStatsResponse,
   HistoryProviderSearchRequest,
   HistoryProviderSearchResponse,
   HistoryEntitySearchRequest,
@@ -83,8 +79,4 @@ export interface HistoryQueryService {
   getKinds?(
     request: HistoryKindSearchRequest,
   ): Promise<HistoryKindSearchResponse>;
-
-  getFacets(request: HistoryFacetsRequest): Promise<HistoryFacetsResponse>;
-
-  getStats(request: HistoryStatsRequest): Promise<HistoryStatsResponse>;
 }

@@ -38,7 +38,7 @@ The default Postgres implementation uses one lookup with an inclusive timestamp 
 
 `HistoryStore.query.getEntityDiff` is optional for custom stores. A custom store without it continues to serve existing routes. The catalog diff route returns `501` after normal authentication and `catalog-history.read` authorization.
 
-The default Postgres implementation supports `history-row` targets only. It loads both rows of the entity in one statement under the normal per-statement timeout and records the query-metric operation `diff`. A missing row, or a row of another entity, raises `NotFoundError`. Cycle and timestamp targets, `source` or `provider` with row targets, and the same row twice raise `InputError`.
+The default Postgres implementation loads both rows of the entity in one statement under the normal per-statement timeout and records the query-metric operation `diff`. A missing row, or a row of another entity, raises `NotFoundError`. An invalid row ID or the same row twice raises `InputError`.
 
 ## Statement timeouts
 

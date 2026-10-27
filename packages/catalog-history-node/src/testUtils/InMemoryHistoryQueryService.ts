@@ -15,10 +15,6 @@ import type {
   HistoryEntityVersionsResponse,
   HistoryEntityVersionRequest,
   HistoryEntityVersionResponse,
-  HistoryFacetsResponse,
-  HistoryFacetsRequest,
-  HistoryStatsRequest,
-  HistoryStatsResponse,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import type { HistoryQueryService } from '../query/HistoryQueryService';
 
@@ -39,8 +35,6 @@ export class InMemoryHistoryQueryService implements HistoryQueryService {
     cycleList: [] as HistoryCycleListRequest[],
     cycleDetail: [] as HistoryCycleDetailRequest[],
     changeFeed: [] as HistoryChangeFeedRequest[],
-    facets: [] as HistoryFacetsRequest[],
-    stats: [] as HistoryStatsRequest[],
   };
 
   entityTimeline: HistoryEntityTimelineResponse = { items: [] };
@@ -77,17 +71,6 @@ export class InMemoryHistoryQueryService implements HistoryQueryService {
     changes: { items: [] },
   };
   changeFeed: HistoryChangeFeedResponse = { items: [] };
-  facets: HistoryFacetsResponse = {
-    sources: [],
-    providers: [],
-    operations: [],
-    mutationTypes: [],
-    kinds: [],
-  };
-  stats: HistoryStatsResponse = {
-    totals: { inserted: 0, updated: 0, deleted: 0, unchanged: 0 },
-    buckets: [],
-  };
 
   async getEntityTimeline(
     request: HistoryEntityTimelineRequest,
@@ -143,17 +126,5 @@ export class InMemoryHistoryQueryService implements HistoryQueryService {
   ): Promise<HistoryChangeFeedResponse> {
     this.requests.changeFeed.push(request);
     return this.changeFeed;
-  }
-
-  async getFacets(
-    request: HistoryFacetsRequest,
-  ): Promise<HistoryFacetsResponse> {
-    this.requests.facets.push(request);
-    return this.facets;
-  }
-
-  async getStats(request: HistoryStatsRequest): Promise<HistoryStatsResponse> {
-    this.requests.stats.push(request);
-    return this.stats;
   }
 }

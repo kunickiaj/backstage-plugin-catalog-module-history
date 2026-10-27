@@ -6,7 +6,7 @@ This package owns:
 
 - the `HistoryStore` write contract and its row/cycle types (`EntityRow`, `CycleInput`, `CaptureSource`);
 - `historyStoreServiceRef`, the plugin-scoped service ref that backend modules use to obtain a history store through Backstage DI;
-- `HistoryQueryService`, the backend-only read contract for timelines, cycles, versions, as-of reads, diffs, facets, and stats;
+- `HistoryQueryService`, the backend-only read contract for timelines, cycles, versions, as-of reads, and diffs;
 - `InMemoryHistoryStore` and `InMemoryHistoryQueryService`, test doubles for history integrations, exported from the `@kunickiaj/backstage-plugin-catalog-history-node/testUtils` subpath so they stay out of the production contract surface.
 
 Custom store implementations can optionally implement `HistoryStore.ensureReady()` for schema bootstrap or other startup preparation. Consumers call it before registering capture layers; simple in-memory or always-ready stores can omit it.

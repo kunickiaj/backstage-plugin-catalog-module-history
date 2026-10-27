@@ -206,20 +206,18 @@ describe('PostgresHistoryQueryService entity diff', () => {
     ).rejects.toBeInstanceOf(NotFoundError);
   });
 
-  it.each<[string, Partial<HistoryEntityDiffRequest>]>([
+  it.each<[string, Record<string, unknown>]>([
+    // Plain JavaScript callers can still send other target kinds.
     ['a cycle target', { to: { kind: 'cycle', cycleId: randomUUID() } }],
-    [
-      'a timestamp target',
-      { from: { kind: 'timestamp', timestamp: '2026-01-01T00:00:00Z' } },
-    ],
     ['the same row twice', { to: { kind: 'history-row', id: '1' } }],
     ['an invalid row id', { to: { kind: 'history-row', id: '0' } }],
-    ['a source filter', { source: 'provider' }],
-    ['a provider filter', { provider: 'diff-provider' }],
     ['an empty entity ref', { entityRef: '' }],
   ])('rejects %s before querying', async (_, override) => {
     // Arrange
-    const request = { ...rows('1', '2'), ...override };
+    const request = {
+      ...rows('1', '2'),
+      ...override,
+    } as HistoryEntityDiffRequest;
     // Act / Assert
     await expect(store.query.getEntityDiff(request)).rejects.toBeInstanceOf(
       InputError,
