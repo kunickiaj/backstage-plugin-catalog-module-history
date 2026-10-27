@@ -659,12 +659,9 @@ export function createFixtureApi(): CatalogHistoryApi {
     },
     getEntityDiff(request) {
       const find = (target: HistoryDiffTarget) =>
-        target.kind === 'history-row'
-          ? crossEntityRecords.find(
-              item =>
-                item.entityRef === request.entityRef && item.id === target.id,
-            )
-          : undefined;
+        crossEntityRecords.find(
+          item => item.entityRef === request.entityRef && item.id === target.id,
+        );
       const from = find(request.from);
       const to = find(request.to);
       if (!from || !to) return Promise.reject(new CatalogHistoryApiError(404));

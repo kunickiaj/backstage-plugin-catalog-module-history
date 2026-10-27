@@ -436,12 +436,7 @@ function validateRowDiffRequest(
     request.from?.kind !== 'history-row' ||
     request.to?.kind !== 'history-row'
   ) {
-    throw new InputError('Unsupported history diff target');
-  }
-  if (request.source !== undefined || request.provider !== undefined) {
-    throw new InputError(
-      'History diff source and provider apply only to cycle and timestamp targets',
-    );
+    throw new InputError('Invalid history diff target');
   }
   const ids: [string, string] = [request.from.id, request.to.id];
   if (

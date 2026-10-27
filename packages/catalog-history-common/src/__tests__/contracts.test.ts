@@ -17,10 +17,8 @@ import type {
   HistoryEntityDiffResponse,
   HistoryEntitySnapshot,
   HistoryEntityVersion,
-  HistoryFacetsResponse,
   HistoryCycle,
   HistoryPage,
-  HistoryStatsResponse,
   HistoryTimelineItem,
 } from '../index';
 
@@ -212,17 +210,6 @@ describe('DTO shapes compile with representative payloads', () => {
         },
       ],
     };
-    const facets: HistoryFacetsResponse = {
-      sources: [{ value: 'reconciler', count: 1 }],
-      providers: [{ value: 'reconciler', count: 1 }],
-      operations: [{ value: 'insert', count: 1 }],
-      mutationTypes: [{ value: 'full', count: 1 }],
-      kinds: [{ value: 'User', count: 1 }],
-    };
-    const stats: HistoryStatsResponse = {
-      totals: cycle.counts,
-      buckets: [{ key: 'reconciler', counts: cycle.counts }],
-    };
     const detailRequest: HistoryCycleDetailRequest = {
       cycleId: 'cycle-1',
       limit: 50,
@@ -232,7 +219,5 @@ describe('DTO shapes compile with representative payloads', () => {
     expect(detail.changes.items[0].kind).toBe('User');
     expect(detailRequest.cursor).toBe('next-change-page');
     expect(diff.changes[0].path).toEqual(['spec', 'profile', 'displayName']);
-    expect(facets.sources[0].value).toBe('reconciler');
-    expect(stats.totals.inserted).toBe(1);
   });
 });

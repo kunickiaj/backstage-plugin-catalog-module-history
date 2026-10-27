@@ -513,20 +513,15 @@ export interface HistoryEntityAsOfResponse {
 }
 
 /**
- * Reference to a history version, cycle, or timestamp used by diff requests.
+ * A recorded history row compared by a diff request.
  *
  * @public
  */
-export type HistoryDiffTarget =
-  | { kind: 'history-row'; id: string }
-  | { kind: 'cycle'; cycleId: string }
-  | { kind: 'timestamp'; timestamp: string };
+export type HistoryDiffTarget = { kind: 'history-row'; id: string };
 
 /**
- * Diff request for one entity. Changes describe how `from` became `to`.
- *
- * The default store supports only `history-row` targets, which may come from
- * different capture streams. Two rows must differ.
+ * Diff request for one entity. Changes describe how `from` became `to`. The
+ * two rows may come from different capture streams and must differ.
  *
  * @public
  */
@@ -534,10 +529,6 @@ export interface HistoryEntityDiffRequest {
   entityRef: string;
   from: HistoryDiffTarget;
   to: HistoryDiffTarget;
-  /** Selects a capture stream for cycle and timestamp targets. The default store rejects it with row targets. */
-  source?: HistorySource;
-  /** Selects a provider for cycle and timestamp targets. The default store rejects it with row targets. */
-  provider?: string;
 }
 
 /**
@@ -569,64 +560,4 @@ export interface HistoryEntityDiffResponse {
   from?: HistoryEntityVersion;
   to?: HistoryEntityVersion;
   changes: HistoryDiffEntry[];
-}
-
-/**
- * Facet bucket for filter UIs.
- *
- * @public
- */
-export interface HistoryFacetBucket<TValue extends string = string> {
-  value: TValue;
-  count: number;
-}
-
-/**
- * Facets response for history filters.
- *
- * @public
- */
-export interface HistoryFacetsResponse {
-  sources: Array<HistoryFacetBucket<HistorySource>>;
-  providers: HistoryFacetBucket[];
-  operations: Array<HistoryFacetBucket<HistoryOperation>>;
-  mutationTypes: Array<HistoryFacetBucket<HistoryMutationType>>;
-  kinds: HistoryFacetBucket[];
-}
-
-/**
- * Facets request options.
- *
- * @public
- */
-export interface HistoryFacetsRequest extends HistoryChangeFilter {}
-
-/**
- * Aggregate stats request options.
- *
- * @public
- */
-export interface HistoryStatsRequest extends HistoryChangeFilter {
-  /** Optional grouping dimension for stats endpoints. */
-  groupBy?: 'source' | 'provider' | 'op' | 'kind' | 'day';
-}
-
-/**
- * One stats bucket.
- *
- * @public
- */
-export interface HistoryStatsBucket {
-  key: string;
-  counts: HistoryCycleCounts;
-}
-
-/**
- * Aggregate stats response.
- *
- * @public
- */
-export interface HistoryStatsResponse {
-  totals: HistoryCycleCounts;
-  buckets: HistoryStatsBucket[];
 }

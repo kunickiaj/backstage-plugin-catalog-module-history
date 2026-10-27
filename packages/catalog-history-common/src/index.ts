@@ -62,10 +62,4 @@ export type {
   HistoryDiffPath,
   HistoryDiffEntry,
   HistoryEntityDiffResponse,
-  HistoryFacetBucket,
-  HistoryFacetsResponse,
-  HistoryFacetsRequest,
-  HistoryStatsRequest,
-  HistoryStatsBucket,
-  HistoryStatsResponse,
 } from './api';

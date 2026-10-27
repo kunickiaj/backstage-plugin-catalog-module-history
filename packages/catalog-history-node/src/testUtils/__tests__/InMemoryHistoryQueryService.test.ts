@@ -27,17 +27,6 @@ describe('InMemoryHistoryQueryService', () => {
       changes: { items: [], nextCursor: 'cycle-changes-next' },
     };
     service.changeFeed = { items: [], nextCursor: 'changes-next' };
-    service.facets = {
-      sources: [{ value: 'provider', count: 1 }],
-      providers: [{ value: 'okta', count: 1 }],
-      operations: [{ value: 'insert', count: 1 }],
-      mutationTypes: [{ value: 'full', count: 1 }],
-      kinds: [{ value: 'User', count: 1 }],
-    };
-    service.stats = {
-      totals: { inserted: 1, updated: 0, deleted: 0, unchanged: 0 },
-      buckets: [],
-    };
 
     const cases = [
       {
@@ -106,18 +95,6 @@ describe('InMemoryHistoryQueryService', () => {
         response: service.changeFeed,
         requests: service.requests.changeFeed,
         expected: [{ kind: 'User' }],
-      },
-      {
-        call: () => service.getFacets({ source: 'provider' }),
-        response: service.facets,
-        requests: service.requests.facets,
-        expected: [{ source: 'provider' }],
-      },
-      {
-        call: () => service.getStats({ groupBy: 'source' }),
-        response: service.stats,
-        requests: service.requests.stats,
-        expected: [{ groupBy: 'source' }],
       },
     ];
 

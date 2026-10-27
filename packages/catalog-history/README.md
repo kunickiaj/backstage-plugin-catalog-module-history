@@ -230,7 +230,7 @@ authenticated fetch API, and has no fallback or cache.
 
 ### Diff SDK method (unreleased)
 
-`getEntityDiff` is optional for custom API implementations. The default client accepts only `history-row` targets and rejects others before making a request:
+`getEntityDiff` is optional for custom API implementations. It compares two recorded events by row ID:
 
 ```ts
 const diff = await api.getEntityDiff?.({
@@ -287,7 +287,7 @@ This NFS- and BUI-only package exports:
 - `EntityCatalogHistoryContent` for composing the tab in an NFS extension;
 - `catalogHistoryApiRef` and `CatalogHistoryClient` for API integration or tests.
 
-It also exports the plugin's API and entity-content blueprints for NFS composition. The default plugin automatically registers the standalone page. There are no statistics, facets, as-of, or arbitrary version-comparison views.
+It also exports the plugin's API and entity-content blueprints for NFS composition. The default plugin automatically registers the standalone page. There are no statistics, facets, or as-of views.
 
 `0.3.0` also exposes optional `CatalogHistoryApi.getProviders(request)` and the corresponding `CatalogHistoryClient` method for [retained-provider discovery](../../README.md#provider-discovery-in-030). Custom APIs can omit it. It returns server-matched names for suggestions; consumers still apply a selected full name through the existing exact `provider` filter. HTTP `404` and `501` identify unavailable discovery, while `401` and `403` are authentication/access errors. The HTTP client forwards failures without caching; the provider picker handles compatibility fallback.
 

@@ -13,7 +13,6 @@ import type {
   HistoryCycleListResponse,
   HistoryEntityAsOfRequest,
   HistoryEntityAsOfResponse,
-  HistoryDiffTarget,
   HistoryEntityDiffRequest,
   HistoryEntityDiffResponse,
   HistoryEntitySearchRequest,
@@ -28,14 +27,6 @@ import type {
   HistoryProviderSearchResponse,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import { CatalogHistoryApi, CatalogHistoryApiError } from './CatalogHistoryApi';
-
-// The history API compares recorded rows only; see its diff route.
-function rowTarget(target: HistoryDiffTarget): string {
-  if (target.kind !== 'history-row') {
-    throw new Error('History comparison supports recorded events only.');
-  }
-  return `row:${target.id}`;
-}
 
 /** Dependencies supplied by Backstage, including authenticated fetch. @public */
 export interface CatalogHistoryClientOptions {
@@ -229,8 +220,8 @@ export class CatalogHistoryClient implements CatalogHistoryApi {
     request: HistoryEntityDiffRequest,
   ): Promise<HistoryEntityDiffResponse> {
     const query = new URLSearchParams({
-      from: rowTarget(request.from),
-      to: rowTarget(request.to),
+      from: `row:${request.from.id}`,
+      to: `row:${request.to.id}`,
     });
     return this.get(request.entityRef, `/diff?${query}`);
   }

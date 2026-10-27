@@ -228,23 +228,15 @@ export function parseHistoryVersionRequest(
   return { entityRef: entityRef(req), id };
 }
 
-// Targets are `kind:value`. Split on the first colon only, because future
-// timestamp values contain more colons.
+// Targets are `row:<id>`, which leaves room for other target kinds later.
 function diffTarget(value: string | undefined): HistoryDiffTarget {
   if (value === undefined) {
     throw new InputError('History diff requires from and to targets');
   }
-  const separator = value.indexOf(':');
-  const kind = separator === -1 ? value : value.slice(0, separator);
-  if (kind === 'cycle' || kind === 'timestamp') {
-    throw new InputError(
-      `Unsupported history diff target "${kind}"; use row:<id>`,
-    );
-  }
-  if (kind !== 'row' || separator === -1) {
+  if (!value.startsWith('row:')) {
     throw new InputError('Invalid history diff target; use row:<id>');
   }
-  return { kind: 'history-row', id: rowId(value.slice(separator + 1)) };
+  return { kind: 'history-row', id: rowId(value.slice('row:'.length)) };
 }
 
 export function parseHistoryDiffRequest(
@@ -254,11 +246,7 @@ export function parseHistoryDiffRequest(
   const values = queryValues(req, 'diff');
   const from = diffTarget(values.from);
   const to = diffTarget(values.to);
-  if (
-    from.kind === 'history-row' &&
-    to.kind === 'history-row' &&
-    from.id === to.id
-  ) {
+  if (from.id === to.id) {
     throw new InputError('History diff targets must be different rows');
   }
   return { entityRef: ref, from, to };
