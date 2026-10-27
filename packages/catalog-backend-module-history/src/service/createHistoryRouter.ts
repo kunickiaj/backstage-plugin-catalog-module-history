@@ -86,107 +86,71 @@ async function retrieve<T>(
  */
 export function createHistoryRouter(options: HistoryRouterOptions): Router {
   const router = PromiseRouter();
-  router.get('/history/cycles', async (req, res) => {
-    await authorize(req, options);
-    const listCycles = options.query.listCycles?.bind(options.query);
-    if (!listCycles) {
-      throw new NotImplementedError(
-        'This history store does not support listing cycles.',
-      );
-    }
-    const request = parseHistoryCycleListRequest(req);
-    const result = await retrieve(() => listCycles(request), options);
-    res.json(result);
-  });
-  router.get('/history/cycles/:cycleId', async (req, res) => {
-    await authorize(req, options);
-    const getCycle = options.query.getCycle?.bind(options.query);
-    if (!getCycle) {
-      throw new NotImplementedError(
-        'This history store does not support reading cycles.',
-      );
-    }
-    const request = parseHistoryCycleDetailRequest(req);
-    const result = await retrieve(() => getCycle(request), options);
-    res.json(result);
-  });
-  router.get('/history/entities', async (req, res) => {
-    await authorize(req, options);
-    const getEntities = options.query.getEntities?.bind(options.query);
-    if (!getEntities) {
-      throw new NotImplementedError(
-        'This history store does not support entity discovery.',
-      );
-    }
-    const request = parseHistoryEntitySearchRequest(req);
-    const result = await retrieve(() => getEntities(request), options);
-    res.json(result);
-  });
-  router.get('/history/kinds', async (req, res) => {
-    await authorize(req, options);
-    const getKinds = options.query.getKinds?.bind(options.query);
-    if (!getKinds) {
-      throw new NotImplementedError(
-        'This history store does not support kind discovery.',
-      );
-    }
-    const request = parseHistoryKindSearchRequest(req);
-    const result = await retrieve(() => getKinds(request), options);
-    res.json(result);
-  });
-  router.get('/history/providers', async (req, res) => {
-    await authorize(req, options);
-    const getProviders = options.query.getProviders?.bind(options.query);
-    if (!getProviders) {
-      throw new NotImplementedError(
-        'This history store does not support provider discovery. Use an exact provider name or configure a store with provider-discovery support.',
-      );
-    }
-    const request = parseHistoryProviderSearchRequest(req);
-    const result = await retrieve(() => getProviders(request), options);
-    res.json(result);
-  });
-  router.get('/history/changes', async (req, res) => {
-    await authorize(req, options);
-    const getChangeFeed = options.query.getChangeFeed?.bind(options.query);
-    if (!getChangeFeed) {
-      throw new NotImplementedError(
-        'This history store does not support browsing changes. Use entity history or configure a store with change-feed support.',
-      );
-    }
-    const request = parseHistoryChangeFeedRequest(req);
-    const result = await retrieve(() => getChangeFeed(request), options);
-    res.json(result);
-  });
-  router.get(
-    '/history/entities/:kind/:namespace/:name/as-of',
-    async (req, res) => {
+  // Optional reads: authorize first, then answer 501 when the store lacks
+  // the method, then parse, so an unauthorized caller learns nothing.
+  const optional = <TRequest>(
+    path: string,
+    method: (
+      query: HistoryRouterOptions['query'],
+    ) => ((request: TRequest) => Promise<unknown>) | undefined,
+    parse: (req: Request) => TRequest,
+    missing: string,
+  ) => {
+    router.get(path, async (req, res) => {
       await authorize(req, options);
-      const getEntityAsOf = options.query.getEntityAsOf?.bind(options.query);
-      if (!getEntityAsOf) {
-        throw new NotImplementedError(
-          'This history store does not support reading entity history as of a timestamp.',
-        );
-      }
-      const request = parseHistoryEntityAsOfRequest(req);
-      const result = await retrieve(() => getEntityAsOf(request), options);
-      res.json(result);
-    },
+      const read = method(options.query);
+      if (!read) throw new NotImplementedError(missing);
+      const request = parse(req);
+      res.json(await retrieve(() => read(request), options));
+    });
+  };
+  optional(
+    '/history/cycles',
+    q => q.listCycles?.bind(q),
+    parseHistoryCycleListRequest,
+    'This history store does not support listing cycles.',
   );
-  router.get(
+  optional(
+    '/history/cycles/:cycleId',
+    q => q.getCycle?.bind(q),
+    parseHistoryCycleDetailRequest,
+    'This history store does not support reading cycles.',
+  );
+  optional(
+    '/history/entities',
+    q => q.getEntities?.bind(q),
+    parseHistoryEntitySearchRequest,
+    'This history store does not support entity discovery.',
+  );
+  optional(
+    '/history/kinds',
+    q => q.getKinds?.bind(q),
+    parseHistoryKindSearchRequest,
+    'This history store does not support kind discovery.',
+  );
+  optional(
+    '/history/providers',
+    q => q.getProviders?.bind(q),
+    parseHistoryProviderSearchRequest,
+    'This history store does not support provider discovery. Use an exact provider name or configure a store with provider-discovery support.',
+  );
+  optional(
+    '/history/changes',
+    q => q.getChangeFeed?.bind(q),
+    parseHistoryChangeFeedRequest,
+    'This history store does not support browsing changes. Use entity history or configure a store with change-feed support.',
+  );
+  optional(
+    '/history/entities/:kind/:namespace/:name/as-of',
+    q => q.getEntityAsOf?.bind(q),
+    parseHistoryEntityAsOfRequest,
+    'This history store does not support reading entity history as of a timestamp.',
+  );
+  optional(
     '/history/entities/:kind/:namespace/:name/diff',
-    async (req, res) => {
-      await authorize(req, options);
-      const getEntityDiff = options.query.getEntityDiff?.bind(options.query);
-      if (!getEntityDiff) {
-        throw new NotImplementedError(
-          'This history store does not support comparing history versions.',
-        );
-      }
-      const request = parseHistoryDiffRequest(req);
-      const result = await retrieve(() => getEntityDiff(request), options);
-      res.json(result);
-    },
+    q => q.getEntityDiff?.bind(q),
+    parseHistoryDiffRequest,
+    'This history store does not support comparing history versions.',
   );
   for (const endpoint of ['history', 'versions'] as const) {
     router.get(

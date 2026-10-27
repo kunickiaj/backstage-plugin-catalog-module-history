@@ -476,6 +476,8 @@ describe.each(endpoints)('catalog entity %s endpoint', endpoint => {
     'changedAfter=2026-07-07T00:00:00',
     'changedBefore=2026-07-07T00:00:00',
     'changedAfter=2026-07-08T00:00:00Z&changedBefore=2026-07-07T00:00:00Z',
+    'changedAfter=2026-07-07T00:00:00.000200Z&changedBefore=2026-07-07T00:00:00.000100Z',
+    'changedAfter=2026-07-07T00:00:00%2B16:00',
     'cursor=one&cursor=two',
   ])('rejects invalid query %s before querying', async queryString => {
     // Arrange

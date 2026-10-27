@@ -8,6 +8,8 @@ import type { Request } from 'express';
 import {
   DEFAULT_HISTORY_PAGE_LIMIT,
   MAX_HISTORY_PAGE_LIMIT,
+  compareHistoryInstants,
+  isHistoryInstant,
   isHistoryMutationType,
   isHistoryOperation,
   isHistorySource,
@@ -25,65 +27,54 @@ import {
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 
 const validators = makeValidator();
-const COMMON_QUERY_KEYS = [
-  'source',
-  'provider',
-  'changedAfter',
-  'changedBefore',
-  'limit',
-  'cursor',
-];
-const PROVIDER_QUERY_KEYS = [
-  'prefix',
-  'source',
-  'entityRef',
-  'kind',
-  'op',
-  'changedAfter',
-  'changedBefore',
-  'limit',
-  'cursor',
-];
-const ENTITY_QUERY_KEYS = [
-  'prefix',
-  'kind',
-  'source',
-  'provider',
-  'op',
-  'changedAfter',
-  'changedBefore',
-  'limit',
-  'cursor',
-];
-const KIND_QUERY_KEYS = ['prefix', 'limit', 'cursor'];
-const CYCLE_QUERY_KEYS = [
-  'source',
-  'provider',
-  'op',
-  'mutationType',
-  'startedAfter',
-  'startedBefore',
-  'finishedAfter',
-  'finishedBefore',
-  'limit',
-  'cursor',
-];
+const PAGE_KEYS = ['limit', 'cursor'];
+const CHANGE_KEYS = ['source', 'provider', 'changedAfter', 'changedBefore'];
+
+/** Query parameters each endpoint accepts. Anything else is rejected. */
+const ENDPOINT_KEYS = {
+  history: [...CHANGE_KEYS, 'op', ...PAGE_KEYS],
+  versions: [...CHANGE_KEYS, ...PAGE_KEYS],
+  'as-of': ['timestamp', 'source', 'provider'],
+  version: [],
+  changes: [...CHANGE_KEYS, 'op', 'entityRef', 'kind', ...PAGE_KEYS],
+  providers: [
+    'prefix',
+    'source',
+    'entityRef',
+    'kind',
+    'op',
+    'changedAfter',
+    'changedBefore',
+    ...PAGE_KEYS,
+  ],
+  entities: ['prefix', 'kind', ...CHANGE_KEYS, 'op', ...PAGE_KEYS],
+  kinds: ['prefix', ...PAGE_KEYS],
+  cycles: [
+    'source',
+    'provider',
+    'op',
+    'mutationType',
+    'startedAfter',
+    'startedBefore',
+    'finishedAfter',
+    'finishedBefore',
+    ...PAGE_KEYS,
+  ],
+  cycle: PAGE_KEYS,
+  diff: ['from', 'to'],
+} satisfies Record<string, readonly string[]>;
+
+type Endpoint = keyof typeof ENDPOINT_KEYS;
+
+/** Discovery endpoints accept an empty prefix, meaning "everything". */
+const EMPTY_PREFIX_ENDPOINTS = new Set<Endpoint>([
+  'providers',
+  'entities',
+  'kinds',
+]);
 
 function timestamp(value: string | undefined): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  const match =
-    /^(\d{4}-\d{2}-\d{2})T([01]\d|2[0-3]):([0-5]\d):([0-5]\d)(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.exec(
-      value,
-    );
-  const date = match && new Date(`${match[1]}T00:00:00Z`);
-  if (
-    !date ||
-    !Number.isFinite(date.getTime()) ||
-    date.toISOString().slice(0, 10) !== match?.[1] ||
-    !Number.isFinite(Date.parse(value))
-  ) {
+  if (value !== undefined && !isHistoryInstant(value)) {
     throw new InputError('Invalid history timestamp');
   }
   return value;
@@ -99,51 +90,8 @@ function pageLimit(value: string | undefined): number {
   return Math.min(Number(value), MAX_HISTORY_PAGE_LIMIT);
 }
 
-function queryValues(
-  req: Request,
-  endpoint:
-    | 'history'
-    | 'versions'
-    | 'as-of'
-    | 'version'
-    | 'changes'
-    | 'providers'
-    | 'entities'
-    | 'kinds'
-    | 'cycles'
-    | 'cycle'
-    | 'diff',
-) {
-  const allowed = new Set(endpoint === 'version' ? [] : COMMON_QUERY_KEYS);
-  if (endpoint === 'as-of') {
-    allowed.clear();
-    ['timestamp', 'source', 'provider'].forEach(key => allowed.add(key));
-  }
-  if (endpoint === 'providers') {
-    allowed.clear();
-    PROVIDER_QUERY_KEYS.forEach(key => allowed.add(key));
-  }
-  if (endpoint === 'entities' || endpoint === 'kinds') {
-    allowed.clear();
-    const keys = endpoint === 'entities' ? ENTITY_QUERY_KEYS : KIND_QUERY_KEYS;
-    keys.forEach(key => allowed.add(key));
-  }
-  if (endpoint === 'cycles' || endpoint === 'cycle') {
-    allowed.clear();
-    const keys = endpoint === 'cycles' ? CYCLE_QUERY_KEYS : ['limit', 'cursor'];
-    keys.forEach(key => allowed.add(key));
-  }
-  if (endpoint === 'diff') {
-    allowed.clear();
-    ['from', 'to'].forEach(key => allowed.add(key));
-  }
-  if (endpoint === 'history' || endpoint === 'changes') {
-    allowed.add('op');
-  }
-  if (endpoint === 'changes') {
-    allowed.add('entityRef');
-    allowed.add('kind');
-  }
+function queryValues(req: Request, endpoint: Endpoint) {
+  const allowed = new Set<string>(ENDPOINT_KEYS[endpoint]);
   const values: Record<string, string> = {};
   // Parse the raw query so repeated keys are rejected independently of the
   // host application's Express query parser configuration.
@@ -153,10 +101,7 @@ function queryValues(
   );
   for (const [key, value] of query) {
     const emptyPrefix =
-      (endpoint === 'providers' ||
-        endpoint === 'entities' ||
-        endpoint === 'kinds') &&
-      key === 'prefix';
+      key === 'prefix' && EMPTY_PREFIX_ENDPOINTS.has(endpoint);
     if (
       !allowed.has(key) ||
       Object.hasOwn(values, key) ||
@@ -190,6 +135,27 @@ function validatedEntityRef(ref: {
     throw new InputError('Invalid history entity reference');
   }
   return stringifyEntityRef({ kind, namespace, name });
+}
+
+/** Parses an optional entity reference filter, defaulting kind and namespace. */
+function optionalEntityRef(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  try {
+    return validatedEntityRef(
+      parseEntityRef(value, {
+        defaultKind: 'Component',
+        defaultNamespace: 'default',
+      }),
+    );
+  } catch {
+    throw new InputError('Invalid history entity reference');
+  }
+}
+
+function optionalKind(value: string | undefined): void {
+  if (value !== undefined && !validators.isValidKind(value)) {
+    throw new InputError('Invalid history entity kind');
+  }
 }
 
 export function parseHistoryEntityAsOfRequest(
@@ -265,22 +231,8 @@ export function parseHistoryChangeFeedRequest(
   req: Request,
 ): HistoryChangeFeedRequest {
   const values = queryValues(req, 'changes');
-  if (values.kind !== undefined && !validators.isValidKind(values.kind)) {
-    throw new InputError('Invalid history entity kind');
-  }
-  let ref: string | undefined;
-  if (values.entityRef !== undefined) {
-    try {
-      ref = validatedEntityRef(
-        parseEntityRef(values.entityRef, {
-          defaultKind: 'Component',
-          defaultNamespace: 'default',
-        }),
-      );
-    } catch {
-      throw new InputError('Invalid history entity reference');
-    }
-  }
+  optionalKind(values.kind);
+  const ref = optionalEntityRef(values.entityRef);
   return {
     ...changeFilters(values),
     entityRef: ref,
@@ -292,22 +244,8 @@ export function parseHistoryProviderSearchRequest(
   req: Request,
 ): HistoryProviderSearchRequest {
   const values = queryValues(req, 'providers');
-  if (values.kind !== undefined && !validators.isValidKind(values.kind)) {
-    throw new InputError('Invalid history entity kind');
-  }
-  let ref: string | undefined;
-  if (values.entityRef !== undefined) {
-    try {
-      ref = validatedEntityRef(
-        parseEntityRef(values.entityRef, {
-          defaultKind: 'Component',
-          defaultNamespace: 'default',
-        }),
-      );
-    } catch {
-      throw new InputError('Invalid history entity reference');
-    }
-  }
+  optionalKind(values.kind);
+  const ref = optionalEntityRef(values.entityRef);
   const { source, op, changedAfter, changedBefore, limit, cursor } =
     changeFilters(values);
   return {
@@ -327,9 +265,7 @@ export function parseHistoryEntitySearchRequest(
   req: Request,
 ): HistoryEntitySearchRequest {
   const values = queryValues(req, 'entities');
-  if (values.kind !== undefined && !validators.isValidKind(values.kind)) {
-    throw new InputError('Invalid history entity kind');
-  }
+  optionalKind(values.kind);
   return {
     ...changeFilters(values),
     prefix: values.prefix,
@@ -404,25 +340,12 @@ function timestampRange(
 ): [string | undefined, string | undefined] {
   const after = timestamp(values[`${prefix}After`]);
   const before = timestamp(values[`${prefix}Before`]);
-  if (after && before && timestampIsLater(after, before)) {
+  if (after && before && compareHistoryInstants(after, before) > 0) {
     throw new InputError(
       `${prefix}After must not be later than ${prefix}Before`,
     );
   }
   return [after, before];
-}
-
-function timestampIsLater(after: string, before: string): boolean {
-  const difference = Date.parse(after) - Date.parse(before);
-  if (difference !== 0) return difference > 0;
-  // Date.parse discards sub-millisecond precision; compare the remaining
-  // fraction when both instants land in the same millisecond.
-  const afterFraction = /\.(\d+)/.exec(after)?.[1] ?? '';
-  const beforeFraction = /\.(\d+)/.exec(before)?.[1] ?? '';
-  const precision = Math.max(afterFraction.length, beforeFraction.length);
-  return (
-    afterFraction.padEnd(precision, '0') > beforeFraction.padEnd(precision, '0')
-  );
 }
 
 function changeFilters(values: Record<string, string>) {
@@ -438,7 +361,7 @@ function changeFilters(values: Record<string, string>) {
   if (
     changedAfter &&
     changedBefore &&
-    Date.parse(changedAfter) > Date.parse(changedBefore)
+    compareHistoryInstants(changedAfter, changedBefore) > 0
   ) {
     throw new InputError('changedAfter must not be later than changedBefore');
   }
