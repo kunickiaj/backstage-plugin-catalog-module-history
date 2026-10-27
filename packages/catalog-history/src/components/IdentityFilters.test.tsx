@@ -12,6 +12,7 @@ import type { CatalogHistoryApi } from '../api/CatalogHistoryApi';
 import { HistoryFilters } from './HistoryFilters';
 import type { HistoryFiltersValue } from './HistoryFilters';
 import { HistoryEntityFilter } from './HistoryEntityFilter';
+import { deferred } from '../__testUtils__/deferred';
 
 const entity: HistoryEntityIdentity = {
   entityRef: 'component:default/retired',
@@ -112,16 +113,6 @@ function select(label: 'Source' | 'Operation', value: string) {
     screen.getByRole('button', { name: new RegExp(`${label}$`) }),
   );
   fireEvent.click(screen.getByRole('option', { name: value }));
-}
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (error: unknown) => void;
-  const promise = new Promise<T>((yes, no) => {
-    resolve = yes;
-    reject = no;
-  });
-  return { promise, resolve, reject };
 }
 
 describe('HistoryFilters retained identity selection', () => {

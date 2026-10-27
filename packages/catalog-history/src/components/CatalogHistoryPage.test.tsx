@@ -25,6 +25,7 @@ import { catalogHistoryPlugin } from '../plugin';
 import { parseEntityRef } from '@backstage/catalog-model';
 import { CatalogHistoryPage } from './CatalogHistoryPage';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
+import { deferred } from '../__testUtils__/deferred';
 
 function render(ui: Parameters<typeof renderComponent>[0]) {
   return renderComponent(ui, { wrapper: MemoryRouter });
@@ -48,14 +49,6 @@ function event(
     changedAt: '2026-10-23T12:00:00.000Z',
     summary: {},
   };
-}
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>(res => {
-    resolve = res;
-  });
-  return { promise, resolve };
 }
 
 function setup() {

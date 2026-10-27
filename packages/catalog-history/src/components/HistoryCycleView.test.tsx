@@ -12,6 +12,7 @@ import {
   CatalogHistoryApiError,
 } from '../api/CatalogHistoryApi';
 import { HistoryCycleView } from './HistoryCycleView';
+import { deferred } from '../__testUtils__/deferred';
 
 // Public route registration is covered by the application integration tests.
 jest.mock('@backstage/frontend-plugin-api', () => ({
@@ -96,16 +97,6 @@ function view(api: CatalogHistoryApi, id = cycleId) {
       <HistoryCycleView api={api} cycleId={id} />
     </MemoryRouter>
   );
-}
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (reason: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
 }
 
 function metadata() {

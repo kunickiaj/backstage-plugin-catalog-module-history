@@ -7,6 +7,7 @@ import {
   CatalogHistoryApiError,
 } from '../api/CatalogHistoryApi';
 import { HistoryDetail } from './HistoryDetail';
+import { deferred } from '../__testUtils__/deferred';
 
 const entityRef = 'component:default/recorded';
 const snapshot = {
@@ -43,14 +44,6 @@ function setup() {
     getEntityVersion: jest.fn(),
   };
   return { api, props: { api, entityRef, id: 'selected' } };
-}
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>(res => {
-    resolve = res;
-  });
-  return { promise, resolve };
 }
 
 describe('HistoryDetail', () => {
