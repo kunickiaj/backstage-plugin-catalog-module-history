@@ -234,7 +234,7 @@ describe('HistoryProviderFilter', () => {
         screen.queryByRole('option', { name: 'stale' }),
       ).not.toBeInTheDocument();
       expect(
-        screen.queryByText('Type more to narrow.'),
+        screen.queryByText('More matches. Type more to narrow.'),
       ).not.toBeInTheDocument();
       expect(props.onSelect).not.toHaveBeenCalled();
     },
@@ -351,6 +351,85 @@ describe('HistoryProviderFilter', () => {
     expect(props.onSelect).not.toHaveBeenCalled();
   });
 
+  it('says when no provider matches the prefix', async () => {
+    // Arrange
+    setup();
+    // Act
+    await open();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Provider' }), {
+      target: { value: 'absent' },
+    });
+    await advance();
+    // Assert
+    expect(screen.getByText('No matching providers.')).toBeInTheDocument();
+  });
+
+  it('clears the provider like the entity and kind pickers', async () => {
+    // Arrange
+    const { props } = setup({ value: 'old', appliedProvider: 'old' });
+    // Act
+    fireEvent.click(screen.getByRole('button', { name: 'Clear provider' }));
+    // Assert
+    expect(props.onSelect).toHaveBeenCalledWith(undefined);
+    expect(screen.getByRole('combobox', { name: 'Provider' })).toHaveValue('');
+    expect(
+      screen.queryByRole('button', { name: 'Clear provider' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('reuses a finished search on reopen but retries a failed one', async () => {
+    // Arrange
+    const getProviders = jest
+      .fn()
+      .mockRejectedValueOnce(new CatalogHistoryApiError(500))
+      .mockResolvedValue({ items: ['one'] });
+    setup({ api: api(getProviders) });
+    const input = () => screen.getByRole('combobox', { name: 'Provider' });
+    const expand = async () => {
+      fireEvent.keyDown(input(), { key: 'ArrowDown', code: 'ArrowDown' });
+      await advance(0);
+    };
+    const reopen = async () => {
+      fireEvent.keyDown(input(), { key: 'Escape', code: 'Escape' });
+      await advance(0);
+      await expand();
+    };
+    // Act
+    await open();
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    await expand();
+    await reopen();
+    await reopen();
+    // Assert: the failure was retried once, then the success was reused.
+    expect(getProviders).toHaveBeenCalledTimes(2);
+    expect(
+      screen.queryByRole('alert', { hidden: true }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps focus in the field after Clear', async () => {
+    // Arrange
+    setup({ value: 'old', appliedProvider: 'old' });
+    // Act
+    fireEvent.click(screen.getByRole('button', { name: 'Clear provider' }));
+    // Assert
+    expect(screen.getByRole('combobox', { name: 'Provider' })).toHaveFocus();
+  });
+
+  it('reports loading while a search is pending', async () => {
+    // Arrange
+    const pending = deferred();
+    setup({ api: api(jest.fn().mockReturnValue(pending.promise)) });
+    // Act
+    await open();
+    // Assert
+    expect(
+      screen.queryByText('No matching providers.'),
+    ).not.toBeInTheDocument();
+    await act(async () => pending.resolve({ items: [] }));
+    expect(screen.getByText('No matching providers.')).toBeInTheDocument();
+  });
+
   it('shows a narrow-prefix hint without following the next cursor', async () => {
     // Arrange
     const { props } = setup({
@@ -362,7 +441,9 @@ describe('HistoryProviderFilter', () => {
     await open();
     await advance(1000);
     // Assert
-    expect(screen.getByText('Type more to narrow.')).toBeInTheDocument();
+    expect(
+      screen.getByText('More matches. Type more to narrow.'),
+    ).toBeInTheDocument();
     expect(props.api.getProviders).toHaveBeenCalledTimes(1);
     expect(props.api.getProviders).toHaveBeenCalledWith({
       prefix: undefined,

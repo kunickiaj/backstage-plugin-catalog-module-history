@@ -586,7 +586,7 @@ describe('HistoryFilters provider discovery', () => {
       );
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
       expect(
-        screen.queryByText('Type more to narrow.'),
+        screen.queryByText('More matches. Type more to narrow.'),
       ).not.toBeInTheDocument();
     },
   );

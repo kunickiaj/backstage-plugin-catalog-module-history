@@ -1,10 +1,10 @@
 /** @jsxRuntime automatic */
-import { useEffect, useRef, useState } from 'react';
-import { Button, Combobox, ComboboxItemText, TextField } from '@backstage/ui';
+import { useRef, useState } from 'react';
+import { Combobox, ComboboxItemText, TextField } from '@backstage/ui';
 import type { HistoryProviderSearchRequest } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import type { CatalogHistoryApi } from '../api/CatalogHistoryApi';
-import { useProviderSearch } from './useProviderSearch';
-import styles from './History.module.css';
+import { RetainedSearchField } from './RetainedSearchField';
+import { useRetainedSearch } from './useRetainedSearch';
 
 export function HistoryProviderFilter(props: {
   api?: CatalogHistoryApi;
@@ -19,23 +19,18 @@ export function HistoryProviderFilter(props: {
   const [editing, setEditing] = useState(false);
   const [selection, setSelection] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
-  const container = useRef<HTMLDivElement>(null);
-  const focused = useRef(false);
-  const search = useProviderSearch({
-    ...props,
+  const search = useRetainedSearch({
+    api: props.api,
+    method: api => api.getProviders?.bind(api),
+    context: props.context,
     query: editing ? query : '',
     open,
-    resetToken: 0,
+    isItem: (value): value is string => typeof value === 'string',
+    key: name => name,
+    label: 'provider',
   });
-  const wasUnsupported = useRef(search.unsupported);
-  useEffect(() => {
-    if (search.unsupported && !wasUnsupported.current && focused.current) {
-      container.current?.querySelector('input')?.focus();
-    }
-    wasUnsupported.current = search.unsupported;
-  }, [search.unsupported]);
   const names = new Map(
-    search.names.map(name => [`provider-${encodeURIComponent(name)}`, name]),
+    search.items.map(name => [`provider-${encodeURIComponent(name)}`, name]),
   );
   const items = Array.from(names, ([id, name]) => ({
     id,
@@ -98,48 +93,28 @@ export function HistoryProviderFilter(props: {
       />
     );
   }
+  function clear() {
+    inputText.current = '';
+    setQuery('');
+    setEditing(false);
+    setSelection(null);
+    props.onSelect(undefined);
+  }
   return (
-    <div
-      className={styles.providerField}
-      ref={container}
-      onFocusCapture={event => {
-        if (!(event.target instanceof HTMLInputElement)) return;
-        focused.current = true;
-        setOpen(true);
-      }}
-      onBlurCapture={event => {
-        if (
-          event.target instanceof HTMLInputElement ||
-          !event.currentTarget.contains(event.relatedTarget)
-        )
-          focused.current = false;
-      }}
+    <RetainedSearchField
+      label="provider"
+      search={search}
+      open={open}
+      onOpenChange={setOpen}
+      applied={
+        props.appliedProvider
+          ? JSON.stringify(props.appliedProvider)
+          : undefined
+      }
+      onClear={query ? clear : undefined}
     >
       {control}
-      {props.appliedProvider && (
-        <p className={styles.providerHelp}>
-          Current provider filter: {JSON.stringify(props.appliedProvider)}
-        </p>
-      )}
-      {search.more && (
-        <p className={styles.providerHelp}>Type more to narrow.</p>
-      )}
-      {search.error && (
-        <div role="alert" className={styles.providerHelp}>
-          {search.error}{' '}
-          <Button
-            type="button"
-            variant="secondary"
-            onPress={() => {
-              setOpen(true);
-              search.retry();
-            }}
-          >
-            Retry
-          </Button>
-        </div>
-      )}
-    </div>
+    </RetainedSearchField>
   );
 }
 
