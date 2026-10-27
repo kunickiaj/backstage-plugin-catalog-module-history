@@ -26,7 +26,7 @@ import {
 } from '@kunickiaj/backstage-plugin-catalog-history-node';
 import { historyStoreServiceFactory } from '@kunickiaj/backstage-plugin-catalog-history-storage-node';
 import type { Knex } from 'knex';
-import request from 'supertest';
+import request from '../__testUtils__/testBackendRequest';
 import { HistoryRecordingEntityProvider } from '../../provider/HistoryRecordingEntityProvider';
 import { catalogModuleHistory } from '../catalogModuleHistory';
 

@@ -28,7 +28,7 @@ import {
 } from '@kunickiaj/backstage-plugin-catalog-history-node';
 import { InMemoryHistoryStore } from '@kunickiaj/backstage-plugin-catalog-history-node/testUtils';
 import { historyStoreServiceFactory } from '@kunickiaj/backstage-plugin-catalog-history-storage-node';
-import request from 'supertest';
+import request from '../__testUtils__/testBackendRequest';
 import { catalogModuleHistory } from '../catalogModuleHistory';
 
 jest.setTimeout(30000);
