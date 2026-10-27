@@ -5,6 +5,7 @@ import {
   DEFAULT_HISTORY_PAGE_LIMIT,
   HISTORY_SOURCES,
   MAX_HISTORY_PAGE_LIMIT,
+  isHistoryInstant,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import type {
   HistoryChangeFeedRequest,
@@ -71,9 +72,6 @@ import {
   type HistoryStorageMetrics,
   type QueryOperation,
 } from './historyStorageMetrics';
-
-const ISO_8601_INSTANT =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 type HistoryChangeRow = {
   id: string;
@@ -1092,8 +1090,7 @@ export class PostgresHistoryQueryService {
     timestamp: string,
     field: 'changedAfter' | 'changedBefore' | 'timestamp',
   ): string {
-    const parsed = new Date(timestamp);
-    if (!ISO_8601_INSTANT.test(timestamp) || Number.isNaN(parsed.getTime())) {
+    if (!isHistoryInstant(timestamp)) {
       const label = field === 'timestamp' ? 'timestamp' : `${field} timestamp`;
       throw new InputError(`Invalid history ${label}`);
     }

@@ -870,6 +870,9 @@ describe('PostgresHistoryQueryService', () => {
     ['getEntityTimeline', 'changedBefore', ''],
     ['getEntityVersions', 'changedAfter', 'Sat Jul 07 2026 00:00:00 GMT+0000'],
     ['getEntityVersions', 'changedBefore', '2026-07-07'],
+    // Impossible dates fail here, not later as a PostgreSQL error.
+    ['getEntityTimeline', 'changedAfter', '2026-02-30T00:00:00Z'],
+    ['getEntityVersions', 'changedBefore', '2026-07-07T00:00:00+16:00'],
   ] as const)(
     'rejects an invalid timestamp passed to %s as %s',
     async (method, field, timestamp) => {

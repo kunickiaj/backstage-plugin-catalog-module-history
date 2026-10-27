@@ -2,6 +2,8 @@ import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { InputError } from '@backstage/errors';
 import {
+  compareHistoryInstants,
+  isHistoryInstant,
   isHistoryMutationType,
   isHistoryOperation,
   isHistorySource,
@@ -9,8 +11,6 @@ import {
 import type { HistoryCycleListRequest } from '@kunickiaj/backstage-plugin-catalog-history-common';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const ISO_INSTANT =
-  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:\d{2})$/;
 const POSTGRES_INSTANT =
   /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,6})?[+-]\d{2}(?::\d{2})?$/;
 type Route = 'cycles' | 'cycle-changes';
@@ -24,47 +24,14 @@ export function normalizeCycleId(value: unknown): string {
 }
 
 function validateTimestamp(value: unknown, field: string): string {
-  const match = typeof value === 'string' ? ISO_INSTANT.exec(value) : null;
-  if (!match) throw new InputError(`Invalid history ${field} timestamp`);
-  const [, year, month, day, hour, minute, second, , zone] = match;
-  const y = Number(year);
-  const days = [
-    31,
-    y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0) ? 29 : 28,
-    31,
-    30,
-    31,
-    30,
-    31,
-    31,
-    30,
-    31,
-    30,
-    31,
-  ];
-  if (
-    Number(day) < 1 ||
-    Number(day) > (days[Number(month) - 1] ?? 0) ||
-    Number(hour) > 23 ||
-    Number(minute) > 59 ||
-    Number(second) > 59 ||
-    (zone !== 'Z' &&
-      (Number(zone.slice(1, 3)) > 15 || Number(zone.slice(4)) > 59)) ||
-    !Number.isFinite(Date.parse(value as string))
-  ) {
+  if (!isHistoryInstant(value)) {
     throw new InputError(`Invalid history ${field} timestamp`);
   }
-  return value as string;
+  return value;
 }
 
 function after(left: string, right: string): boolean {
-  const difference = Date.parse(left) - Date.parse(right);
-  if (difference !== 0) return difference > 0;
-  // Date.parse truncates fractions to milliseconds; compare the remaining digits.
-  const a = (ISO_INSTANT.exec(left)?.[7] ?? '').slice(3);
-  const b = (ISO_INSTANT.exec(right)?.[7] ?? '').slice(3);
-  const width = Math.max(a.length, b.length);
-  return a.padEnd(width, '0') > b.padEnd(width, '0');
+  return compareHistoryInstants(left, right) > 0;
 }
 
 function scope(value: object): string {
