@@ -1,22 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import {
   createBackendModule,
-  createServiceFactory,
   type BackendFeature,
 } from '@backstage/backend-plugin-api';
 import {
   mockCredentials,
   mockServices,
-  startTestBackend,
   TestDatabases,
   type TestBackend,
 } from '@backstage/backend-test-utils';
 import { InputError } from '@backstage/errors';
-import {
-  catalogProcessingExtensionPoint,
-  catalogServiceRef,
-  type CatalogService,
-} from '@backstage/plugin-catalog-node';
 import { AuthorizeResult } from '@backstage/plugin-permission-common';
 import { catalogHistoryReadPermission } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import {
@@ -24,10 +17,9 @@ import {
   type HistoryQueryService,
   type HistoryStore,
 } from '@kunickiaj/backstage-plugin-catalog-history-node';
-import { InMemoryHistoryStore } from '@kunickiaj/backstage-plugin-catalog-history-node/testUtils';
 import { historyStoreServiceFactory } from '@kunickiaj/backstage-plugin-catalog-history-storage-node';
 import request from '../__testUtils__/testBackendRequest';
-import { catalogModuleHistory } from '../catalogModuleHistory';
+import { startHistoryApi } from '../__testUtils__/startHistoryApi';
 
 jest.setTimeout(30000);
 
@@ -50,14 +42,6 @@ function createQuery(): jest.Mocked<Query> {
   };
 }
 
-function storeFactory(store: HistoryStore) {
-  return createServiceFactory({
-    service: historyStoreServiceRef,
-    deps: {},
-    factory: () => store,
-  });
-}
-
 let backend: TestBackend | undefined;
 
 async function startApi(
@@ -70,44 +54,15 @@ async function startApi(
 ) {
   const query = createQuery();
   const { getChangeFeed: _unused, ...legacyQuery } = query;
-  const store = Object.assign(new InMemoryHistoryStore(), {
+  const api = await startHistoryApi({
     query: options.legacy ? legacyQuery : query,
+    apiEnabled: options.enabled ?? true,
+    historyEnabled: options.historyEnabled,
+    storeFeatures: options.features,
   });
-  const catalog = { queryEntities: jest.fn() };
-  const permissions = mockServices.permissions.mock();
-  permissions.authorize.mockResolvedValue([{ result: AuthorizeResult.ALLOW }]);
-  const logger = mockServices.logger.mock();
-  backend = await startTestBackend({
-    extensionPoints: [
-      [catalogProcessingExtensionPoint, { addProcessor: jest.fn() }],
-    ],
-    features: [
-      catalogModuleHistory,
-      createServiceFactory({
-        service: catalogServiceRef,
-        deps: {},
-        factory: () => catalog as unknown as CatalogService,
-      }),
-      ...(options.features ?? [storeFactory(store)]),
-      permissions.factory,
-      logger.factory,
-      mockServices.httpAuth.factory({
-        defaultCredentials: mockCredentials.none(),
-      }),
-      mockServices.rootConfig.factory({
-        data: {
-          permission: { enabled: true },
-          catalog: {
-            history: {
-              enabled: options.historyEnabled ?? true,
-              api: { enabled: options.enabled ?? true },
-            },
-          },
-        },
-      }),
-    ],
-  });
-  return { server: backend.server, query, permissions, catalog, logger };
+  backend = api.backend;
+  const { permissions, catalog, logger } = api;
+  return { server: api.server, query, permissions, catalog, logger };
 }
 
 afterEach(async () => {

@@ -25,10 +25,10 @@ import {
   type HistoryStore,
   type HistoryQueryService,
 } from '@kunickiaj/backstage-plugin-catalog-history-node';
-import { InMemoryHistoryStore } from '@kunickiaj/backstage-plugin-catalog-history-node/testUtils';
 import { historyStoreServiceFactory } from '@kunickiaj/backstage-plugin-catalog-history-storage-node';
 import request from '../__testUtils__/testBackendRequest';
 import { catalogModuleHistory } from '../catalogModuleHistory';
+import { startHistoryApi } from '../__testUtils__/startHistoryApi';
 
 jest.setTimeout(30000);
 let backend: TestBackend | undefined;
@@ -68,49 +68,15 @@ async function startApi(
         getEntityVersion: query.getEntityVersion,
       }
     : { ...query };
-  const store = Object.assign(new InMemoryHistoryStore(), {
+  const api = await startHistoryApi({
     query: supportedQuery,
+    apiEnabled: options.enabled ?? true,
+    historyEnabled: options.historyEnabled,
   });
-  const permissions = mockServices.permissions.mock();
-  permissions.authorize.mockResolvedValue([{ result: AuthorizeResult.ALLOW }]);
-  const logger = mockServices.logger.mock();
-  const catalog = { queryEntities: jest.fn() };
-  backend = await startTestBackend({
-    extensionPoints: [
-      [catalogProcessingExtensionPoint, { addProcessor: jest.fn() }],
-    ],
-    features: [
-      catalogModuleHistory,
-      createServiceFactory({
-        service: historyStoreServiceRef,
-        deps: {},
-        factory: () => store,
-      }),
-      createServiceFactory({
-        service: catalogServiceRef,
-        deps: {},
-        factory: () => catalog as unknown as CatalogService,
-      }),
-      permissions.factory,
-      logger.factory,
-      mockServices.httpAuth.factory({
-        defaultCredentials: mockCredentials.none(),
-      }),
-      mockServices.rootConfig.factory({
-        data: {
-          permission: { enabled: true },
-          catalog: {
-            history: {
-              enabled: options.historyEnabled ?? true,
-              api: { enabled: options.enabled ?? true },
-            },
-          },
-        },
-      }),
-    ],
-  });
+  backend = api.backend;
+  const { permissions, catalog, logger } = api;
   return {
-    server: backend.server,
+    server: api.server,
     query,
     supportedQuery,
     permissions,

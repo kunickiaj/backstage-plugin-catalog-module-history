@@ -7,16 +7,10 @@ import {
 import {
   mockCredentials,
   mockServices,
-  startTestBackend,
   TestDatabases,
   type TestBackend,
 } from '@backstage/backend-test-utils';
 import { InputError, NotFoundError } from '@backstage/errors';
-import {
-  catalogProcessingExtensionPoint,
-  catalogServiceRef,
-  type CatalogService,
-} from '@backstage/plugin-catalog-node';
 import { AuthorizeResult } from '@backstage/plugin-permission-common';
 import { catalogHistoryReadPermission } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import {
@@ -27,7 +21,7 @@ import {
 import { InMemoryHistoryStore } from '@kunickiaj/backstage-plugin-catalog-history-node/testUtils';
 import { historyStoreServiceFactory } from '@kunickiaj/backstage-plugin-catalog-history-storage-node';
 import request from '../__testUtils__/testBackendRequest';
-import { catalogModuleHistory } from '../catalogModuleHistory';
+import { startHistoryApi } from '../__testUtils__/startHistoryApi';
 
 jest.setTimeout(30000);
 
@@ -62,12 +56,6 @@ function storeFactory(store: HistoryStore) {
   });
 }
 
-const catalogServiceFactory = createServiceFactory({
-  service: catalogServiceRef,
-  deps: {},
-  factory: () => ({ queryEntities: jest.fn() }) as unknown as CatalogService,
-});
-
 let backend: TestBackend | undefined;
 
 async function startApi(
@@ -80,49 +68,16 @@ async function startApi(
   } = {},
 ) {
   const query = options.query ?? createQuery();
-  const store = Object.assign(new InMemoryHistoryStore(), { query });
-  const permissions = mockServices.permissions.mock();
-  permissions.authorize.mockResolvedValue([{ result: AuthorizeResult.ALLOW }]);
-  const registry = mockServices.permissionsRegistry.mock();
-  const logger = mockServices.logger.mock();
-  backend = await startTestBackend({
-    extensionPoints: [
-      [catalogProcessingExtensionPoint, { addProcessor: jest.fn() }],
-    ],
-    features: [
-      catalogModuleHistory,
-      catalogServiceFactory,
-      ...(options.features ?? [storeFactory(store)]),
-      options.permissionFramework
-        ? mockServices.permissions.factory()
-        : permissions.factory,
-      registry.factory,
-      logger.factory,
-      mockServices.httpAuth.factory({
-        defaultCredentials: mockCredentials.none(),
-      }),
-      mockServices.rootConfig.factory({
-        data: {
-          ...(options.permissionFramework === 'omitted'
-            ? {}
-            : {
-                permission: {
-                  enabled: options.permissionFramework !== 'disabled',
-                },
-              }),
-          catalog: {
-            history: {
-              enabled: options.historyEnabled ?? true,
-              ...(options.enabled === undefined
-                ? {}
-                : { api: { enabled: options.enabled } }),
-            },
-          },
-        },
-      }),
-    ],
+  const api = await startHistoryApi({
+    query,
+    apiEnabled: options.enabled,
+    historyEnabled: options.historyEnabled,
+    permissionFramework: options.permissionFramework ?? 'enabled',
+    storeFeatures: options.features,
   });
-  return { server: backend.server, query, permissions, registry, logger };
+  backend = api.backend;
+  const { permissions, registry, logger } = api;
+  return { server: api.server, query, permissions, registry, logger };
 }
 
 afterEach(async () => {

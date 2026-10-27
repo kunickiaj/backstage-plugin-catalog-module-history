@@ -1,28 +1,16 @@
-import { createServiceFactory } from '@backstage/backend-plugin-api';
 import {
   mockCredentials,
-  mockServices,
-  startTestBackend,
   type TestBackend,
 } from '@backstage/backend-test-utils';
 import { InputError, NotFoundError } from '@backstage/errors';
-import {
-  catalogProcessingExtensionPoint,
-  catalogServiceRef,
-  type CatalogService,
-} from '@backstage/plugin-catalog-node';
 import { AuthorizeResult } from '@backstage/plugin-permission-common';
 import {
   catalogHistoryReadPermission,
   type HistoryEntityDiffResponse,
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
-import {
-  historyStoreServiceRef,
-  type HistoryQueryService,
-} from '@kunickiaj/backstage-plugin-catalog-history-node';
-import { InMemoryHistoryStore } from '@kunickiaj/backstage-plugin-catalog-history-node/testUtils';
+import { type HistoryQueryService } from '@kunickiaj/backstage-plugin-catalog-history-node';
 import request from '../__testUtils__/testBackendRequest';
-import { catalogModuleHistory } from '../catalogModuleHistory';
+import { startHistoryApi } from '../__testUtils__/startHistoryApi';
 
 jest.setTimeout(30000);
 
@@ -54,43 +42,14 @@ async function startApi(
     getEntityVersion: jest.fn(),
     ...(options.missing ? {} : { getEntityDiff }),
   };
-  const store = Object.assign(new InMemoryHistoryStore(), { query });
-  const permissions = mockServices.permissions.mock();
-  permissions.authorize.mockResolvedValue([
-    { result: options.decision ?? AuthorizeResult.ALLOW },
-  ]);
-  const logger = mockServices.logger.mock();
-  backend = await startTestBackend({
-    extensionPoints: [
-      [catalogProcessingExtensionPoint, { addProcessor: jest.fn() }],
-    ],
-    features: [
-      catalogModuleHistory,
-      createServiceFactory({
-        service: historyStoreServiceRef,
-        deps: {},
-        factory: () => store,
-      }),
-      createServiceFactory({
-        service: catalogServiceRef,
-        deps: {},
-        factory: () =>
-          ({ queryEntities: jest.fn() }) as unknown as CatalogService,
-      }),
-      permissions.factory,
-      logger.factory,
-      mockServices.httpAuth.factory({
-        defaultCredentials: mockCredentials.none(),
-      }),
-      mockServices.rootConfig.factory({
-        data: {
-          permission: { enabled: true },
-          catalog: { history: { api: { enabled: true } } },
-        },
-      }),
-    ],
+  const api = await startHistoryApi({
+    query,
+    apiEnabled: true,
+    decision: options.decision,
   });
-  return { server: backend.server, getEntityDiff, permissions, logger };
+  backend = api.backend;
+  const { permissions, logger } = api;
+  return { server: api.server, getEntityDiff, permissions, logger };
 }
 
 describe('catalog history diff HTTP route', () => {

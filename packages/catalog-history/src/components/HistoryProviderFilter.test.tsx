@@ -5,6 +5,7 @@ import type { HistoryProviderSearchResponse } from '@kunickiaj/backstage-plugin-
 import { CatalogHistoryApiError } from '../api/CatalogHistoryApi';
 import type { CatalogHistoryApi } from '../api/CatalogHistoryApi';
 import { HistoryProviderFilter } from './HistoryProviderFilter';
+import { deferred } from '../__testUtils__/deferred';
 
 function api(getProviders = jest.fn().mockResolvedValue({ items: [] })) {
   return {
@@ -38,16 +39,6 @@ async function advance(milliseconds = 300) {
 async function open() {
   fireEvent.focus(screen.getByRole('combobox', { name: 'Provider' }));
   await advance(0);
-}
-
-function deferred() {
-  let resolve!: (page: HistoryProviderSearchResponse) => void;
-  let reject!: (error: unknown) => void;
-  const promise = new Promise<HistoryProviderSearchResponse>((yes, no) => {
-    resolve = yes;
-    reject = no;
-  });
-  return { promise, resolve, reject };
 }
 
 describe('HistoryProviderFilter', () => {
@@ -207,7 +198,7 @@ describe('HistoryProviderFilter', () => {
     'ignores stale successful choices after context changes to %j',
     async context => {
       // Arrange
-      const pending = deferred();
+      const pending = deferred<HistoryProviderSearchResponse>();
       const client = api(
         jest
           .fn()
@@ -263,8 +254,8 @@ describe('HistoryProviderFilter', () => {
 
   it('ignores a stale successful prefix response while the latest search is still pending', async () => {
     // Arrange
-    const old = deferred();
-    const latest = deferred();
+    const old = deferred<HistoryProviderSearchResponse>();
+    const latest = deferred<HistoryProviderSearchResponse>();
     const { props } = setup({
       api: api(
         jest
@@ -418,7 +409,7 @@ describe('HistoryProviderFilter', () => {
 
   it('reports loading while a search is pending', async () => {
     // Arrange
-    const pending = deferred();
+    const pending = deferred<HistoryProviderSearchResponse>();
     setup({ api: api(jest.fn().mockReturnValue(pending.promise)) });
     // Act
     await open();
@@ -455,7 +446,7 @@ describe('HistoryProviderFilter', () => {
     'falls back only for typed HTTP %s and retains unfinished text without applying',
     async status => {
       // Arrange
-      const pending = deferred();
+      const pending = deferred<HistoryProviderSearchResponse>();
       const { props } = setup({
         api: api(jest.fn().mockReturnValue(pending.promise)),
       });
@@ -538,7 +529,7 @@ describe('HistoryProviderFilter', () => {
     'ignores late unsupported errors after a new %s',
     async change => {
       // Arrange
-      const pending = deferred();
+      const pending = deferred<HistoryProviderSearchResponse>();
       const client = api(
         jest
           .fn()
@@ -602,7 +593,7 @@ describe('HistoryProviderFilter', () => {
 
   it('does not steal focus when unsupported discovery finishes after focus left', async () => {
     // Arrange
-    const pending = deferred();
+    const pending = deferred<HistoryProviderSearchResponse>();
     setup({ api: api(jest.fn().mockReturnValue(pending.promise)) });
     const outside = document.createElement('button');
     document.body.append(outside);
@@ -620,7 +611,7 @@ describe('HistoryProviderFilter', () => {
 
   it('cancels discovery debounce and ignores responses after unmount', async () => {
     // Arrange
-    const pending = deferred();
+    const pending = deferred<HistoryProviderSearchResponse>();
     const { props, unmount } = setup({
       api: api(jest.fn().mockReturnValue(pending.promise)),
     });
