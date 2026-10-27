@@ -8,6 +8,8 @@ import type {
   HistoryCycleDetailResponse,
   HistoryEntityAsOfRequest,
   HistoryEntityAsOfResponse,
+  HistoryEntityDiffRequest,
+  HistoryEntityDiffResponse,
   HistoryEntityTimelineRequest,
   HistoryEntityTimelineResponse,
   HistoryEntityVersionRequest,
@@ -49,6 +51,13 @@ export interface CatalogHistoryApi {
   getChangeFeed?(
     request: HistoryChangeFeedRequest,
   ): Promise<HistoryChangeFeedResponse>;
+  /**
+   * Optional comparison of two recorded events of one entity. The default
+   * backend accepts only history-row targets.
+   */
+  getEntityDiff?(
+    request: HistoryEntityDiffRequest,
+  ): Promise<HistoryEntityDiffResponse>;
   getEntityTimeline(
     request: HistoryEntityTimelineRequest,
   ): Promise<HistoryEntityTimelineResponse>;

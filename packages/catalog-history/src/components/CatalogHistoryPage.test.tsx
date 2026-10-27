@@ -24,7 +24,7 @@ import {
 import { catalogHistoryPlugin } from '../plugin';
 import { parseEntityRef } from '@backstage/catalog-model';
 import { CatalogHistoryPage } from './CatalogHistoryPage';
-import { MemoryRouter, useNavigate } from 'react-router-dom';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 
 function render(ui: Parameters<typeof renderComponent>[0]) {
   return renderComponent(ui, { wrapper: MemoryRouter });
@@ -1034,6 +1034,96 @@ describe('CatalogHistoryPage', () => {
       expect(api.getEntityTimeline).not.toHaveBeenCalled();
     },
   );
+
+  it('opens a shared comparison link and removes it on exit', async () => {
+    // Arrange: the compared events need not be on the loaded page.
+    const { api } = setup();
+    const getEntityDiff = jest.fn().mockResolvedValue({
+      entityRef: componentRef,
+      from: { ...event('12'), snapshot: undefined },
+      to: { ...event('9'), snapshot: undefined },
+      changes: [],
+    });
+    function Location() {
+      return <output aria-label="Location">{useLocation().search}</output>;
+    }
+    renderComponent(
+      <MemoryRouter
+        initialEntries={[
+          `/catalog-history?keep=1&compare=12..9&compareRef=${componentRef}`,
+        ]}
+      >
+        <TestApiProvider
+          apis={[[catalogHistoryApiRef, { ...api, getEntityDiff }]]}
+        >
+          <CatalogHistoryPage />
+          <Location />
+        </TestApiProvider>
+      </MemoryRouter>,
+    );
+    // Act
+    await screen.findByRole('heading', {
+      name: 'Comparing two recorded events',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Exit comparison' }));
+    // Assert
+    expect(getEntityDiff).toHaveBeenCalledWith({
+      entityRef: componentRef,
+      from: { kind: 'history-row', id: '12' },
+      to: { kind: 'history-row', id: '9' },
+    });
+    await waitFor(() =>
+      expect(screen.getByLabelText('Location')).toHaveTextContent(/^\?keep=1$/),
+    );
+    expect(
+      screen.queryByRole('heading', { name: 'Comparing two recorded events' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps loaded older events when a comparison starts, swaps, and exits', async () => {
+    // Arrange: the second event comes from the older page.
+    const { api } = setup();
+    api.getChangeFeed.mockImplementation(async request =>
+      request.cursor
+        ? { items: [event('1')] }
+        : {
+            items: [{ ...event('2'), changedAt: '2026-10-24T12:00:00.000Z' }],
+            nextCursor: 'older',
+          },
+    );
+    api.getEntityVersion.mockImplementation(async request => event(request.id));
+    const getEntityDiff = jest.fn(async request => ({
+      entityRef: componentRef,
+      from: event(request.from.id),
+      to: event(request.to.id),
+      changes: [],
+    }));
+    renderComponent(
+      <MemoryRouter initialEntries={['/catalog-history']}>
+        <TestApiProvider
+          apis={[[catalogHistoryApiRef, { ...api, getEntityDiff }]]}
+        >
+          <CatalogHistoryPage />
+        </TestApiProvider>
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Load older' }));
+    fireEvent.click(await screen.findByRole('row', { name: /^Event 1,/ }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Compare with another event' }),
+    );
+    // Act
+    fireEvent.click(screen.getByRole('row', { name: /^Event 2,/ }));
+    await screen.findByRole('heading', {
+      name: 'Comparing two recorded events',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Swap' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Exit comparison' }));
+    // Assert: URL updates do not reload the feed or drop older rows.
+    await screen.findByRole('button', { name: 'Compare with another event' });
+    expect(api.getChangeFeed).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('row', { name: /^Event 1,/ })).toBeInTheDocument();
+  });
 
   it('mounts the plugin page at /catalog-history with an API override', async () => {
     // Arrange

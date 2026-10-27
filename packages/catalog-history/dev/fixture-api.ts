@@ -4,6 +4,10 @@ import type {
   HistoryCycleChange,
   HistoryCycleFilter,
   HistoryCycleListRequest,
+  HistoryDiffEntry,
+  HistoryDiffTarget,
+  HistoryEntityDiffResponse,
+  HistoryEntitySnapshot,
   HistoryPage,
   HistoryPageOptions,
   HistoryEntityIdentity,
@@ -418,6 +422,36 @@ function cycleChange(row: HistoryEntityVersion): HistoryCycleChange {
   return { ...metadata, ...identity(row), summary: {} };
 }
 
+// Preview only: compares top-level saved fields as whole values. The real
+// backend descends into nested objects.
+function previewChanges(
+  before: HistoryEntitySnapshot | undefined,
+  after: HistoryEntitySnapshot | undefined,
+): HistoryDiffEntry[] {
+  const fields = [
+    'displayName',
+    'email',
+    'memberOf',
+    'metadata',
+    'orphan',
+    'owner',
+    'parent',
+    'relations',
+    'spec',
+    'statusItems',
+  ] as const;
+  return fields.flatMap((field): HistoryDiffEntry[] => {
+    const previous = before?.[field];
+    const next = after?.[field];
+    if (JSON.stringify(previous) === JSON.stringify(next)) return [];
+    if (previous === undefined)
+      return [{ path: [field], op: 'add', after: next }];
+    if (next === undefined)
+      return [{ path: [field], op: 'remove', before: previous }];
+    return [{ path: [field], op: 'replace', before: previous, after: next }];
+  });
+}
+
 /** In-memory preview only: no network, credentials, or production client changes. */
 export function createFixtureApi(): CatalogHistoryApi {
   return {
@@ -622,6 +656,28 @@ export function createFixtureApi(): CatalogHistoryApi {
           ? `preview-after:${page[page.length - 1].id}`
           : undefined;
       return Promise.resolve({ items, nextCursor });
+    },
+    getEntityDiff(request) {
+      const find = (target: HistoryDiffTarget) =>
+        target.kind === 'history-row'
+          ? crossEntityRecords.find(
+              item =>
+                item.entityRef === request.entityRef && item.id === target.id,
+            )
+          : undefined;
+      const from = find(request.from);
+      const to = find(request.to);
+      if (!from || !to) return Promise.reject(new CatalogHistoryApiError(404));
+      return Promise.resolve(
+        JSON.parse(
+          JSON.stringify({
+            entityRef: request.entityRef,
+            from,
+            to,
+            changes: previewChanges(from.snapshot, to.snapshot),
+          }),
+        ) as HistoryEntityDiffResponse,
+      );
     },
     getEntityVersion(request) {
       const row = crossEntityRecords.find(
