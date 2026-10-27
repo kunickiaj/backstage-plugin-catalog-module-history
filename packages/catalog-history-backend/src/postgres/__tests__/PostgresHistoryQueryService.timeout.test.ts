@@ -6,7 +6,7 @@ import { PostgresHistoryStore } from '../PostgresHistoryStore';
 jest.setTimeout(30000);
 
 const entityRef = 'user:default/alice';
-const methods = ['timeline', 'feed', 'versions', 'detail'] as const;
+const methods = ['timeline', 'feed', 'versions', 'detail', 'diff'] as const;
 type ReadMethod = (typeof methods)[number];
 
 function read(store: PostgresHistoryStore, method: ReadMethod, id: string) {
@@ -19,6 +19,13 @@ function read(store: PostgresHistoryStore, method: ReadMethod, id: string) {
       return store.query.getEntityVersions({ entityRef });
     case 'detail':
       return store.query.getEntityVersion({ entityRef, id });
+    case 'diff':
+      // The fixture records an update after the insert, so id + 1 exists.
+      return store.query.getEntityDiff({
+        entityRef,
+        from: { kind: 'history-row', id },
+        to: { kind: 'history-row', id: String(BigInt(id) + 1n) },
+      });
     default:
       throw new Error(`Unknown read method ${method}`);
   }
@@ -118,7 +125,30 @@ describe('PostgresHistoryStore PostgreSQL read deadlines', () => {
       deletes: [],
       unchangedCount: 0,
     });
-    const row = await db('catalog_history_entities').first('id');
+    await store.recordCycle({
+      cycleId: randomUUID(),
+      // A separate provider keeps timeout-test's current etag at 'one'.
+      provider: 'timeout-diff',
+      source: 'provider',
+      mutationType: 'full',
+      startedAt: new Date('2026-01-01T00:01:00Z'),
+      finishedAt: new Date('2026-01-01T00:01:00Z'),
+      inserts: [],
+      updates: [
+        {
+          entityRef,
+          kind: 'User',
+          namespace: 'default',
+          name: 'alice',
+          etag: 'two',
+          metadata: {},
+          spec: { profile: { displayName: 'Alice' } },
+        },
+      ],
+      deletes: [],
+      unchangedCount: 0,
+    });
+    const row = await db('catalog_history_entities').orderBy('id').first('id');
     id = String(row.id);
   });
 

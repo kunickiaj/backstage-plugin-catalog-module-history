@@ -34,6 +34,12 @@ The cycle endpoints additionally use the optional `listCycles` and `getCycle` qu
 
 The default Postgres implementation uses one lookup with an inclusive timestamp cutoff, ordered by stored `changed_at` and bigint `id`, both descending. It applies the normal per-statement timeout and records the fixed query-metric operation `as_of`.
 
+## Diff capability (unreleased)
+
+`HistoryStore.query.getEntityDiff` is optional for custom stores. A custom store without it continues to serve existing routes. The catalog diff route returns `501` after normal authentication and `catalog-history.read` authorization.
+
+The default Postgres implementation supports `history-row` targets only. It loads both rows of the entity in one statement under the normal per-statement timeout and records the query-metric operation `diff`. A missing row, or a row of another entity, raises `NotFoundError`. Cycle and timestamp targets, `source` or `provider` with row targets, and the same row twice raise `InputError`.
+
 ## Statement timeouts
 
 `0.3.0` adds a 10-second PostgreSQL `statement_timeout` for each history-read SQL statement made through the default store. It does not apply to capture writes, schema setup, pool acquisition, application-side mapping, transaction cleanup, or the whole HTTP request. A timed-out read follows the existing sanitized backend-error path, which currently returns `500`, not a new timeout status.

@@ -280,6 +280,21 @@ If no eligible retained row exists—for example, the entity is unknown, the req
 
 The route requires the same authentication and `catalog-history.read` authorization as other history reads. A custom store without `getEntityAsOf` returns `501` only after authorization; an older backend without the route returns `404`. `401` and `403` are access failures.
 
+### Compare two recorded events (unreleased)
+
+`GET /api/catalog/history/entities/:kind/:namespace/:name/diff?from=row:<id>&to=row:<id>` compares two retained rows of the same entity. The response lists how `from` became `to`, in the requested order, together with both recorded versions.
+
+```sh
+curl -H 'Authorization: Bearer <TOKEN>' \
+  'https://backstage.example.com/api/catalog/history/entities/Component/default/payment-api/diff?from=row:1042&to=row:1187'
+```
+
+The response has `entityRef`, `from`, `to`, and `changes`. Each change has a field `path`, an `op` of `add`, `remove`, or `replace`, and the `before` and `after` values. Arrays are compared as whole values. A delete row has no snapshot, so comparing from a delete shows every recorded field as added, and comparing to a delete shows every field as removed.
+
+The two rows may come from different sources or providers. Each capture layer records different fields: provider snapshots usually have no relations or status, for example. A comparison across layers therefore reports those fields as added or removed even when nothing changed in the catalog. Check `from.source`, `from.provider`, `to.source`, and `to.provider` before reading such a diff.
+
+Only `row:` targets are supported. `cycle:` and `timestamp:` targets return `400` with an unsupported-target message. A missing target, an invalid row ID, the same row twice, or any other query parameter also returns `400`. A row that does not exist, was removed by retention, or belongs to another entity returns `404`. The route uses the same authentication and `catalog-history.read` authorization as other history reads. A custom store without `getEntityDiff` returns `501` after authorization, and an older backend without the route returns `404`.
+
 ### Provider discovery in `0.3.0`
 
 `GET /api/catalog/history/providers` returns `{ items: string[], nextCursor? }` with distinct provider names from retained entity-history rows, including deletion records. It does not list current provider registrations or names represented only by empty recording cycles. This route uses the same user authentication and `catalog-history.read` permission as other history reads.

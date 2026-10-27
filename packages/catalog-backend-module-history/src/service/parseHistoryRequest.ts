@@ -14,7 +14,9 @@ import {
   type HistoryChangeFeedRequest,
   type HistoryCycleDetailRequest,
   type HistoryCycleListRequest,
+  type HistoryDiffTarget,
   type HistoryEntityAsOfRequest,
+  type HistoryEntityDiffRequest,
   type HistoryEntitySearchRequest,
   type HistoryEntityTimelineRequest,
   type HistoryEntityVersionRequest,
@@ -109,7 +111,8 @@ function queryValues(
     | 'entities'
     | 'kinds'
     | 'cycles'
-    | 'cycle',
+    | 'cycle'
+    | 'diff',
 ) {
   const allowed = new Set(endpoint === 'version' ? [] : COMMON_QUERY_KEYS);
   if (endpoint === 'as-of') {
@@ -129,6 +132,10 @@ function queryValues(
     allowed.clear();
     const keys = endpoint === 'cycles' ? CYCLE_QUERY_KEYS : ['limit', 'cursor'];
     keys.forEach(key => allowed.add(key));
+  }
+  if (endpoint === 'diff') {
+    allowed.clear();
+    ['from', 'to'].forEach(key => allowed.add(key));
   }
   if (endpoint === 'history' || endpoint === 'changes') {
     allowed.add('op');
@@ -206,15 +213,55 @@ export function parseHistoryEntityAsOfRequest(
   };
 }
 
+function rowId(id: string): string {
+  if (!/^[1-9]\d{0,18}$/.test(id) || BigInt(id) > 9_223_372_036_854_775_807n) {
+    throw new InputError('Invalid history row id');
+  }
+  return id;
+}
+
 export function parseHistoryVersionRequest(
   req: Request,
 ): HistoryEntityVersionRequest {
   queryValues(req, 'version');
-  const { id } = req.params;
-  if (!/^[1-9]\d{0,18}$/.test(id) || BigInt(id) > 9_223_372_036_854_775_807n) {
-    throw new InputError('Invalid history row id');
-  }
+  const id = rowId(req.params.id);
   return { entityRef: entityRef(req), id };
+}
+
+// Targets are `kind:value`. Split on the first colon only, because future
+// timestamp values contain more colons.
+function diffTarget(value: string | undefined): HistoryDiffTarget {
+  if (value === undefined) {
+    throw new InputError('History diff requires from and to targets');
+  }
+  const separator = value.indexOf(':');
+  const kind = separator === -1 ? value : value.slice(0, separator);
+  if (kind === 'cycle' || kind === 'timestamp') {
+    throw new InputError(
+      `Unsupported history diff target "${kind}"; use row:<id>`,
+    );
+  }
+  if (kind !== 'row' || separator === -1) {
+    throw new InputError('Invalid history diff target; use row:<id>');
+  }
+  return { kind: 'history-row', id: rowId(value.slice(separator + 1)) };
+}
+
+export function parseHistoryDiffRequest(
+  req: Request,
+): HistoryEntityDiffRequest {
+  const ref = entityRef(req);
+  const values = queryValues(req, 'diff');
+  const from = diffTarget(values.from);
+  const to = diffTarget(values.to);
+  if (
+    from.kind === 'history-row' &&
+    to.kind === 'history-row' &&
+    from.id === to.id
+  ) {
+    throw new InputError('History diff targets must be different rows');
+  }
+  return { entityRef: ref, from, to };
 }
 
 export function parseHistoryRequest(

@@ -11,6 +11,7 @@ function fakeStore(): jest.Mocked<LoadedHistoryStore> {
       getEntityVersions: read(),
       getEntityVersion: read(),
       getEntityAsOf: read(),
+      getEntityDiff: read(),
       getChangeFeed: read(),
       getProviders: read(),
       getEntities: read(),

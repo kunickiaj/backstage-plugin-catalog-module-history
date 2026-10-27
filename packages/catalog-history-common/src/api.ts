@@ -523,7 +523,10 @@ export type HistoryDiffTarget =
   | { kind: 'timestamp'; timestamp: string };
 
 /**
- * Diff request for one entity.
+ * Diff request for one entity. Changes describe how `from` became `to`.
+ *
+ * The default store supports only `history-row` targets, which may come from
+ * different capture streams. Two rows must differ.
  *
  * @public
  */
@@ -531,7 +534,9 @@ export interface HistoryEntityDiffRequest {
   entityRef: string;
   from: HistoryDiffTarget;
   to: HistoryDiffTarget;
+  /** Selects a capture stream for cycle and timestamp targets. The default store rejects it with row targets. */
   source?: HistorySource;
+  /** Selects a provider for cycle and timestamp targets. The default store rejects it with row targets. */
   provider?: string;
 }
 

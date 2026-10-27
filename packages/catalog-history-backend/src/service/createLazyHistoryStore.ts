@@ -72,6 +72,8 @@ export function createLazyHistoryStore(
       (await resolve()).query.getEntityVersion(request),
     getEntityAsOf: async request =>
       (await resolve()).query.getEntityAsOf(request),
+    getEntityDiff: async request =>
+      (await resolve()).query.getEntityDiff(request),
     getChangeFeed: async request =>
       (await resolve()).query.getChangeFeed(request),
     getProviders: async request =>
