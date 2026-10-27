@@ -14,8 +14,29 @@ import {
   HistoryStore,
 } from '@kunickiaj/backstage-plugin-catalog-history-node';
 import { readHistoryLayers } from '../config/readHistoryLayers';
+import { OrderedQueue } from './orderedQueue';
 import { entityToRow } from '../mapping/entityToRow';
 import { createCaptureMetrics } from '../telemetry/captureMetrics';
+
+/** History items (waiting plus running) above which the wrapper warns. */
+const HISTORY_BACKLOG_WARNING = 20;
+
+async function succeeded(work: Promise<unknown>): Promise<boolean> {
+  return work.then(
+    () => true,
+    () => false,
+  );
+}
+
+function settleable<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
 
 export type ForceFullEveryDuration = {
   days?: number;
@@ -80,11 +101,26 @@ export type HistoryRecordingEntityProviderOptions = {
  * cycle) is deferred to a later phase; today every applyMutation
  * invocation produces its own cycle.
  *
+ * Overlapping calls, such as a scheduled full refresh and a webhook push,
+ * reach the catalog in arrival order and are recorded in the same order, so
+ * history's latest row matches the catalog's last applied mutation. Each
+ * call's baseline read and recording wait for the previous call's
+ * recording. Without conversion, forwards do not wait for history, so a
+ * slow store does not delay catalog writes. Each call still resolves only
+ * after its own recording, which slows the caller. The wrapper logs one
+ * warning when more than 20 recordings are queued, and again only after the
+ * queue drains. A failed forward or recording affects only its own call.
+ * Ordering is per wrapper instance, so different providers stay
+ * independent.
+ *
  * When {@link HistoryRecordingEntityProviderOptions.convertFullToDelta} is
  * set, full mutations are converted to deltas before forwarding to the
  * catalog, using history refs to infer removals. Incoming entries are never
  * filtered by history etags, which cannot describe location-key-only changes
- * or every content change that the catalog detects.
+ * or every content change that the catalog detects. A converted full must
+ * read its baseline before it forwards, so it waits for earlier recordings,
+ * and later forwards wait for it. A hung history call therefore stops this
+ * provider's catalog writes while conversion is on.
  */
 export class HistoryRecordingEntityProvider implements EntityProvider {
   private readonly inner: EntityProvider;
@@ -95,6 +131,12 @@ export class HistoryRecordingEntityProvider implements EntityProvider {
   private readonly enabled: boolean;
   private lastForwardedFullAt?: Date;
   private readonly captureMetrics;
+  // Mutations reach the catalog in arrival order, and history records them
+  // in the same order. The queues are per wrapper, so providers stay
+  // independent.
+  private readonly forwards = new OrderedQueue();
+  private readonly history = new OrderedQueue();
+  private backlogWarned = false;
 
   constructor(options: HistoryRecordingEntityProviderOptions) {
     this.inner = options.inner;
@@ -144,72 +186,121 @@ export class HistoryRecordingEntityProvider implements EntityProvider {
       applyMutation: async mutation => {
         const stopOperation =
           this.captureMetrics.startOperation('provider_mutation');
-        let operationOutcome: 'success' | 'error' = 'error';
+        let recorded = false;
         try {
-          // Forward-first failure isolation: only the conversion path needs
-          // to preload etags before the catalog write, because it has to know
-          // what to forward. The default passthrough path keeps its original
-          // behavior — forward to the catalog first, then try to record —
-          // so a slow or unavailable history store never delays catalog
-          // updates.
-          const needsConversion =
-            this.convertFullToDelta && mutation.type === 'full';
-          if (!needsConversion) {
-            await connection.applyMutation(mutation);
-            try {
-              await this.recordMutation(mutation);
-              operationOutcome = 'success';
-            } catch (err) {
-              this.logger.error(
-                `Failed to record history cycle for provider ${this.getProviderName()}`,
-                err instanceof Error ? err : { error: String(err) },
-              );
-            }
-            return;
-          }
-
-          let existing: Map<string, string>;
-          try {
-            existing = await this.store.loadCurrentEtags(
-              this.getProviderName(),
-            );
-          } catch (err) {
-            // Etag read failed and we need it to convert. Fall back to
-            // forwarding the original full unchanged so the catalog hot path
-            // is preserved, and skip recording for this cycle.
-            this.logger.error(
-              `Failed to read history etags for provider ${this.getProviderName()}; forwarding mutation unchanged and skipping recording`,
-              err instanceof Error ? err : { error: String(err) },
-            );
-            await connection.applyMutation(mutation);
-            this.lastForwardedFullAt = new Date();
-            return;
-          }
-
-          const forwarded = this.maybeConvertToDelta(mutation, existing);
-          await connection.applyMutation(forwarded);
-
-          if (forwarded.type === 'full') {
-            this.lastForwardedFullAt = new Date();
-          }
-
-          try {
-            await this.recordMutation(mutation, existing);
-            operationOutcome = 'success';
-          } catch (err) {
-            this.logger.error(
-              `Failed to record history cycle for provider ${this.getProviderName()}`,
-              err instanceof Error ? err : { error: String(err) },
-            );
-          }
+          recorded =
+            this.convertFullToDelta && mutation.type === 'full'
+              ? await this.applyConverted(connection, mutation)
+              : await this.applyForwardFirst(connection, mutation);
         } finally {
-          stopOperation(operationOutcome);
+          stopOperation(recorded ? 'success' : 'error');
         }
       },
       refresh: connection.refresh.bind(connection),
     };
 
     await this.inner.connect(wrapped);
+  }
+
+  /**
+   * Forwards in arrival order without waiting for history, then records in
+   * arrival order. Resolves after this mutation's recording, so a slow
+   * history store slows the caller, not the catalog. Returns whether it
+   * recorded; a forward failure rejects and records nothing.
+   */
+  private async applyForwardFirst(
+    connection: EntityProviderConnection,
+    mutation: EntityProviderMutation,
+  ): Promise<boolean> {
+    const forwarded = this.forwards.run(() =>
+      connection.applyMutation(mutation),
+    );
+    const recorded = this.enqueueHistory(async () => {
+      if (!(await succeeded(forwarded))) return false;
+      return this.tryRecord(mutation);
+    });
+    await forwarded;
+    return recorded;
+  }
+
+  /**
+   * Conversion needs the history baseline to decide what to forward, so its
+   * baseline read waits for earlier recordings. Its forward still keeps its
+   * place in arrival order, and later forwards wait for it.
+   */
+  private async applyConverted(
+    connection: EntityProviderConnection,
+    mutation: EntityProviderMutation,
+  ): Promise<boolean> {
+    const plan = settleable<EntityProviderMutation>();
+    const forwarded = this.forwards.run(async () =>
+      connection.applyMutation(await plan.promise),
+    );
+    const recorded = this.enqueueHistory(async () => {
+      let existing: Map<string, string>;
+      try {
+        existing = await this.store.loadCurrentEtags(this.getProviderName());
+      } catch (err) {
+        // Without a baseline, forward the original full unchanged so the
+        // catalog still updates, and skip recording this cycle. Settle the
+        // plan first, so nothing after it can stall the forward queue.
+        plan.resolve(mutation);
+        this.logger.error(
+          `Failed to read history etags for provider ${this.getProviderName()}; forwarding mutation unchanged and skipping recording`,
+          err instanceof Error ? err : { error: String(err) },
+        );
+        if (await succeeded(forwarded)) this.lastForwardedFullAt = new Date();
+        return false;
+      }
+      let target: EntityProviderMutation;
+      try {
+        target = this.maybeConvertToDelta(mutation, existing);
+      } catch (err) {
+        // Reject this forward rather than leave the forward queue waiting.
+        plan.reject(err);
+        return false;
+      }
+      plan.resolve(target);
+      if (!(await succeeded(forwarded))) return false;
+      if (target.type === 'full') this.lastForwardedFullAt = new Date();
+      return this.tryRecord(mutation, existing);
+    });
+    await forwarded;
+    return recorded;
+  }
+
+  private enqueueHistory(work: () => Promise<boolean>): Promise<boolean> {
+    const result = this.history.run(work);
+    this.warnIfHistoryBacklogged();
+    return result;
+  }
+
+  private warnIfHistoryBacklogged(): void {
+    const backlog = this.history.size;
+    // Re-arm only once the backlog has drained, so a backlog hovering near
+    // the threshold does not repeat the warning.
+    if (backlog <= 1) this.backlogWarned = false;
+    if (backlog <= HISTORY_BACKLOG_WARNING || this.backlogWarned) return;
+    this.backlogWarned = true;
+    this.logger.warn(
+      `History recording for provider ${this.getProviderName()} is ${backlog} mutations behind. Catalog writes continue, but each applyMutation call waits for its own recording.`,
+    );
+  }
+
+  private async tryRecord(
+    mutation: EntityProviderMutation,
+    preloadedEtags?: Map<string, string>,
+  ): Promise<boolean> {
+    try {
+      await this.recordMutation(mutation, preloadedEtags);
+      return true;
+    } catch (err) {
+      this.logger.error(
+        `Failed to record history cycle for provider ${this.getProviderName()}`,
+        err instanceof Error ? err : { error: String(err) },
+      );
+      return false;
+    }
   }
 
   private maybeConvertToDelta(

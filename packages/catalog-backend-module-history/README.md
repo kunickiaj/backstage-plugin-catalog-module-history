@@ -69,8 +69,16 @@ History still classifies changes using entity etags, so its counts can report an
 
 With `forceFullEvery` configured, the first full after the wrapper starts is forwarded unchanged even when history already has a baseline. Each successfully forwarded full starts the interval, including a fallback full after a history-read failure; rejected catalog writes and native deltas do not reset it. The first full received at or after the interval expires is forwarded unchanged to reconcile against the catalog's own provider refs. This is not a background timer. Keep conversion disabled when deletions must always use the catalog's current provider refs.
 
+A converted full reads its history baseline before it forwards, so it waits for any earlier recordings from the same wrapper, and later mutations from that wrapper wait for its forward. If a history call hangs while conversion is on, that provider's catalog writes stop until it finishes. The default store's `queryTimeoutMs` deadline applies only to history API reads, not to the wrapper's baseline reads or recording writes.
+
 ### Catalog regression tests
 
 The provider tests include an in-memory SQLite integration with the pinned catalog backend development dependency. Run them from the workspace root with `env CI=1 yarn test packages/catalog-backend-module-history/src/provider --watch=false --runInBand`. They do not require a running catalog or an external database.
 
 For current usage and productization roadmap details, see the [workspace README](../../README.md).
+
+## Overlapping provider mutations (unreleased)
+
+A provider can call `applyMutation` again before an earlier call finishes, for example when a webhook push arrives during a scheduled full refresh. The wrapper forwards overlapping calls to the catalog one at a time, in arrival order, and records them in history in the same order. Each recording reads its baseline only after the previous recording finishes, so history's latest row for an entity matches the catalog's last applied mutation. Earlier versions could record an older full on top of a newer push. Earlier versions also forwarded overlapping calls in parallel, so a provider that sends many concurrent deltas now sends them one at a time.
+
+Without conversion, forwards do not wait for history, so a slow or unavailable store does not delay catalog writes. Each `applyMutation` call still resolves only after its own recording, so the provider feels slow history as slower calls. A provider that awaits each call therefore never has more than one mutation waiting. A provider with many calls in flight keeps one waiting mutation per call. The wrapper logs one warning when more than 20 recordings are queued, and warns again only after the queue drains: `History recording for provider <name> is <n> mutations behind`. A failed forward rejects only its own call and records nothing. A failed recording is logged and does not stop later mutations. Each wrapper has its own order, so different providers stay independent.
