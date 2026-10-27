@@ -19,9 +19,9 @@ backend.add(myHistoryStoreServiceFactory);
 
 Provider wrappers should be configured in the same catalog module where the provider is created: depend on `historyStoreServiceRef`, then pass the resolved store into `HistoryRecordingEntityProvider`. The legacy `catalog.history.database` setting remains as a deprecated compatibility path honored by the default store factory, so all consumers of the injected store share the same connection.
 
-## Removed compatibility re-exports (unreleased)
+## Removed compatibility re-exports in `0.5.0`
 
-Releases from `0.2.0` through `0.4.0` re-exported store contracts and storage from this package. The next release removes them. Import them from their own packages:
+Releases from `0.2.0` through `0.4.0` re-exported store contracts and storage from this package. `0.5.0` removes them. Import them from their own packages:
 
 | Symbols                                                                                                          | Import from                                                |
 | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
@@ -66,7 +66,7 @@ The provider tests include an in-memory SQLite integration with the pinned catal
 
 For current usage and productization roadmap details, see the [workspace README](../../README.md).
 
-## Overlapping provider mutations (unreleased)
+## Overlapping provider mutations in `0.5.0`
 
 A provider can call `applyMutation` again before an earlier call finishes, for example when a webhook push arrives during a scheduled full refresh. The wrapper forwards overlapping calls to the catalog one at a time, in arrival order, and records them in history in the same order. Each recording reads its baseline only after the previous recording finishes, so history's latest row for an entity matches the catalog's last applied mutation. Earlier versions could record an older full on top of a newer push. Earlier versions also forwarded overlapping calls in parallel, so a provider that sends many concurrent deltas now sends them one at a time.
 

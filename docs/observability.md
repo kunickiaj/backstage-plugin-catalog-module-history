@@ -30,7 +30,7 @@ Capture `operation` is one of:
 
 Query `operation` is one of:
 
-- `timeline`, `feed`, `versions`, `detail`, or `diff` (unreleased)
+- `timeline`, `feed`, `versions`, `detail`, or `diff` (`0.5.0`)
 - `cycles` or `cycle_detail`
 - `as_of`, `providers`, `entities`, or `kinds`
 

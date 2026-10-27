@@ -1,6 +1,6 @@
 {
   "name": "@kunickiaj/backstage-plugin-catalog-history-storage-node",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Storage, migrations, and history service factories for the Backstage catalog history plugin family.",
   "main": "src/index.ts",
   "types": "src/index.ts",
