@@ -7,12 +7,16 @@ import {
   TableHeader,
   TableRoot,
 } from '@backstage/ui';
-import type { HistoryCycleChange } from '@kunickiaj/backstage-plugin-catalog-history-common';
+import type { HistoryTimelineItem } from '@kunickiaj/backstage-plugin-catalog-history-common';
+import { HistorySummaryBadges } from './HistorySummaryBadges';
 import { RecordedTime } from './RecordedTime';
 import styles from './History.module.css';
 
-export function HistoryCycleChanges(props: {
-  items: HistoryCycleChange[];
+/** Recorded events with keyboard and pointer selection. */
+export function HistoryEventTable(props: {
+  /** Names the table for assistive technology. */
+  label: string;
+  items: HistoryTimelineItem[];
   selected?: string;
   onSelect: (id: string) => void;
 }) {
@@ -20,7 +24,7 @@ export function HistoryCycleChanges(props: {
     <div className={styles.tableScroll}>
       <TableRoot
         className={styles.table}
-        aria-label="Recording cycle changes"
+        aria-label={props.label}
         selectionMode="single"
         selectionBehavior="replace"
         disallowEmptySelection
@@ -61,6 +65,9 @@ export function HistoryCycleChanges(props: {
                 <span className={styles.operation} data-operation={event.op}>
                   {event.op}
                 </span>
+                {event.op === 'update' && (
+                  <HistorySummaryBadges summary={event.summary} />
+                )}
               </Cell>
             </Row>
           )}

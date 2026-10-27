@@ -28,6 +28,39 @@ import type {
 } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import { CatalogHistoryApi, CatalogHistoryApiError } from './CatalogHistoryApi';
 
+/** Starts a query with a validated page size, capped at the API maximum. */
+function pageQuery(requested: number | undefined): URLSearchParams {
+  const limit = requested ?? DEFAULT_HISTORY_PAGE_LIMIT;
+  if (!Number.isInteger(limit) || limit < 1) {
+    throw new Error('History page size must be a positive integer.');
+  }
+  return new URLSearchParams({
+    limit: String(Math.min(limit, MAX_HISTORY_PAGE_LIMIT)),
+  });
+}
+
+/** Adds each listed field that the request sets, in the listed order. */
+function setDefined<T extends object>(
+  query: URLSearchParams,
+  request: T,
+  keys: readonly (keyof T & string)[],
+): void {
+  for (const key of keys) {
+    const value = request[key];
+    if (value !== undefined) query.set(key, String(value));
+  }
+}
+
+/** Canonical entity reference, defaulting kind and namespace like the catalog. */
+function canonicalRef(ref: string): string {
+  return stringifyEntityRef(
+    parseEntityRef(ref, {
+      defaultKind: 'Component',
+      defaultNamespace: 'default',
+    }),
+  );
+}
+
 /** Dependencies supplied by Backstage, including authenticated fetch. @public */
 export interface CatalogHistoryClientOptions {
   discoveryApi: DiscoveryApi;
@@ -41,28 +74,26 @@ export class CatalogHistoryClient implements CatalogHistoryApi {
   async listCycles(
     request: HistoryCycleListRequest,
   ): Promise<HistoryCycleListResponse> {
-    const query = this.cyclePageQuery(request);
-    (
-      [
-        'source',
-        'provider',
-        'op',
-        'mutationType',
-        'startedAfter',
-        'startedBefore',
-        'finishedAfter',
-        'finishedBefore',
-      ] as const
-    ).forEach(key => {
-      if (request[key] !== undefined) query.set(key, request[key]);
-    });
+    const query = pageQuery(request.limit);
+    if (request.cursor !== undefined) query.set('cursor', request.cursor);
+    setDefined(query, request, [
+      'source',
+      'provider',
+      'op',
+      'mutationType',
+      'startedAfter',
+      'startedBefore',
+      'finishedAfter',
+      'finishedBefore',
+    ]);
     return this.fetch(`/history/cycles?${query}`);
   }
 
   async getCycle(
     request: HistoryCycleDetailRequest,
   ): Promise<HistoryCycleDetailResponse> {
-    const query = this.cyclePageQuery(request);
+    const query = pageQuery(request.limit);
+    if (request.cursor !== undefined) query.set('cursor', request.cursor);
     return this.fetch(
       `/history/cycles/${encodeURIComponent(request.cycleId)}?${query}`,
     );
@@ -71,25 +102,15 @@ export class CatalogHistoryClient implements CatalogHistoryApi {
   async getEntities(
     request: HistoryEntitySearchRequest,
   ): Promise<HistoryEntitySearchResponse> {
-    const limit = request.limit ?? DEFAULT_HISTORY_PAGE_LIMIT;
-    if (!Number.isInteger(limit) || limit < 1) {
-      throw new Error('History page size must be a positive integer.');
-    }
-    const query = new URLSearchParams({
-      limit: String(Math.min(limit, MAX_HISTORY_PAGE_LIMIT)),
-    });
-    (
-      [
-        'source',
-        'provider',
-        'op',
-        'changedAfter',
-        'changedBefore',
-        'cursor',
-      ] as const
-    ).forEach(key => {
-      if (request[key] !== undefined) query.set(key, request[key]);
-    });
+    const query = pageQuery(request.limit);
+    setDefined(query, request, [
+      'source',
+      'provider',
+      'op',
+      'changedAfter',
+      'changedBefore',
+      'cursor',
+    ]);
     if (request.prefix) query.set('prefix', request.prefix);
     if (request.kind !== undefined) query.set('kind', request.kind.trim());
     return this.fetch(`/history/entities?${query}`);
@@ -98,13 +119,7 @@ export class CatalogHistoryClient implements CatalogHistoryApi {
   async getKinds(
     request: HistoryKindSearchRequest,
   ): Promise<HistoryKindSearchResponse> {
-    const limit = request.limit ?? DEFAULT_HISTORY_PAGE_LIMIT;
-    if (!Number.isInteger(limit) || limit < 1) {
-      throw new Error('History page size must be a positive integer.');
-    }
-    const query = new URLSearchParams({
-      limit: String(Math.min(limit, MAX_HISTORY_PAGE_LIMIT)),
-    });
+    const query = pageQuery(request.limit);
     if (request.prefix) query.set('prefix', request.prefix);
     if (request.cursor !== undefined) query.set('cursor', request.cursor);
     return this.fetch(`/history/kinds?${query}`);
@@ -113,29 +128,17 @@ export class CatalogHistoryClient implements CatalogHistoryApi {
   async getProviders(
     request: HistoryProviderSearchRequest,
   ): Promise<HistoryProviderSearchResponse> {
-    const limit = request.limit ?? DEFAULT_HISTORY_PAGE_LIMIT;
-    if (!Number.isInteger(limit) || limit < 1) {
-      throw new Error('History page size must be a positive integer.');
-    }
-    const query = new URLSearchParams({
-      limit: String(Math.min(limit, MAX_HISTORY_PAGE_LIMIT)),
-    });
-    (
-      ['source', 'op', 'changedAfter', 'changedBefore', 'cursor'] as const
-    ).forEach(key => {
-      if (request[key] !== undefined) query.set(key, request[key]);
-    });
+    const query = pageQuery(request.limit);
+    setDefined(query, request, [
+      'source',
+      'op',
+      'changedAfter',
+      'changedBefore',
+      'cursor',
+    ]);
     if (request.prefix) query.set('prefix', request.prefix);
     if (request.entityRef !== undefined) {
-      query.set(
-        'entityRef',
-        stringifyEntityRef(
-          parseEntityRef(request.entityRef, {
-            defaultKind: 'Component',
-            defaultNamespace: 'default',
-          }),
-        ),
-      );
+      query.set('entityRef', canonicalRef(request.entityRef));
     }
     if (request.kind !== undefined) query.set('kind', request.kind.trim());
     return this.fetch(`/history/providers?${query}`);
@@ -147,35 +150,17 @@ export class CatalogHistoryClient implements CatalogHistoryApi {
     if (request.owner !== undefined) {
       throw new Error('Owner filtering is not supported by the history API.');
     }
-    const limit = request.limit ?? DEFAULT_HISTORY_PAGE_LIMIT;
-    if (!Number.isInteger(limit) || limit < 1) {
-      throw new Error('History page size must be a positive integer.');
-    }
-    const query = new URLSearchParams({
-      limit: String(Math.min(limit, MAX_HISTORY_PAGE_LIMIT)),
-    });
-    (
-      [
-        'source',
-        'provider',
-        'op',
-        'changedAfter',
-        'changedBefore',
-        'cursor',
-      ] as const
-    ).forEach(key => {
-      if (request[key] !== undefined) query.set(key, request[key]);
-    });
+    const query = pageQuery(request.limit);
+    setDefined(query, request, [
+      'source',
+      'provider',
+      'op',
+      'changedAfter',
+      'changedBefore',
+      'cursor',
+    ]);
     if (request.entityRef !== undefined) {
-      query.set(
-        'entityRef',
-        stringifyEntityRef(
-          parseEntityRef(request.entityRef, {
-            defaultKind: 'Component',
-            defaultNamespace: 'default',
-          }),
-        ),
-      );
+      query.set('entityRef', canonicalRef(request.entityRef));
     }
     if (request.kind !== undefined) query.set('kind', request.kind.trim());
     return this.fetch(`/history/changes?${query}`);
@@ -184,25 +169,15 @@ export class CatalogHistoryClient implements CatalogHistoryApi {
   async getEntityTimeline(
     request: HistoryEntityTimelineRequest,
   ): Promise<HistoryEntityTimelineResponse> {
-    const limit = request.limit ?? DEFAULT_HISTORY_PAGE_LIMIT;
-    if (!Number.isInteger(limit) || limit < 1) {
-      throw new Error('History page size must be a positive integer.');
-    }
-    const query = new URLSearchParams({
-      limit: String(Math.min(limit, MAX_HISTORY_PAGE_LIMIT)),
-    });
-    (
-      [
-        'source',
-        'provider',
-        'op',
-        'changedAfter',
-        'changedBefore',
-        'cursor',
-      ] as const
-    ).forEach(key => {
-      if (request[key] !== undefined) query.set(key, request[key]);
-    });
+    const query = pageQuery(request.limit);
+    setDefined(query, request, [
+      'source',
+      'provider',
+      'op',
+      'changedAfter',
+      'changedBefore',
+      'cursor',
+    ]);
     return this.get(request.entityRef, `/history?${query}`);
   }
 
@@ -210,9 +185,7 @@ export class CatalogHistoryClient implements CatalogHistoryApi {
     request: HistoryEntityAsOfRequest,
   ): Promise<HistoryEntityAsOfResponse> {
     const query = new URLSearchParams({ timestamp: request.timestamp });
-    (['source', 'provider'] as const).forEach(key => {
-      if (request[key] !== undefined) query.set(key, request[key]);
-    });
+    setDefined(query, request, ['source', 'provider']);
     return this.get(request.entityRef, `/as-of?${query}`);
   }
 
@@ -233,21 +206,6 @@ export class CatalogHistoryClient implements CatalogHistoryApi {
       request.entityRef,
       `/versions/${encodeURIComponent(request.id)}`,
     );
-  }
-
-  private cyclePageQuery(request: {
-    limit?: number;
-    cursor?: string;
-  }): URLSearchParams {
-    const limit = request.limit ?? DEFAULT_HISTORY_PAGE_LIMIT;
-    if (!Number.isInteger(limit) || limit < 1) {
-      throw new Error('History page size must be a positive integer.');
-    }
-    const query = new URLSearchParams({
-      limit: String(Math.min(limit, MAX_HISTORY_PAGE_LIMIT)),
-    });
-    if (request.cursor !== undefined) query.set('cursor', request.cursor);
-    return query;
   }
 
   private async get<T>(entityRef: string, suffix: string): Promise<T> {

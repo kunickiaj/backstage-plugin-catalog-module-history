@@ -176,6 +176,8 @@ function JsonValue({
         // Keyboard users need to focus this scroll container to read long JSON.
         // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
         tabIndex={0}
+        // A generic element's name is ignored; the group role makes it read.
+        role="group"
         aria-label={`${label} JSON`}
       >
         {JSON.stringify(value, null, 2)}

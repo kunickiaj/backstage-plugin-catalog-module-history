@@ -4,7 +4,7 @@ import { Box, Button, Link, Text } from '@backstage/ui';
 import { useLocation } from 'react-router-dom';
 import type { HistoryCycle } from '@kunickiaj/backstage-plugin-catalog-history-common';
 import type { CatalogHistoryApi } from '../api/CatalogHistoryApi';
-import { HistoryCycleChanges } from './HistoryCycleChanges';
+import { HistoryEventTable } from './HistoryEventTable';
 import { HistoryCycleError } from './HistoryCycleError';
 import { HistoryDetail } from './HistoryDetail';
 import { RecordedTime } from './RecordedTime';
@@ -94,7 +94,8 @@ function CycleWorkspace(props: { api: CatalogHistoryApi; cycleId: string }) {
                 </p>
               )}
             {cycle.items.length > 0 && (
-              <HistoryCycleChanges
+              <HistoryEventTable
+                label="Recording cycle changes"
                 items={cycle.items}
                 selected={selected}
                 onSelect={id => {
