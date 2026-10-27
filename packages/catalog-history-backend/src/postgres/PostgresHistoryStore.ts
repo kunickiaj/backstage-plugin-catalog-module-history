@@ -132,6 +132,22 @@ function buildDeleteRow(
   };
 }
 
+/** Entity rows for one cycle: inserts, then updates, then deletes. */
+function buildCycleRows(input: CycleInput): EntityInsertRow[] {
+  const { cycleId, provider, source, finishedAt: changedAt } = input;
+  return [
+    ...input.inserts.map(row =>
+      buildEntityRow(row, cycleId, provider, source, 'insert', changedAt),
+    ),
+    ...input.updates.map(row =>
+      buildEntityRow(row, cycleId, provider, source, 'update', changedAt),
+    ),
+    ...input.deletes.map(ref =>
+      buildDeleteRow(ref, cycleId, provider, source, changedAt),
+    ),
+  ];
+}
+
 export class PostgresHistoryStore implements HistoryStore {
   readonly query: PostgresHistoryQueryService;
   private schemaReady: Promise<void> | undefined;
@@ -148,6 +164,8 @@ export class PostgresHistoryStore implements HistoryStore {
     this.query = new PostgresHistoryQueryService(db, {
       queryTimeoutMs,
       metrics: this.metrics,
+      // Reads and writes share one schema bootstrap.
+      ensureReady: () => this.ensureReady(),
     });
   }
 
@@ -258,9 +276,6 @@ export class PostgresHistoryStore implements HistoryStore {
       () => input.source,
       async () => {
         await this.ensureReady();
-
-        const changedAt = input.finishedAt;
-
         await this.metrics.persist(
           () => input.source,
           () =>
@@ -278,42 +293,7 @@ export class PostgresHistoryStore implements HistoryStore {
                 n_unchanged: input.unchangedCount,
               });
 
-              const entityRows: EntityInsertRow[] = [];
-              for (const row of input.inserts) {
-                entityRows.push(
-                  buildEntityRow(
-                    row,
-                    input.cycleId,
-                    input.provider,
-                    input.source,
-                    'insert',
-                    changedAt,
-                  ),
-                );
-              }
-              for (const row of input.updates) {
-                entityRows.push(
-                  buildEntityRow(
-                    row,
-                    input.cycleId,
-                    input.provider,
-                    input.source,
-                    'update',
-                    changedAt,
-                  ),
-                );
-              }
-              for (const ref of input.deletes) {
-                entityRows.push(
-                  buildDeleteRow(
-                    ref,
-                    input.cycleId,
-                    input.provider,
-                    input.source,
-                    changedAt,
-                  ),
-                );
-              }
+              const entityRows = buildCycleRows(input);
 
               if (entityRows.length > 0) {
                 await tx.batchInsert(

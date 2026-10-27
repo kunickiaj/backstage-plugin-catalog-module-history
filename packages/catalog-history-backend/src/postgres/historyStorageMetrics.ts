@@ -93,6 +93,14 @@ const noop: HistoryStorageMetrics = {
   dispose() {},
 };
 
+/** Query outcome label for a failed read: timeout, not_found, or error. */
+function classifyQueryError(error: unknown): string {
+  if (!error || typeof error !== 'object') return 'error';
+  if ('code' in error && error.code === '57014') return 'timeout';
+  if (error instanceof NotFoundError) return 'not_found';
+  return 'error';
+}
+
 export function createHistoryStorageMetrics(
   metrics?: MetricsService,
 ): HistoryStorageMetrics {
@@ -167,12 +175,7 @@ export function createHistoryStorageMetrics(
           let queryOutcome: string = outcome;
           // Classification stays inside the telemetry-only exception boundary.
           safely(() => {
-            if (outcome === 'error' && error && typeof error === 'object') {
-              if ('code' in error && error.code === '57014')
-                queryOutcome = 'timeout';
-              else if (error instanceof NotFoundError)
-                queryOutcome = 'not_found';
-            }
+            if (outcome === 'error') queryOutcome = classifyQueryError(error);
           });
           const attrs = { operation, outcome: queryOutcome };
           safely(() => queryDuration.record(seconds, attrs));

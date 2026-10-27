@@ -2,9 +2,16 @@ import {
   coreServices,
   createBackendModule,
   readSchedulerServiceTaskScheduleDefinitionFromConfig,
+  type HttpRouterService,
+  type LoggerService,
+  type PermissionsRegistryService,
   type RootLifecycleService,
+  type SchedulerService,
 } from '@backstage/backend-plugin-api';
-import { metricsServiceRef } from '@backstage/backend-plugin-api/alpha';
+import {
+  type MetricsService,
+  metricsServiceRef,
+} from '@backstage/backend-plugin-api/alpha';
 import { type Config, ConfigReader } from '@backstage/config';
 import type { JsonObject } from '@backstage/types';
 import {
@@ -23,7 +30,10 @@ import {
 import { HistoryRecordingCatalogProcessor } from '../processor/HistoryRecordingCatalogProcessor';
 import { CatalogServiceEntityFetcher } from '../reconciler/CatalogServiceEntityFetcher';
 import { reconcile } from '../reconciler/reconcile';
-import { createHistoryRouter } from '../service/createHistoryRouter';
+import {
+  createHistoryRouter,
+  type HistoryRouterOptions,
+} from '../service/createHistoryRouter';
 import { readRetentionConfig } from '../retention/readRetentionConfig';
 import {
   describeRetentionMode,
@@ -148,53 +158,24 @@ export const catalogModuleHistory = createBackendModule({
 
         const store: HistoryStore = historyStore;
         // Validate before any store work so bad retention config fails startup.
-        const retention = readRetentionConfig(moduleConfig);
-        const retentionStore = retention
-          ? requireRetentionStore(store)
-          : undefined;
-        const retentionSchedule = retention
-          ? readScheduleWithDefaults(
-              moduleConfig?.getOptionalConfig('retention.schedule'),
-              DEFAULT_RETENTION_SCHEDULE,
-              'catalog.history.retention.schedule',
-            )
-          : undefined;
+        const retention = readRetentionPlan(moduleConfig, store);
         if (layers.api) {
-          if (
-            !store.query ||
-            typeof store.query.getEntityTimeline !== 'function' ||
-            typeof store.query.getEntityVersions !== 'function' ||
-            typeof store.query.getEntityVersion !== 'function'
-          ) {
-            throw new Error(
-              'Catalog history API requires historyStoreServiceRef to provide timeline, version list, and exact version query methods backed by the recording store',
-            );
-          }
-          const router = createHistoryRouter({
-            query: store.query,
-            httpAuth,
-            permissions,
+          mountHistoryApi(store, {
             config,
             logger,
+            httpRouter,
+            httpAuth,
+            permissions,
+            permissionsRegistry,
           });
-          permissionsRegistry.addPermissions([catalogHistoryReadPermission]);
-          httpRouter.use(router);
         }
-
-        const {
-          provider: providerEnabled,
-          processing: processingEnabled,
-          reconciler: reconcilerEnabled,
-        } = layers;
         logger.info(
-          `catalog-history capture layers: provider=${
-            providerEnabled ? 'on' : 'off'
-          } processing=${processingEnabled ? 'on' : 'off'} reconciler=${
-            reconcilerEnabled ? 'on' : 'off'
-          }`,
+          `catalog-history capture layers: provider=${onOff(layers.provider)} processing=${onOff(
+            layers.processing,
+          )} reconciler=${onOff(layers.reconciler)}`,
         );
         logger.info(
-          `catalog-history retention=${describeRetentionMode(retention)}`,
+          `catalog-history retention=${describeRetentionMode(retention?.settings)}`,
         );
 
         if (!hasActiveHistoryLayer(layers) && !retention) {
@@ -207,7 +188,7 @@ export const catalogModuleHistory = createBackendModule({
         const addTeardown = registerTeardown(lifecycle, store);
         await store.ensureReady?.();
 
-        if (processingEnabled) {
+        if (layers.processing) {
           const processor = new HistoryRecordingCatalogProcessor({
             store,
             logger,
@@ -219,44 +200,26 @@ export const catalogModuleHistory = createBackendModule({
           });
         }
 
-        if (reconcilerEnabled) {
-          const fetcher = new CatalogServiceEntityFetcher({
-            catalog: catalogService,
-            auth,
-          });
-          const scheduleConfig = moduleConfig
-            ?.getOptionalConfig('reconciler')
-            ?.getOptionalConfig('schedule');
-          const schedule = readScheduleWithDefaults(
-            scheduleConfig,
-            DEFAULT_RECONCILER_SCHEDULE,
-            'catalog.history.reconciler.schedule',
-          );
-
-          await scheduler.scheduleTask({
-            id: 'catalog-history-reconcile',
-            ...schedule,
-            fn: async () => {
-              try {
-                await reconcile({ fetcher, store, logger, metrics });
-              } catch (err) {
-                logger.error(
-                  'catalog-history scheduled reconcile failed',
-                  err instanceof Error ? err : { error: String(err) },
-                );
-              }
-            },
+        if (layers.reconciler) {
+          await scheduleReconciler(moduleConfig, store, {
+            scheduler,
+            logger,
+            metrics,
+            fetcher: new CatalogServiceEntityFetcher({
+              catalog: catalogService,
+              auth,
+            }),
           });
         }
 
-        if (retention && retentionStore && retentionSchedule) {
+        if (retention) {
           await scheduler.scheduleTask({
             id: 'catalog-history-retention',
-            ...retentionSchedule,
+            ...retention.schedule,
             fn: signal =>
               runRetention({
-                store: retentionStore,
-                settings: retention,
+                store: retention.store,
+                settings: retention.settings,
                 logger,
                 signal,
               }),
@@ -268,6 +231,85 @@ export const catalogModuleHistory = createBackendModule({
     });
   },
 });
+
+function onOff(enabled: boolean): 'on' | 'off' {
+  return enabled ? 'on' : 'off';
+}
+
+/** Reads and validates retention settings, its store, and its schedule. */
+function readRetentionPlan(
+  moduleConfig: Config | undefined,
+  store: HistoryStore,
+) {
+  const settings = readRetentionConfig(moduleConfig);
+  if (!settings) return undefined;
+  return {
+    settings,
+    store: requireRetentionStore(store),
+    schedule: readScheduleWithDefaults(
+      moduleConfig?.getOptionalConfig('retention.schedule'),
+      DEFAULT_RETENTION_SCHEDULE,
+      'catalog.history.retention.schedule',
+    ),
+  };
+}
+
+/** Mounts the read API after checking the store can serve it. */
+function mountHistoryApi(
+  store: HistoryStore,
+  deps: Omit<HistoryRouterOptions, 'query'> & {
+    httpRouter: HttpRouterService;
+    permissionsRegistry: PermissionsRegistryService;
+  },
+): void {
+  const query = store.query;
+  if (
+    !query ||
+    typeof query.getEntityTimeline !== 'function' ||
+    typeof query.getEntityVersions !== 'function' ||
+    typeof query.getEntityVersion !== 'function'
+  ) {
+    throw new Error(
+      'Catalog history API requires historyStoreServiceRef to provide timeline, version list, and exact version query methods backed by the recording store',
+    );
+  }
+  const { httpRouter, permissionsRegistry, ...routerOptions } = deps;
+  permissionsRegistry.addPermissions([catalogHistoryReadPermission]);
+  httpRouter.use(createHistoryRouter({ ...routerOptions, query }));
+}
+
+/** Schedules reconciliation; a failed run is logged and the next one still runs. */
+async function scheduleReconciler(
+  moduleConfig: Config | undefined,
+  store: HistoryStore,
+  deps: {
+    scheduler: SchedulerService;
+    logger: LoggerService;
+    metrics: MetricsService;
+    fetcher: CatalogServiceEntityFetcher;
+  },
+): Promise<void> {
+  const { scheduler, logger, metrics, fetcher } = deps;
+  const schedule = readScheduleWithDefaults(
+    moduleConfig?.getOptionalConfig('reconciler.schedule'),
+    DEFAULT_RECONCILER_SCHEDULE,
+    'catalog.history.reconciler.schedule',
+  );
+  await scheduler.scheduleTask({
+    id: 'catalog-history-reconcile',
+    ...schedule,
+    fn: async () => {
+      try {
+        await reconcile({ fetcher, store, logger, metrics });
+      } catch (err) {
+        logger.error(
+          'catalog-history scheduled reconcile failed',
+          err instanceof Error ? err : { error: String(err) },
+        );
+      }
+    },
+  });
+}
 
 /**
  * Orders module teardown before the store releases its resources.
@@ -293,9 +335,8 @@ function registerTeardown(
     }
     await store.shutdown?.();
   });
-  if (store.addShutdownHook) {
-    return step => store.addShutdownHook!(step);
-  }
+  const addStoreHook = store.addShutdownHook?.bind(store);
+  if (addStoreHook) return addStoreHook;
   return step => {
     steps.unshift(step);
   };
