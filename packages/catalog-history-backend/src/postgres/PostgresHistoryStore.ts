@@ -8,8 +8,11 @@ import type {
   HistoryRetentionCounts,
   HistoryRetentionRequest,
   HistoryStore,
+  ProviderMutationStore,
 } from '@kunickiaj/backstage-plugin-catalog-history-node';
 import { ensureSchema } from './ensureSchema';
+import { runProviderMutation } from './providerMutation';
+import { createProviderCoordinationDatabase } from './providerCoordinationDatabase';
 import {
   applyRetention,
   assertRetentionBatchSize,
@@ -152,6 +155,8 @@ export class PostgresHistoryStore implements HistoryStore {
   readonly query: PostgresHistoryQueryService;
   private schemaReady: Promise<void> | undefined;
   private shutdownPromise: Promise<void> | undefined;
+  private shutdownStarted = false;
+  private coordinationDb: Knex | undefined;
   private readonly shutdownHooks: Array<() => Promise<void>> = [];
   private readonly metrics: HistoryStorageMetrics;
 
@@ -177,11 +182,41 @@ export class PostgresHistoryStore implements HistoryStore {
     await this.schemaReady;
   }
 
+  async withProviderMutation<T>(
+    provider: string,
+    work: (store: ProviderMutationStore) => Promise<T>,
+  ): Promise<T> {
+    this.assertOpenForCoordination();
+    if (this.db.isTransaction) {
+      throw new Error(
+        'Provider mutation coordination requires an owned outer transaction',
+      );
+    }
+    await this.ensureReady();
+    this.assertOpenForCoordination();
+    // Assignment happens only after successful construction. A later call may
+    // retry construction or connection acquisition, but never its callback.
+    const coordinationDb = (this.coordinationDb ??=
+      createProviderCoordinationDatabase(this.db));
+    return this.metrics.persist(
+      () => 'provider',
+      () =>
+        runProviderMutation({
+          db: coordinationDb,
+          provider,
+          work,
+          assertOpen: () => this.assertOpenForCoordination(),
+          createStore: tx => this.createProviderMutationStore(tx),
+        }),
+    );
+  }
+
   addShutdownHook(hook: () => Promise<void>): void {
     this.shutdownHooks.unshift(hook);
   }
 
   async shutdown(): Promise<void> {
+    this.shutdownStarted = true;
     this.shutdownPromise ??= this.shutdownOnce();
     await this.shutdownPromise;
   }
@@ -354,7 +389,40 @@ export class PostgresHistoryStore implements HistoryStore {
         await this.db.destroy();
       }
     } finally {
-      this.metrics.dispose();
+      try {
+        await this.coordinationDb?.destroy();
+      } finally {
+        this.metrics.dispose();
+      }
     }
+  }
+
+  private assertOpenForCoordination(): void {
+    if (this.shutdownStarted) {
+      throw new Error('Provider mutation coordination is shut down');
+    }
+  }
+
+  private createProviderMutationStore(
+    tx: Knex.Transaction,
+  ): ProviderMutationStore {
+    const store = new PostgresHistoryStore(tx);
+    // Bootstrap completed before taking the lock. Never migrate from the
+    // scoped transaction or acquire a second pool connection here.
+    store.schemaReady = Promise.resolve();
+    return {
+      loadCurrentEtags: (provider, opts) =>
+        this.metrics.storage(
+          'load_current_etags',
+          () => 'provider',
+          () => store.loadCurrentEtags(provider, opts),
+        ),
+      recordCycle: input =>
+        this.metrics.storage(
+          'record_cycle',
+          () => 'provider',
+          () => store.recordCycle(input),
+        ),
+    };
   }
 }

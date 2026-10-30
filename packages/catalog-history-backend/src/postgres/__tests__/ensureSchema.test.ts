@@ -21,6 +21,7 @@ const historyMigrationNames = [
   sourceMigration,
   globalFeedMigration,
   '20261025000000_entity_discovery_name_index.js',
+  '20261030000000_provider_coordination.js',
 ];
 const catalogMigrationsDir = resolvePackagePath(
   '@backstage/plugin-catalog-backend',
@@ -136,9 +137,13 @@ describe('ensureSchema', () => {
   });
 
   it('drops the source and stitched fields when their migration is rolled back', async () => {
-    // Arrange: the ordering index follows the source and stitched fields.
+    // Arrange: coordination and both indexes follow the source fields.
     await ensureSchema(db);
-    // Act: roll back both indexes first, then the source migration.
+    // Act: roll back coordination, both indexes, and the source migration.
+    await db.migrate.down({
+      directory: migrationsDir,
+      tableName: historyLedger,
+    });
     await db.migrate.down({
       directory: migrationsDir,
       tableName: historyLedger,
@@ -164,6 +169,41 @@ describe('ensureSchema', () => {
     for (const col of ['source', 'relations', 'status_items', 'orphan']) {
       expect(entityCols).not.toContain(col);
     }
+  });
+
+  it('creates the persistent coordination floor and removes only that table on rollback', async () => {
+    // Arrange
+    await ensureSchema(db);
+    const name = 'catalog_history_provider_coordination';
+    const columns = await db(name).columnInfo();
+    await db(name).insert({
+      provider: 'p',
+      source: 'provider',
+      last_timestamp: '2200-01-01',
+    });
+    // Act
+    await expect(
+      db(name).insert({
+        provider: 'p',
+        source: 'provider',
+        last_timestamp: '2201-01-01',
+      }),
+    ).rejects.toThrow();
+    await db.migrate.down({
+      directory: migrationsDir,
+      tableName: historyLedger,
+    });
+    // Assert
+    expect(Object.keys(columns).sort()).toEqual([
+      'last_timestamp',
+      'provider',
+      'source',
+    ]);
+    expect(await db.schema.hasTable(name)).toBe(false);
+    expect(await db.schema.hasTable('catalog_history_cycles')).toBe(true);
+    expect(await db.schema.hasColumn('catalog_history_cycles', 'source')).toBe(
+      true,
+    );
   });
 
   it('is idempotent: a second call is a no-op', async () => {

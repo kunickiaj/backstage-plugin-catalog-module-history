@@ -5,7 +5,10 @@ import type {
   EntityProviderConnection,
   EntityProviderMutation,
 } from '@backstage/plugin-catalog-node';
-import type { CycleInput } from '@kunickiaj/backstage-plugin-catalog-history-node';
+import type {
+  CaptureSource,
+  CycleInput,
+} from '@kunickiaj/backstage-plugin-catalog-history-node';
 import { InMemoryHistoryStore } from '@kunickiaj/backstage-plugin-catalog-history-node/testUtils';
 import { HistoryRecordingEntityProvider } from '../HistoryRecordingEntityProvider';
 
@@ -56,19 +59,23 @@ class GatedStore extends InMemoryHistoryStore {
   readonly loadGates: Array<Promise<void>> = [];
   readonly recordGates: Array<Promise<void>> = [];
   readonly events: string[] = [];
+  readonly baselineStarted = deferred();
+  readonly recordingStarted = deferred();
   private loads = 0;
   private records = 0;
 
-  async loadCurrentEtags(provider: string) {
+  async loadCurrentEtags(provider: string, opts?: { source?: CaptureSource }) {
     const call = this.loads++;
     this.events.push(`load:${call}`);
+    this.baselineStarted.resolve();
     await this.loadGates[call];
-    return super.loadCurrentEtags(provider);
+    return super.loadCurrentEtags(provider, opts);
   }
 
   async recordCycle(input: CycleInput) {
     const call = this.records++;
     this.events.push(`record:${call}`);
+    this.recordingStarted.resolve();
     await this.recordGates[call];
     return super.recordCycle(input);
   }
@@ -94,18 +101,23 @@ function catalog() {
 }
 
 async function setup(
-  options: { convertFullToDelta?: boolean; store?: GatedStore } = {},
+  options: {
+    convertFullToDelta?: boolean;
+    store?: GatedStore;
+    provider?: string;
+    catalog?: ReturnType<typeof catalog>;
+  } = {},
 ) {
   const store = options.store ?? new GatedStore();
   const logger = mockServices.logger.mock();
-  const inner = new CapturingProvider();
+  const inner = new CapturingProvider(options.provider);
   const wrapper = new HistoryRecordingEntityProvider({
     inner,
     store,
     logger,
     convertFullToDelta: options.convertFullToDelta,
   });
-  const { connection, applied } = catalog();
+  const { connection, applied } = options.catalog ?? catalog();
   await wrapper.connect(connection);
   return {
     store,
@@ -117,6 +129,36 @@ async function setup(
 }
 
 describe('HistoryRecordingEntityProvider ordering', () => {
+  it('serializes two wrappers for the same provider while the first baseline is blocked', async () => {
+    // Arrange: the catalog accepted the old full before its baseline blocks.
+    const store = new GatedStore();
+    const slowBaseline = deferred();
+    store.loadGates[0] = slowBaseline.promise;
+    const sharedCatalog = catalog();
+    const firstWrapper = await setup({ store, catalog: sharedCatalog });
+    const secondWrapper = await setup({ store, catalog: sharedCatalog });
+
+    // Act: a second wrapper receives a push while the old full still records.
+    const first = firstWrapper.apply(full('old'));
+    await store.baselineStarted.promise;
+    const second = secondWrapper.apply(push('new'));
+    await new Promise(resolve => setImmediate(resolve));
+    const forwardedWhileBlocked = [...sharedCatalog.applied];
+    slowBaseline.resolve();
+    await Promise.all([first, second]);
+
+    // Assert: catalog and history agree on the last accepted entity.
+    expect(forwardedWhileBlocked).toEqual(['full:old']);
+    expect(sharedCatalog.applied).toEqual(['full:old', 'delta:new']);
+    expect(store.cycles.map(cycle => cycle.mutationType)).toEqual([
+      'full',
+      'delta',
+    ]);
+    expect(store.cycles[0].inserts[0].etag).toBe('old');
+    expect(store.cycles[1].updates[0].etag).toBe('new');
+    expect(await store.latestEtag()).toBe('new');
+  });
+
   it('records an overlapping full and push in arrival order', async () => {
     // Arrange: the full's baseline read is slow, so without ordering the
     // push records first and the stale full lands on top of it.
@@ -162,7 +204,7 @@ describe('HistoryRecordingEntityProvider ordering', () => {
     expect(await store.latestEtag()).toBe('new');
   });
 
-  it('forwards later mutations without waiting for slow history', async () => {
+  it('holds later catalog writes until slow history finishes', async () => {
     // Arrange
     const store = new GatedStore();
     const slowRecord = deferred();
@@ -172,12 +214,13 @@ describe('HistoryRecordingEntityProvider ordering', () => {
     const first = apply(full('one'));
     const second = apply(push('two'));
     const third = apply(push('three'));
-    await new Promise(resolve => setImmediate(resolve));
-    // Assert: every forward reached the catalog while history is held.
-    expect(applied).toEqual(['full:one', 'delta:two', 'delta:three']);
+    await store.recordingStarted.promise;
+    // Assert: the exclusion covers the first call's recording.
+    expect(applied).toEqual(['full:one']);
     expect(store.cycles).toHaveLength(0);
     slowRecord.resolve();
     await Promise.all([first, second, third]);
+    expect(applied).toEqual(['full:one', 'delta:two', 'delta:three']);
     expect(store.cycles).toHaveLength(3);
     expect(await store.latestEtag()).toBe('three');
   });
@@ -237,7 +280,7 @@ describe('HistoryRecordingEntityProvider ordering', () => {
     expect(await store.latestEtag()).toBe('three');
   });
 
-  it('warns once while history is more than 20 mutations behind', async () => {
+  it('warns once when more than 20 provider mutations are queued', async () => {
     // Arrange
     const store = new GatedStore();
     const slowRecord = deferred();
@@ -249,10 +292,9 @@ describe('HistoryRecordingEntityProvider ordering', () => {
     // Assert
     expect(logger.warn).toHaveBeenCalledTimes(1);
     expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining(
-        'History recording for provider directory is 21 mutations behind',
-      ),
+      expect.stringMatching(/provider directory.*21/),
     );
+    expect(logger.warn.mock.calls[0][0]).toMatch(/catalog.*wait/i);
     slowRecord.resolve();
     await Promise.all(calls);
     expect(await store.latestEtag()).toBe('e24');
@@ -325,17 +367,24 @@ describe('HistoryRecordingEntityProvider ordering', () => {
     expect(await store.latestEtag()).toBe('three');
   });
 
-  it('keeps separate providers independent', async () => {
+  it('keeps different providers independent on the same store', async () => {
     // Arrange: one provider's history is stuck.
     const stuck = new GatedStore();
-    stuck.recordGates[0] = new Promise(() => undefined);
-    const a = await setup({ store: stuck });
-    const b = await setup();
+    const release = deferred();
+    stuck.recordGates[0] = release.promise;
+    const a = await setup({ store: stuck, provider: 'a' });
+    const b = await setup({ store: stuck, provider: 'b' });
     // Act
-    void a.apply(full('a'));
+    const first = a.apply(full('a'));
+    await stuck.recordingStarted.promise;
     await b.apply(full('b'));
     // Assert
     expect(b.store.cycles).toHaveLength(1);
+    expect(b.store.cycles[0].provider).toBe('b');
+    expect(a.applied).toEqual(['full:a']);
+    expect(b.applied).toEqual(['full:b']);
+    release.resolve();
+    await first;
   });
 
   it('reads each conversion baseline after earlier mutations recorded', async () => {

@@ -19,6 +19,11 @@ const previous = [
   '20260705000000_source_and_stitched_fields.js',
   '20261023000000_global_feed_ordering_index.js',
 ];
+const migrationNames = [
+  ...previous,
+  migration,
+  '20261030000000_provider_coordination.js',
+];
 const indexName = 'catalog_history_entities_name_prefix_idx';
 
 function opaqueName(bytes: number) {
@@ -159,10 +164,9 @@ describe('entity discovery name index migration', () => {
     expect((await db(tableName).orderBy('id')).slice(0, 3)).toEqual(
       ledgerBefore,
     );
-    expect(await db(tableName).orderBy('id').pluck('name')).toEqual([
-      ...previous,
-      migration,
-    ]);
+    expect(await db(tableName).orderBy('id').pluck('name')).toEqual(
+      migrationNames,
+    );
     expect(
       (await indexes(db)).filter(index => index.indexname !== indexName),
     ).toEqual(oldIndexes);
@@ -181,22 +185,28 @@ describe('entity discovery name index migration', () => {
     const before = await db('catalog_history_entities').orderBy('id');
     const cycles = await db('catalog_history_cycles').orderBy('cycle_id');
     const beforeIndexes = await indexes(db);
+    const beforeLedger = await db(tableName).orderBy('id');
 
     // Act
     await db.migrate.down({ directory, tableName, name: migration });
     const downIndexes = await indexes(db);
-    const downLedger = await db(tableName).orderBy('id').pluck('name');
+    const downLedger = await db(tableName).orderBy('id');
     await ensureSchema(db);
 
     // Assert
     expect(downIndexes).toEqual(
       beforeIndexes.filter(index => index.indexname !== indexName),
     );
-    expect(downLedger).toEqual(previous);
+    expect(downLedger).toEqual(
+      beforeLedger.filter(row => row.name !== migration),
+    );
     expect(await db('catalog_history_entities').orderBy('id')).toEqual(before);
     expect(await db('catalog_history_cycles').orderBy('cycle_id')).toEqual(
       cycles,
     );
     expect(await indexes(db)).toEqual(beforeIndexes);
+    expect(await db(tableName).orderBy('name').pluck('name')).toEqual(
+      migrationNames,
+    );
   });
 });
