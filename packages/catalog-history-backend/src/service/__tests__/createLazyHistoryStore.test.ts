@@ -2,6 +2,7 @@ import {
   createLazyHistoryStore,
   type LoadedHistoryStore,
 } from '../createLazyHistoryStore';
+import type { ProviderMutationStore } from '@kunickiaj/backstage-plugin-catalog-history-node';
 
 function fakeStore(): jest.Mocked<LoadedHistoryStore> {
   const read = () => jest.fn().mockResolvedValue({ items: [] });
@@ -30,6 +31,65 @@ function fakeStore(): jest.Mocked<LoadedHistoryStore> {
 }
 
 describe('createLazyHistoryStore', () => {
+  it('loads once and forwards provider coordination with the scoped store and result', async () => {
+    // Arrange
+    const inner = fakeStore();
+    const scoped = {
+      loadCurrentEtags: jest.fn().mockResolvedValue(new Map([['ref', 'etag']])),
+      recordCycle: jest.fn().mockResolvedValue(undefined),
+    };
+    inner.withProviderMutation = jest.fn(
+      async <T>(
+        _provider: string,
+        callback: (transaction: ProviderMutationStore) => Promise<T>,
+      ): Promise<T> => callback(scoped),
+    ) as jest.MockedFunction<
+      NonNullable<LoadedHistoryStore['withProviderMutation']>
+    >;
+    const load = jest.fn(async () => inner);
+    const store = createLazyHistoryStore(load);
+    const work = jest.fn(async transaction => {
+      await transaction.recordCycle({});
+      return 'committed';
+    });
+    // Act
+    const result = await store.withProviderMutation!('provider-a', work);
+    // Assert
+    expect(result).toBe('committed');
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(inner.withProviderMutation).toHaveBeenCalledWith('provider-a', work);
+    expect(work).toHaveBeenCalledWith(scoped);
+    expect(scoped.recordCycle).toHaveBeenCalledTimes(1);
+  });
+
+  it('propagates coordination failures without running the callback outside the lock', async () => {
+    // Arrange
+    const inner = fakeStore();
+    inner.withProviderMutation = jest
+      .fn()
+      .mockRejectedValue(new Error('lock unavailable'));
+    const store = createLazyHistoryStore(async () => inner);
+    const work = jest.fn();
+    // Act / Assert
+    await expect(store.withProviderMutation!('p', work)).rejects.toThrow(
+      'lock unavailable',
+    );
+    expect(work).not.toHaveBeenCalled();
+    expect(inner.recordCycle).not.toHaveBeenCalled();
+  });
+
+  it('rejects coordination when the loaded store lacks the optional capability', async () => {
+    // Arrange
+    const inner = fakeStore();
+    const store = createLazyHistoryStore(async () => inner);
+    const work = jest.fn();
+    // Act / Assert
+    await expect(store.withProviderMutation!('p', work)).rejects.toThrow(
+      /coordination/,
+    );
+    expect(work).not.toHaveBeenCalled();
+  });
+
   it('does not load until a read, write, or ensureReady call', async () => {
     // Arrange
     const load = jest.fn();

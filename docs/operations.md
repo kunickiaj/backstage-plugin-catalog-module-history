@@ -70,13 +70,13 @@ The API logs `Catalog history query failed` with error metadata and returns a sa
 
 ## Provider history is falling behind
 
-A provider wrapper records mutations in arrival order. When history writes are slower than the provider's mutations, recordings wait in line. The wrapper logs one warning when more than 20 are queued, and warns again only after the queue drains:
+The default Postgres store serializes all mutation work for a provider across backend instances. This includes the baseline read, catalog forward, history record, and commit. Every catalog forward for that provider waits for earlier history work, even when `convertFullToDelta` is off. Other providers can continue, subject to connection-pool capacity.
 
-```text
-History recording for provider <name> is <count> mutations behind. Catalog writes continue, but each applyMutation call waits for its own recording.
-```
+Pool acquisition and provider-lock acquisition use 5-second attempts. The store retries pool exhaustion and provider-lock contention before the callback starts. A waiter remains queued while a healthy holder runs, and shutdown stops further attempts. Storage SQL statements inside coordination have a 30-second limit. These limits exclude schema initialization and the local queue. They do not cancel or fence a catalog call, so they do not bound the full mutation duration. Check `catalog.history.storage.operation.duration` for `record_cycle` and `load_current_etags`, then check database load, pool saturation, and provider-coordination conflicts. The separate coordination pool can add up to 10 PostgreSQL connections per store instance, or fewer when the source pool has a lower maximum.
 
-Catalog writes still go through, but the provider's `applyMutation` calls take longer, because each call waits for its own recording. Check `catalog.history.storage.operation.duration` for `record_cycle` and `load_current_etags`, database load, and locks on the history tables. With `convertFullToDelta` on, each converted full reads the history baseline before it forwards, so slow history also delays that provider's catalog writes. A history call that hangs stops them until it finishes. The `queryTimeoutMs` deadline does not apply to these baseline reads or to recording writes. See [Overlapping provider mutations](../packages/catalog-backend-module-history/README.md#overlapping-provider-mutations-in-050).
+Pool exhaustion and provider-lock contention never trigger an uncoordinated forward. Other coordination failures before catalog forwarding cause the wrapper to forward the original mutation once and skip history recording. If recording fails after the forward, it logs the error without failing ingestion or retrying the forward. A catalog rejection still reaches the provider unchanged and produces no history record. A process crash releases PostgreSQL coordination, but a crash between the catalog forward and history record leaves a missing event. A history database connection loss while a catalog forward is running can break coordination, so ordering is unknown for that interval. Catalog and history writes are not atomic together.
+
+All history backends and custom stores that share a history database need the coordination upgrade. A mixed old and new deployment does not provide cross-instance provider ordering. See [Provider mutation ordering](../packages/catalog-backend-module-history/README.md#provider-mutation-ordering-in-050).
 
 ## Run retention safely
 

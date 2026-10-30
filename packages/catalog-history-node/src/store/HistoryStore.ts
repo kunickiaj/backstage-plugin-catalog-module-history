@@ -20,6 +20,17 @@ export type CurrentEtag = {
 };
 
 /**
+ * Reads and recording available only during a provider mutation callback.
+ * Both methods are restricted to the selected provider and source `provider`.
+ *
+ * @public
+ */
+export type ProviderMutationStore = Pick<
+  HistoryStore,
+  'loadCurrentEtags' | 'recordCycle'
+>;
+
+/**
  * Selects history eligible for retention removal.
  *
  * @public
@@ -97,6 +108,19 @@ export interface HistoryStore {
    * method. Callers should treat it as idempotent.
    */
   ensureReady?(): Promise<void>;
+
+  /**
+   * Serializes baseline reads, catalog forwarding, and history commit across
+   * cooperating writers for one provider. The callback must await its store
+   * calls and record exactly one cycle. Its scoped store expires when it ends.
+   * Implementations assign ordered storage timestamps and never retry `work`.
+   * Callback failures propagate unchanged. Exclusion cannot fence an external
+   * catalog call if the storage session is lost during that call.
+   */
+  withProviderMutation?<T>(
+    provider: string,
+    work: (store: ProviderMutationStore) => Promise<T>,
+  ): Promise<T>;
 
   /**
    * Registers work that must complete before the backing store is shut down.

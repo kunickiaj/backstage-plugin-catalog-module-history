@@ -650,7 +650,7 @@ describe('capture cycle boundaries with metrics enabled', () => {
   });
   afterEach(() => jest.useRealTimers());
 
-  it('keeps provider cycle start after forwarding and finish before record', async () => {
+  it('uses storage-assigned provider cycle start before forwarding and finish before record', async () => {
     // Arrange
     const h = await providerHarness();
     h.connection.applyMutation.mockImplementation(async () => {
@@ -665,7 +665,7 @@ describe('capture cycle boundaries with metrics enabled', () => {
     await h.wrapped.applyMutation({ type: 'full', entities: [] });
 
     // Assert
-    expect(h.store.cycles[0].startedAt).toEqual(new Date(epoch + 1000));
+    expect(h.store.cycles[0].startedAt).toEqual(new Date(epoch));
     expect(h.store.cycles[0].finishedAt).toEqual(new Date(epoch + 2000));
   });
 

@@ -8,11 +8,13 @@ const migrationsDir = resolvePackagePath(
   'migrations',
 );
 const ledger = 'catalog_history_knex_migrations';
+const indexMigration = '20261023000000_global_feed_ordering_index.js';
 const migrationNames = [
   '20260512000000_initial.js',
   '20260705000000_source_and_stitched_fields.js',
-  '20261023000000_global_feed_ordering_index.js',
+  indexMigration,
   '20261025000000_entity_discovery_name_index.js',
+  '20261030000000_provider_coordination.js',
 ];
 const indexName = 'catalog_history_entities_changed_at_id_idx';
 const cycleId = '00000000-0000-4000-8000-000000000001';
@@ -171,14 +173,14 @@ describe('global feed ordering index', () => {
     const before = await historyData(db);
     const beforeIndexes = await indexes(db);
     const previousLedger = (await db(ledger).orderBy('id')).filter(
-      row => row.name !== migrationNames[2],
+      row => row.name !== indexMigration,
     );
 
     // Act
     await db.migrate.down({
       directory: migrationsDir,
       tableName: ledger,
-      name: migrationNames[2],
+      name: indexMigration,
     });
     const rolledBackIndexes = await indexes(db);
     const rolledBackData = await historyData(db);

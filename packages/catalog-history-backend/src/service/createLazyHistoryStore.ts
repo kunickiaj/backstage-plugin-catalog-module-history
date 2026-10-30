@@ -15,6 +15,31 @@ export type LazyHistoryStore = LoadedHistoryStore & {
   shutdown(): Promise<void>;
 };
 
+function createLazyQuery(
+  resolve: () => Promise<LoadedHistoryStore>,
+): LazyHistoryQuery {
+  return {
+    getEntityTimeline: async request =>
+      (await resolve()).query.getEntityTimeline(request),
+    getEntityVersions: async request =>
+      (await resolve()).query.getEntityVersions(request),
+    getEntityVersion: async request =>
+      (await resolve()).query.getEntityVersion(request),
+    getEntityAsOf: async request =>
+      (await resolve()).query.getEntityAsOf(request),
+    getEntityDiff: async request =>
+      (await resolve()).query.getEntityDiff(request),
+    getChangeFeed: async request =>
+      (await resolve()).query.getChangeFeed(request),
+    getProviders: async request =>
+      (await resolve()).query.getProviders(request),
+    getEntities: async request => (await resolve()).query.getEntities(request),
+    getKinds: async request => (await resolve()).query.getKinds(request),
+    listCycles: async request => (await resolve()).query.listCycles(request),
+    getCycle: async request => (await resolve()).query.getCycle(request),
+  };
+}
+
 /**
  * Wraps a store so that its database resources are acquired on first use.
  *
@@ -63,29 +88,8 @@ export function createLazyHistoryStore(
     }
   };
 
-  const query: LazyHistoryQuery = {
-    getEntityTimeline: async request =>
-      (await resolve()).query.getEntityTimeline(request),
-    getEntityVersions: async request =>
-      (await resolve()).query.getEntityVersions(request),
-    getEntityVersion: async request =>
-      (await resolve()).query.getEntityVersion(request),
-    getEntityAsOf: async request =>
-      (await resolve()).query.getEntityAsOf(request),
-    getEntityDiff: async request =>
-      (await resolve()).query.getEntityDiff(request),
-    getChangeFeed: async request =>
-      (await resolve()).query.getChangeFeed(request),
-    getProviders: async request =>
-      (await resolve()).query.getProviders(request),
-    getEntities: async request => (await resolve()).query.getEntities(request),
-    getKinds: async request => (await resolve()).query.getKinds(request),
-    listCycles: async request => (await resolve()).query.listCycles(request),
-    getCycle: async request => (await resolve()).query.getCycle(request),
-  };
-
   return {
-    query,
+    query: createLazyQuery(resolve),
     async ensureReady() {
       const store = await resolve();
       await store.ensureReady?.();
@@ -106,6 +110,13 @@ export function createLazyHistoryStore(
     },
     async recordCycle(input) {
       return (await resolve()).recordCycle(input);
+    },
+    async withProviderMutation(provider, work) {
+      const store = await resolve();
+      if (!store.withProviderMutation) {
+        throw new Error('History store does not support provider coordination');
+      }
+      return store.withProviderMutation(provider, work);
     },
     async planRetention(request) {
       return (await resolve()).planRetention(request);

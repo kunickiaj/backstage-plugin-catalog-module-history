@@ -12,6 +12,7 @@ import type {
 import type {
   EntityRow,
   HistoryStore,
+  ProviderMutationStore,
 } from '@kunickiaj/backstage-plugin-catalog-history-node';
 import { readHistoryLayers } from '../config/readHistoryLayers';
 import { OrderedQueue } from './orderedQueue';
@@ -20,23 +21,6 @@ import { createCaptureMetrics } from '../telemetry/captureMetrics';
 
 /** History items (waiting plus running) above which the wrapper warns. */
 const HISTORY_BACKLOG_WARNING = 20;
-
-async function succeeded(work: Promise<unknown>): Promise<boolean> {
-  return work.then(
-    () => true,
-    () => false,
-  );
-}
-
-function settleable<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (error: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
 
 export type ForceFullEveryDuration = {
   days?: number;
@@ -89,8 +73,8 @@ export type HistoryRecordingEntityProviderOptions = {
 /**
  * Wraps an EntityProvider so every applyMutation call is mirrored to a
  * HistoryStore. The inner provider's normal write to Backstage's catalog
- * happens first and is unaffected by store failures; history recording is
- * best-effort and its errors are swallowed.
+ * succeeds before history is recorded. History failures are logged without
+ * rejecting successful catalog ingestion.
  *
  * Both `full` and `delta` mutations are recorded, one cycle per
  * applyMutation call. `delta` mutations record the explicit added/removed
@@ -101,26 +85,23 @@ export type HistoryRecordingEntityProviderOptions = {
  * cycle) is deferred to a later phase; today every applyMutation
  * invocation produces its own cycle.
  *
- * Overlapping calls, such as a scheduled full refresh and a webhook push,
- * reach the catalog in arrival order and are recorded in the same order, so
- * history's latest row matches the catalog's last applied mutation. Each
- * call's baseline read and recording wait for the previous call's
- * recording. Without conversion, forwards do not wait for history, so a
- * slow store does not delay catalog writes. Each call still resolves only
- * after its own recording, which slows the caller. The wrapper logs one
- * warning when more than 20 recordings are queued, and again only after the
- * queue drains. A failed forward or recording affects only its own call.
- * Ordering is per wrapper instance, so different providers stay
- * independent.
+ * Shared-store coordination spans baseline reads, catalog forwarding and
+ * history commit for the provider. Local calls enter in arrival order.
+ * Across instances, the store determines their order before forwarding.
+ * Slow history delays later catalog writes for the same provider, including
+ * when conversion is off. Different providers coordinate independently.
+ * A store without the coordination capability receives no recordings, and
+ * the original mutation is forwarded unchanged.
  *
  * When {@link HistoryRecordingEntityProviderOptions.convertFullToDelta} is
  * set, full mutations are converted to deltas before forwarding to the
  * catalog, using history refs to infer removals. Incoming entries are never
  * filtered by history etags, which cannot describe location-key-only changes
  * or every content change that the catalog detects. A converted full must
- * read its baseline before it forwards, so it waits for earlier recordings,
- * and later forwards wait for it. A hung history call therefore stops this
- * provider's catalog writes while conversion is on.
+ * read its baseline before it forwards. The store must limit history work
+ * and release coordination on failure. Coordination cannot fence an external
+ * catalog call after the database connection is lost, or atomically commit
+ * catalog and history changes.
  */
 export class HistoryRecordingEntityProvider implements EntityProvider {
   private readonly inner: EntityProvider;
@@ -131,10 +112,7 @@ export class HistoryRecordingEntityProvider implements EntityProvider {
   private readonly enabled: boolean;
   private lastForwardedFullAt?: Date;
   private readonly captureMetrics;
-  // Mutations reach the catalog in arrival order, and history records them
-  // in the same order. The queues are per wrapper, so providers stay
-  // independent.
-  private readonly forwards = new OrderedQueue();
+  // Keep local arrival order while the store coordinates separate instances.
   private readonly history = new OrderedQueue();
   private backlogWarned = false;
 
@@ -188,10 +166,9 @@ export class HistoryRecordingEntityProvider implements EntityProvider {
           this.captureMetrics.startOperation('provider_mutation');
         let recorded = false;
         try {
-          recorded =
-            this.convertFullToDelta && mutation.type === 'full'
-              ? await this.applyConverted(connection, mutation)
-              : await this.applyForwardFirst(connection, mutation);
+          recorded = await this.enqueueHistory(() =>
+            this.applyCoordinated(connection, mutation),
+          );
         } finally {
           stopOperation(recorded ? 'success' : 'error');
         }
@@ -202,71 +179,59 @@ export class HistoryRecordingEntityProvider implements EntityProvider {
     await this.inner.connect(wrapped);
   }
 
-  /**
-   * Forwards in arrival order without waiting for history, then records in
-   * arrival order. Resolves after this mutation's recording, so a slow
-   * history store slows the caller, not the catalog. Returns whether it
-   * recorded; a forward failure rejects and records nothing.
-   */
-  private async applyForwardFirst(
+  private async applyCoordinated(
     connection: EntityProviderConnection,
     mutation: EntityProviderMutation,
   ): Promise<boolean> {
-    const forwarded = this.forwards.run(() =>
-      connection.applyMutation(mutation),
-    );
-    const recorded = this.enqueueHistory(async () => {
-      if (!(await succeeded(forwarded))) return false;
-      return this.tryRecord(mutation);
-    });
-    await forwarded;
-    return recorded;
+    let forwarded: Promise<void> | undefined;
+    let phase = 'coordination';
+    const forward = (target: EntityProviderMutation) => {
+      forwarded ??= Promise.resolve()
+        .then(() => connection.applyMutation(target))
+        .then(() => {
+          if (target.type === 'full') this.lastForwardedFullAt = new Date();
+        });
+      return forwarded;
+    };
+    try {
+      if (!this.store.withProviderMutation) {
+        throw new Error('History store does not support provider coordination');
+      }
+      return await this.store.withProviderMutation(
+        this.getProviderName(),
+        async store => {
+          phase = 'baseline';
+          const existing = await this.prepareMutation(store, mutation);
+          phase = 'conversion';
+          const target = existing
+            ? this.maybeConvertToDelta(mutation, existing)
+            : mutation;
+          phase = 'forward';
+          await forward(target);
+          phase = 'record';
+          await this.recordMutation(store, mutation, existing);
+          return true;
+        },
+      );
+    } catch (error) {
+      // Preserve the catalog's original rejection even if transaction cleanup
+      // fails. Never repeat a catalog write after a history or commit failure.
+      if (forwarded) await forwarded;
+      if (phase === 'conversion') throw error;
+      this.logRecordingError(error, { baseline: phase === 'baseline' });
+      if (!forwarded) await forward(mutation);
+      return false;
+    }
   }
 
-  /**
-   * Conversion needs the history baseline to decide what to forward, so its
-   * baseline read waits for earlier recordings. Its forward still keeps its
-   * place in arrival order, and later forwards wait for it.
-   */
-  private async applyConverted(
-    connection: EntityProviderConnection,
+  private async prepareMutation(
+    store: ProviderMutationStore,
     mutation: EntityProviderMutation,
-  ): Promise<boolean> {
-    const plan = settleable<EntityProviderMutation>();
-    const forwarded = this.forwards.run(async () =>
-      connection.applyMutation(await plan.promise),
-    );
-    const recorded = this.enqueueHistory(async () => {
-      let existing: Map<string, string>;
-      try {
-        existing = await this.store.loadCurrentEtags(this.getProviderName());
-      } catch (err) {
-        // Without a baseline, forward the original full unchanged so the
-        // catalog still updates, and skip recording this cycle. Settle the
-        // plan first, so nothing after it can stall the forward queue.
-        plan.resolve(mutation);
-        this.logger.error(
-          `Failed to read history etags for provider ${this.getProviderName()}; forwarding mutation unchanged and skipping recording`,
-          err instanceof Error ? err : { error: String(err) },
-        );
-        if (await succeeded(forwarded)) this.lastForwardedFullAt = new Date();
-        return false;
-      }
-      let target: EntityProviderMutation;
-      try {
-        target = this.maybeConvertToDelta(mutation, existing);
-      } catch (err) {
-        // Reject this forward rather than leave the forward queue waiting.
-        plan.reject(err);
-        return false;
-      }
-      plan.resolve(target);
-      if (!(await succeeded(forwarded))) return false;
-      if (target.type === 'full') this.lastForwardedFullAt = new Date();
-      return this.tryRecord(mutation, existing);
+  ): Promise<Map<string, string> | undefined> {
+    if (!this.convertFullToDelta || mutation.type !== 'full') return undefined;
+    return store.loadCurrentEtags(this.getProviderName(), {
+      source: 'provider',
     });
-    await forwarded;
-    return recorded;
   }
 
   private enqueueHistory(work: () => Promise<boolean>): Promise<boolean> {
@@ -283,24 +248,20 @@ export class HistoryRecordingEntityProvider implements EntityProvider {
     if (backlog <= HISTORY_BACKLOG_WARNING || this.backlogWarned) return;
     this.backlogWarned = true;
     this.logger.warn(
-      `History recording for provider ${this.getProviderName()} is ${backlog} mutations behind. Catalog writes continue, but each applyMutation call waits for its own recording.`,
+      `History recording for provider ${this.getProviderName()} is ${backlog} mutations behind. Catalog writes for this provider wait for earlier history recordings.`,
     );
   }
 
-  private async tryRecord(
-    mutation: EntityProviderMutation,
-    preloadedEtags?: Map<string, string>,
-  ): Promise<boolean> {
-    try {
-      await this.recordMutation(mutation, preloadedEtags);
-      return true;
-    } catch (err) {
-      this.logger.error(
-        `Failed to record history cycle for provider ${this.getProviderName()}`,
-        err instanceof Error ? err : { error: String(err) },
-      );
-      return false;
-    }
+  private logRecordingError(
+    error: unknown,
+    options: { baseline: boolean },
+  ): void {
+    this.logger.error(
+      options.baseline
+        ? `Failed to read history etags for provider ${this.getProviderName()}; forwarding mutation unchanged and skipping recording`
+        : `Failed to record history cycle for provider ${this.getProviderName()}`,
+      error instanceof Error ? error : { error: String(error) },
+    );
   }
 
   private maybeConvertToDelta(
@@ -332,14 +293,14 @@ export class HistoryRecordingEntityProvider implements EntityProvider {
   }
 
   private async recordMutation(
+    store: ProviderMutationStore,
     mutation: EntityProviderMutation,
     preloadedEtags?: Map<string, string>,
   ): Promise<void> {
     const provider = this.getProviderName();
-    const startedAt = new Date();
     let existing = preloadedEtags;
     if (!existing) {
-      existing = await this.store.loadCurrentEtags(provider);
+      existing = await store.loadCurrentEtags(provider, { source: 'provider' });
     }
 
     const inserts: EntityRow[] = [];
@@ -380,12 +341,12 @@ export class HistoryRecordingEntityProvider implements EntityProvider {
       );
     }
 
-    await this.store.recordCycle({
+    await store.recordCycle({
       cycleId: randomUUID(),
       provider,
       source: 'provider',
       mutationType: mutation.type,
-      startedAt,
+      startedAt: new Date(),
       finishedAt: new Date(),
       inserts,
       updates,

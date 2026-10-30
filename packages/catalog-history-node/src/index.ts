@@ -16,6 +16,7 @@ export type {
   HistoryRetentionCounts,
   HistoryRetentionRequest,
   HistoryStore,
+  ProviderMutationStore,
 } from './store/HistoryStore';
 export {
   HistoryRetentionAbortedError,
