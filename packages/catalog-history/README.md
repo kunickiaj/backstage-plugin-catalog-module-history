@@ -289,9 +289,9 @@ This NFS- and BUI-only package exports:
 
 It also exports the plugin's API and entity-content blueprints for NFS composition. The default plugin automatically registers the standalone page. There are no statistics, facets, or as-of views.
 
-`0.3.0` also exposes optional `CatalogHistoryApi.getProviders(request)` and the corresponding `CatalogHistoryClient` method for [retained-provider discovery](../../README.md#provider-discovery-in-030). Custom APIs can omit it. It returns server-matched names for suggestions; consumers still apply a selected full name through the existing exact `provider` filter. HTTP `404` and `501` identify unavailable discovery, while `401` and `403` are authentication/access errors. The HTTP client forwards failures without caching; the provider picker handles compatibility fallback.
+`0.3.0` also exposes optional `CatalogHistoryApi.getProviders(request)` and the corresponding `CatalogHistoryClient` method for [retained-provider discovery](../../docs/reference.md#provider-discovery). Custom APIs can omit it. It returns server-matched names for suggestions; consumers still apply a selected full name through the existing exact `provider` filter. HTTP `404` and `501` identify unavailable discovery, while `401` and `403` are authentication/access errors. The HTTP client forwards failures without caching; the provider picker handles compatibility fallback.
 
-For API configuration, permissions, routes, and retention behavior, read the [workspace README](../../README.md#read-history-over-http-in-020).
+For API configuration, permissions, routes, and retention behavior, read the [reference](../../docs/reference.md#http-api).
 
 ## License
 

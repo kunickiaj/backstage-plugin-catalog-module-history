@@ -91,7 +91,7 @@ The metadata-only global feed, version lists, and nested `previousVersion.summar
 
 The default store adds optional `getProviders` discovery over retained entity-history rows. It returns original provider-name strings, with literal case-insensitive prefix matching and deterministic `C`-collated name pagination. All supplied entity, kind, source, operation, and time filters apply before distinct-name selection. Existing history `provider` matching remains exact.
 
-The capability is optional on `HistoryStore.query`; custom stores do not need it to initialize or serve existing routes. The catalog module exposes it through the authenticated provider route described in the [workspace API guide](../../README.md#provider-discovery-in-030). Unsupported custom queries return `501` only after the existing read authorization succeeds.
+The capability is optional on `HistoryStore.query`; custom stores do not need it to initialize or serve existing routes. The catalog module exposes it through the authenticated provider route described in the [reference](../../docs/reference.md#provider-discovery). Unsupported custom queries return `501` only after the existing read authorization succeeds.
 
 Discovery uses the normal per-statement read limit and fixed `providers` query-metric operation. A small returned name page can still scan or sort retained history; no new index or count query is added, and the page limit is not a database-work bound.
 

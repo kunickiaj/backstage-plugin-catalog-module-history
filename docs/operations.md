@@ -122,7 +122,7 @@ History routes require user authentication and the `catalog-history.read` permis
 - `403` means authentication succeeded but the permission decision was rejected.
 - `404` means the requested route or resource was not found. It is not a permission response.
 
-Check the user's authentication path and the policy decision for `catalog-history.read`. Read access grants retained history across entities, including deleted entities, without following current catalog visibility. See the [HTTP API access rules](../README.md#read-history-over-http-in-020).
+Check the user's authentication path and the policy decision for `catalog-history.read`. Read access grants retained history across entities, including deleted entities, without following current catalog visibility. See the [HTTP API access rules](reference.md#http-api).
 
 ## Disable history without deleting data
 
