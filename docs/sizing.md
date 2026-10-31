@@ -230,7 +230,7 @@ nothing. Use those counts to check the window against this guide's row
 estimate. Then set `dryRun: false`. Deleting runs remove at most `batchSize`
 rows or cycles per transaction (default 1000, maximum 10000) and stop between
 batches when the scheduler timeout cancels the task. See the
-[retention section of the README](../README.md#retention) for the full config.
+[retention reference](reference.md#retention) for the full config.
 
 Before you enable deletion, set storage alerts, take backups, and verify a
 restore path. Deleting rows does not shrink the table files on disk right away.
