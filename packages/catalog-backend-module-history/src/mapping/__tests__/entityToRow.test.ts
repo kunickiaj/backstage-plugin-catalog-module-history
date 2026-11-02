@@ -320,6 +320,144 @@ describe('entityToRow', () => {
   });
 
   describe('fallback etag stability across unordered fields', () => {
+    it.each(['Group', 'group', 'GROUP', 'gRoUp'])(
+      'produces the same fallback etag when %s members are reordered',
+      kind => {
+        // Arrange: Group membership order has no semantic meaning.
+        const a: Entity = {
+          apiVersion: 'backstage.io/v1alpha1',
+          kind,
+          metadata: { name: 'team', namespace: 'default' },
+          spec: { members: ['bob', 'alice'] },
+        };
+        const b: Entity = {
+          ...a,
+          spec: { members: ['alice', 'bob'] },
+        };
+
+        // Act
+        const rowA = entityToRow(a);
+        const rowB = entityToRow(b);
+
+        // Assert
+        expect(rowA.etag).toMatch(/^[a-f0-9]{64}$/);
+        expect(rowA.etag).toBe(rowB.etag);
+      },
+    );
+
+    it.each([
+      ['added', ['bob', 'alice', 'carol']],
+      ['removed', ['bob']],
+    ])(
+      'changes the fallback etag when a Group member is %s',
+      (_name, members) => {
+        // Arrange: real membership changes must still create history updates.
+        const a: Entity = {
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: 'Group',
+          metadata: { name: 'team' },
+          spec: { members: ['bob', 'alice'] },
+        };
+        const b: Entity = { ...a, spec: { members } };
+
+        // Act
+        const rowA = entityToRow(a);
+        const rowB = entityToRow(b);
+
+        // Assert
+        expect(rowA.etag).not.toBe(rowB.etag);
+      },
+    );
+
+    it.each([false, true])(
+      'preserves input and stored Group member order (frozen: %s)',
+      frozen => {
+        // Arrange: hash normalization must not rewrite catalog snapshots.
+        const members = ['bob', 'alice'];
+        const entity: Entity = {
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: 'Group',
+          metadata: { name: 'team' },
+          spec: { members },
+        };
+        if (frozen) {
+          Object.freeze(members);
+          Object.freeze(entity.spec);
+          Object.freeze(entity.metadata);
+          Object.freeze(entity);
+        }
+
+        // Act
+        const row = entityToRow(entity);
+
+        // Assert
+        expect(members).toEqual(['bob', 'alice']);
+        expect(entity.spec?.members).toEqual(['bob', 'alice']);
+        expect(row.spec.members).toEqual(['bob', 'alice']);
+      },
+    );
+
+    it.each(['User', 'Component', 'CustomKind'])(
+      'keeps custom spec.members order significant for %s entities',
+      kind => {
+        // Arrange: only Group members are an unordered membership field.
+        const a: Entity = {
+          apiVersion: 'backstage.io/v1alpha1',
+          kind,
+          metadata: { name: 'example' },
+          spec: { members: ['bob', 'alice'] },
+        };
+        const b: Entity = { ...a, spec: { members: ['alice', 'bob'] } };
+
+        // Act
+        const rowA = entityToRow(a);
+        const rowB = entityToRow(b);
+
+        // Assert
+        expect(rowA.etag).not.toBe(rowB.etag);
+      },
+    );
+
+    it('keeps unrelated Group arrays order-sensitive', () => {
+      // Arrange: normalizing members must not sort arbitrary spec arrays.
+      const a: Entity = {
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: 'Group',
+        metadata: { name: 'team' },
+        spec: { members: ['bob', 'alice'], steps: ['review', 'publish'] },
+      };
+      const b: Entity = {
+        ...a,
+        spec: { members: ['alice', 'bob'], steps: ['publish', 'review'] },
+      };
+
+      // Act
+      const rowA = entityToRow(a);
+      const rowB = entityToRow(b);
+
+      // Assert
+      expect(rowA.etag).not.toBe(rowB.etag);
+    });
+
+    it('honors metadata.etag even when Group membership changes', () => {
+      // Arrange: explicit provider etags take precedence over fallback hashing.
+      const entity: Entity = {
+        apiVersion: 'backstage.io/v1alpha1',
+        kind: 'Group',
+        metadata: { name: 'team', etag: 'provider-etag' },
+        spec: { members: ['bob', 'alice'] },
+      };
+      const changed: Entity = { ...entity, spec: { members: ['carol'] } };
+
+      // Act
+      const originalRow = entityToRow(entity);
+      const changedRow = entityToRow(changed);
+
+      // Assert
+      expect(originalRow.etag).toBe('provider-etag');
+      expect(changedRow.etag).toBe('provider-etag');
+    });
+
     it('produces the same etag when spec.memberOf is reordered', () => {
       const a: Entity = {
         apiVersion: 'backstage.io/v1alpha1',

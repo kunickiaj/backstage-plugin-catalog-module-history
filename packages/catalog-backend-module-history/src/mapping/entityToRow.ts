@@ -42,6 +42,7 @@ function sortIfStringArray(value: unknown): unknown {
 function normalizeForHash(
   metadata: JsonObject,
   spec: JsonObject,
+  kind: string,
 ): {
   metadata: JsonObject;
   spec: JsonObject;
@@ -58,11 +59,20 @@ function normalizeForHash(
       sp[key] = sortIfStringArray(sp[key]) as JsonObject[string];
     }
   }
+  // Group membership is a set; custom kinds may define ordered members.
+  if (kind.toLowerCase() === 'group' && 'members' in sp) {
+    sp.members = sortIfStringArray(sp.members) as JsonObject[string];
+  }
   return { metadata: md, spec: sp };
 }
 
-function computeEtag(metadata: JsonObject, spec: JsonObject): string {
-  const canonical = stableStringify(normalizeForHash(metadata, spec)) ?? '';
+function computeEtag(
+  metadata: JsonObject,
+  spec: JsonObject,
+  kind: string,
+): string {
+  const canonical =
+    stableStringify(normalizeForHash(metadata, spec, kind)) ?? '';
   return createHash('sha256').update(canonical).digest('hex');
 }
 
@@ -123,7 +133,7 @@ export function entityToRow(entity: Entity): EntityRow {
   const etag =
     typeof entity.metadata.etag === 'string'
       ? entity.metadata.etag
-      : computeEtag(metadata, spec);
+      : computeEtag(metadata, spec, kind);
 
   return {
     entityRef,
