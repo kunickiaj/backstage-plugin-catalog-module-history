@@ -451,6 +451,68 @@ describe('HistoryRecordingEntityProvider', () => {
       );
     });
 
+    it.each([
+      {
+        change: 'reordered',
+        members: ['alice', 'bob'],
+        updates: 0,
+        unchanged: 1,
+      },
+      {
+        change: 'added',
+        members: ['carol', 'bob', 'alice'],
+        updates: 1,
+        unchanged: 0,
+      },
+      { change: 'removed', members: ['bob'], updates: 1, unchanged: 0 },
+    ])(
+      'records Group members $change across full mutations without rewriting catalog data',
+      async ({ members, updates, unchanged }) => {
+        // Arrange: provider-layer Groups lack metadata.etag and use fallback hashes.
+        const initial: Entity = {
+          apiVersion: 'backstage.io/v1alpha1',
+          kind: 'Group',
+          metadata: { name: 'team', namespace: 'default' },
+          spec: { type: 'team', children: [], members: ['bob', 'alice'] },
+        };
+        const next: Entity = {
+          ...initial,
+          spec: { ...initial.spec, members: [...members] },
+        };
+        const expectedNext = JSON.stringify(next);
+        const { outer, wrapped, store } = await setupWith([initial], {});
+
+        // Act
+        await applyFull(wrapped, [next]);
+
+        // Assert: history ignores reorder-only changes but retains real updates.
+        expect(store.cycles).toHaveLength(2);
+        expect(store.cycles[0].inserts).toHaveLength(1);
+        expect(store.cycles[0].inserts[0].spec.members).toEqual([
+          'bob',
+          'alice',
+        ]);
+        expect(store.cycles[1]).toMatchObject({
+          mutationType: 'full',
+          inserts: [],
+          deletes: [],
+          unchangedCount: unchanged,
+        });
+        expect(store.cycles[1].updates).toHaveLength(updates);
+        expect(outer.applyMutation).toHaveBeenCalledTimes(2);
+        expect(outer.applyMutation).toHaveBeenNthCalledWith(1, {
+          type: 'full',
+          entities: [{ entity: initial }],
+        });
+        expect(outer.applyMutation).toHaveBeenNthCalledWith(2, {
+          type: 'full',
+          entities: [{ entity: next }],
+        });
+        expect(initial.spec?.members).toEqual(['bob', 'alice']);
+        expect(JSON.stringify(next)).toBe(expectedNext);
+      },
+    );
+
     it('forwards the first full unchanged even when conversion is on (no baseline yet)', async () => {
       const store = new InMemoryHistoryStore();
       const logger = mockServices.logger.mock();
